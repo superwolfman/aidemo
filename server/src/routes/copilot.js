@@ -118,6 +118,14 @@ const seedKnowledge = [
   }
 ];
 
+const knowledgeTemplates = seedKnowledge.map((item, index) => ({
+  id: `template-${index + 1}`,
+  title: item.title,
+  description: item.content.slice(0, 72),
+  tags: item.tags,
+  content: item.content
+}));
+
 function now() {
   return new Date().toISOString();
 }
@@ -138,6 +146,15 @@ function step(id, name, status, extra = {}) {
   };
 }
 
+function uniqueByTitle(documents) {
+  const seen = new Set();
+  return documents.filter((doc) => {
+    if (seen.has(doc.title)) return false;
+    seen.add(doc.title);
+    return true;
+  });
+}
+
 async function ensureKnowledge(store) {
   const docs = await store.listDocuments();
   const titles = new Set(docs.map((doc) => doc.title));
@@ -155,10 +172,17 @@ async function searchKnowledge(store, query, scopes) {
   return (filtered.length ? filtered : chunks).slice(0, 5);
 }
 
-async function analyzeRepository() {
+async function analyzeRepository({ skillId, mode }) {
+  const focusMap = {
+    'requirement-analysis': ['业务目标完整性', '约束可验证性', '验收标准'],
+    'architecture-review': ['模块边界', '数据流', '可观测性', '发布风险'],
+    'code-review': ['变更风险', '测试缺口', '性能与可维护性']
+  };
   return {
     stack: ['React', 'TypeScript', 'Less', 'Node.js', 'MongoDB', 'WebSocket', 'SSE'],
     modules: ['copilot', 'skills', 'knowledge', 'trace', 'human-review'],
+    focus: focusMap[skillId] || focusMap['architecture-review'],
+    mode,
     risks: ['缺少真实 LLM Provider 时需要 mock provider 边界', 'PDF 文本抽取在 MVP 中采用轻量兼容策略'],
     recommendation: '保持工具接口稳定，后续可替换为 MCP Server 或 OpenAI Agents SDK tools。'
   };
@@ -190,21 +214,37 @@ ${sources.map((source, index) => `${index + 1}. ${source.documentTitle || source
 - 若拒绝，则保留 Trace 和原因用于复盘。`;
 }
 
-function buildAnswer({ prompt, skill, sources, repoAnalysis }) {
+function buildAnswer({ prompt, skill, sources, repoAnalysis, documentDraft }) {
   const sourceText = sources.map((source, index) => `[${index + 1}] ${source.documentTitle}: ${source.content}`).join('\n');
+  const toolText = [
+    `searchKnowledge 命中 ${sources.length} 条上下文`,
+    repoAnalysis ? `analyzeRepository 识别重点：${repoAnalysis.focus.join(' / ')}` : '',
+    documentDraft ? 'generateArchitectureDocument 已生成草稿，等待人工确认' : ''
+  ].filter(Boolean).join('。\n- ');
+  const skillSpecific = {
+    'requirement-analysis': `### 需求拆解
+- 业务目标：${prompt}
+- 关键约束：需要把输入 Schema、输出 Schema、知识域、工具权限和人工确认写入验收标准。
+- 验收标准：多会话可恢复、SSE 可停止、RAG 有引用、Trace 可还原、审批可确认/修改/拒绝。
+- 待确认问题：是否接入真实 LLM Provider、是否需要团队权限分层、PDF 正文抽取是否进入本期。`,
+    'architecture-review': `### 架构评审
+- 决策：建议通过 MVP 评审，但需要把 Trace 路径还原、RAG 模板导入和 Skill/Tool 权限绑定作为交付门槛。
+- 模块边界：React Workbench 负责交互，Node BFF 负责鉴权、Skill Runtime、RAG、Tool Calling 和审批持久化。
+- 风险：工具调用若不受 allowedTools 约束，会造成审计失真；知识库若无引用展示，会退化为普通聊天。
+- 演进：后续将普通函数工具迁移到 MCP Server，并接入真实 Embedding / Vector DB。`,
+    'code-review': `### Code Review
+- Findings：当前改动重点应检查前端模块边界、SSE 中止、Trace 状态一致性和审批持久化。
+- Test Gaps：需要覆盖不同 Skill 的 allowedTools、知识域过滤、模板导入去重和流式中断。
+- Recommendation：允许进入 MVP，但合并前必须跑 typecheck、lint、build 和 Node 语法检查。`
+  };
   return `## ${skill.name} 输出
 
 我会按 **${skill.description}** 处理你的请求。
 
-### 结构化结论
-- 目标：${prompt}
-- 决策：建议先进入 **revise / human-confirmed** 状态，再生成最终架构文档。
-- 关键约束：Skill 输入 Schema、输出 Schema、allowedTools、knowledgeScopes 都需要进入运行时审计。
+${skillSpecific[skill.id] || skillSpecific['architecture-review']}
 
 ### 工具结果
-- searchKnowledge 命中 ${sources.length} 条上下文。
-- analyzeRepository 识别技术栈：${repoAnalysis.stack.join(' / ')}。
-- generateArchitectureDocument 已生成草稿，等待人工确认。
+- ${toolText}
 
 ### 代码示例
 \`\`\`ts
@@ -223,6 +263,13 @@ type SkillDefinition = {
 ${sourceText || '暂无引用。'}`;
 }
 
+function normalizeForm(form = {}) {
+  return Object.entries(form)
+    .filter(([, value]) => String(value || '').trim())
+    .map(([key, value]) => `${key}: ${value}`)
+    .join('\n');
+}
+
 export function copilotRouter(store) {
   const router = express.Router();
 
@@ -233,6 +280,10 @@ export function copilotRouter(store) {
 
   router.get('/skills', (req, res) => {
     res.json({ skills });
+  });
+
+  router.get('/knowledge/templates', (req, res) => {
+    res.json({ templates: knowledgeTemplates });
   });
 
   router.get('/sessions', async (req, res) => {
@@ -271,8 +322,22 @@ export function copilotRouter(store) {
     res.json({ document });
   });
 
+  router.post('/knowledge/templates/:id/import', async (req, res) => {
+    const template = knowledgeTemplates.find((item) => item.id === req.params.id);
+    if (!template) {
+      res.status(404).json({ message: 'Knowledge template not found' });
+      return;
+    }
+    const document = await store.createDocument({
+      title: template.title,
+      tags: template.tags,
+      content: template.content
+    });
+    res.json({ document });
+  });
+
   router.get('/knowledge', async (req, res) => {
-    const documents = (await store.listDocuments()).filter((doc) => (doc.tags || []).includes('copilot'));
+    const documents = uniqueByTitle((await store.listDocuments()).filter((doc) => (doc.tags || []).includes('copilot')));
     res.json({ documents });
   });
 
@@ -285,8 +350,10 @@ export function copilotRouter(store) {
       return;
     }
 
-    const prompt = String(req.body.prompt || '').trim();
+    const formContext = normalizeForm(req.body.form);
+    const prompt = [String(req.body.prompt || '').trim(), formContext ? `\n结构化输入:\n${formContext}` : ''].join('').trim();
     const skill = skills.find((item) => item.id === req.body.skillId) || skills[1];
+    const mode = req.body.mode || skill.id;
     const traceId = `trace-${crypto.randomUUID()}`;
     const userMessage = { id: `user-${Date.now()}`, role: 'user', content: prompt, createdAt: now(), skillId: skill.id };
 
@@ -309,23 +376,30 @@ export function copilotRouter(store) {
     }));
     sendEvent(res, 'sources', { sources });
 
-    const repoAnalysis = await analyzeRepository();
-    await emitStep(step('repo', '调用工具 analyzeRepository', 'success', {
-      tool: 'analyzeRepository',
-      input: { repository: 'local-workspace' },
-      output: repoAnalysis,
-      tokenUsage: 128
-    }));
+    let repoAnalysis = null;
+    if (skill.allowedTools.includes('analyzeRepository')) {
+      repoAnalysis = await analyzeRepository({ skillId: skill.id, mode });
+      await emitStep(step('repo', '调用工具 analyzeRepository', 'success', {
+        tool: 'analyzeRepository',
+        input: { repository: 'local-workspace', focus: repoAnalysis.focus },
+        output: repoAnalysis,
+        tokenUsage: 128
+      }));
+    }
 
-    const documentDraft = generateArchitectureDocument({ prompt, skill, sources });
-    await emitStep(step('document', '调用工具 generateArchitectureDocument', 'success', {
-      tool: 'generateArchitectureDocument',
-      input: { format: 'markdown', requireCitations: true },
-      output: { chars: documentDraft.length },
-      tokenUsage: tokenCount(documentDraft)
-    }));
+    let documentDraft = '';
+    if (skill.allowedTools.includes('generateArchitectureDocument')) {
+      documentDraft = generateArchitectureDocument({ prompt, skill, sources });
+      await emitStep(step('document', '调用工具 generateArchitectureDocument', 'success', {
+        tool: 'generateArchitectureDocument',
+        input: { format: 'markdown', requireCitations: true },
+        output: { chars: documentDraft.length },
+        tokenUsage: tokenCount(documentDraft)
+      }));
+    }
 
-    const answer = buildAnswer({ prompt, skill, sources, repoAnalysis });
+    const answer = buildAnswer({ prompt, skill, sources, repoAnalysis, documentDraft });
+    const approvalDraft = documentDraft || `# ${skill.name} 人工确认草稿\n\n${answer}`;
     await emitStep(step('structured', '生成结构化结果', 'success', { tokenUsage: tokenCount(answer) }));
     await emitStep(step('human', '等待人工确认', 'waiting', { humanRequired: true }));
 
@@ -341,7 +415,7 @@ export function copilotRouter(store) {
       status: 'pending',
       skillId: skill.id,
       prompt,
-      documentDraft
+      documentDraft: approvalDraft
     });
     sendEvent(res, 'approval', { approval });
 

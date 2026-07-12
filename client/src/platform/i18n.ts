@@ -6,32 +6,14 @@ const dictionaries: Record<Locale, Dictionary> = {
   'zh-CN': {
     'shell.title': 'AI Architecture Copilot',
     'nav.copilot': 'Copilot 工作台',
-    'nav.knowledge': '知识库 RAG',
-    'nav.skills': 'Skill 系统',
-    'nav.trace': 'Agent Trace',
-    'nav.review': '人工确认',
-    'nav.docs': '接入文档',
-    'nav.i18n': '国际化治理',
   },
   'en-US': {
     'shell.title': 'AI Architecture Copilot',
     'nav.copilot': 'Copilot Workbench',
-    'nav.knowledge': 'Knowledge RAG',
-    'nav.skills': 'Skill System',
-    'nav.trace': 'Agent Trace',
-    'nav.review': 'Human Review',
-    'nav.docs': 'Docs',
-    'nav.i18n': 'I18n Governance',
   },
   'ar-SA': {
     'shell.title': 'AI Architecture Copilot',
     'nav.copilot': 'منصة Copilot',
-    'nav.knowledge': 'قاعدة المعرفة',
-    'nav.skills': 'نظام المهارات',
-    'nav.trace': 'تتبع الوكيل',
-    'nav.review': 'مراجعة بشرية',
-    'nav.docs': 'الوثائق',
-    'nav.i18n': 'حوكمة الترجمة',
   }
 };
 

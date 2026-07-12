@@ -1,6 +1,6 @@
 # AI Architecture Copilot
 
-`mvp` 分支是基于 1.0 基线切出的架构 Copilot 版本。它把原有平台能力收敛成一个面向架构师和研发团队的 Agent 工程系统，用来展示多会话 Chat、Skill Runtime、Tool Calling、轻量 RAG、人工确认和 Agent Trace。
+`mvp` 分支是基于 `master` 1.0 基线切出的架构 Copilot 版本。产品定位不再是泛增长中台，而是面向架构师、研发负责人和技术面试展示的 Agent 工程系统，聚焦一个专业工作台完成多会话 Chat、Skill Runtime、Tool Calling、轻量 RAG、人工确认和 Agent Trace。
 
 ## 快速启动
 
@@ -23,6 +23,22 @@ removed-default-admin@example.invalid
 removed-public-password
 ```
 
+## 产品收敛原则
+
+MVP 只保留一个侧边栏入口：`AI Copilot`。
+
+原因：
+
+- 之前多个模块入口展示的是相同 Copilot 能力，会削弱产品边界。
+- MVP 的核心不是“模块数量”，而是完整跑通 Agent 工程闭环。
+- Skill、RAG、Trace、人工确认、接入文档不再作为重复页面存在，而是沉淀在 Copilot Workbench 内部。
+
+当前工作台分为三列：
+
+- 左侧：会话历史、Skill 系统、RAG 默认模板和上传入口。
+- 中间：任务模式、结构化输入、最终请求预览、流式生成结果。
+- 右侧：Agent Trace 路径还原、执行步骤详情、人工确认节点。
+
 ## MVP 必备功能
 
 ### 1. 多会话 AI Chat
@@ -34,7 +50,7 @@ removed-public-password
 - Markdown 渲染。
 - 代码块高亮。
 - 会话历史持久化到 MongoDB/FileStore。
-- 停止生成：前端 AbortController 中断流式请求。
+- 停止生成：前端 `AbortController` 中断流式请求。
 - 重新生成：复用最近一条用户消息重新发起生成。
 
 入口文件：
@@ -42,7 +58,26 @@ removed-public-password
 - `client/src/modules/copilot/CopilotWorkbench.tsx`
 - `server/src/routes/copilot.js`
 
-### 2. Skill 系统
+### 2. 细化生成工作台
+
+MVP 不再只提供一个大输入框，而是内置 4 个任务模式：
+
+- 需求分析：输出业务目标拆解、非功能约束、验收标准、待确认问题。
+- 架构评审：输出架构决策、模块边界、风险清单、演进路线。
+- 代码审查：输出风险发现、修复建议、测试缺口、合并建议。
+- 架构文档：输出 Markdown 草稿、引用来源、上线计划、人工确认。
+
+每个任务模式都会绑定：
+
+- 默认生成目标。
+- 结构化字段。
+- 对应 Skill。
+- 可用工具。
+- 最终请求预览。
+
+这能体现 MVP 是“受约束的技能运行时”，不是单纯 Prompt 页面。
+
+### 3. Skill 系统
 
 内置 3 个 Skill：
 
@@ -74,24 +109,23 @@ type SkillDefinition = {
 - 知识范围：RAG 检索按 `knowledgeScopes` 选择上下文。
 - 版本管理：Skill 带 `version`，便于灰度、回滚和审计。
 
-### 3. Tool Calling
+### 4. Tool Calling
 
 MVP 内置 3 个普通函数工具，接口设计保持可迁移到 MCP Server：
 
-- `searchKnowledge`：按 Skill 的 knowledgeScopes 检索研发知识库。
-- `analyzeRepository`：分析当前工程栈、模块和风险。
+- `searchKnowledge`：按 Skill 的 `knowledgeScopes` 检索研发知识库。
+- `analyzeRepository`：分析当前工程栈、模块、关注点和风险。
 - `generateArchitectureDocument`：生成 Markdown 架构文档草稿。
 
-工具调用结果会进入 Agent Trace，包括：
+工具调用不是固定假流程。后端会根据 `allowedTools` 动态决定是否执行：
 
-- Tool 名称。
-- 输入参数。
-- 输出摘要。
-- 耗时。
-- token 使用量。
-- 错误信息。
+- 需求分析 Skill：只调用 `searchKnowledge`。
+- 架构评审 Skill：调用 `searchKnowledge`、`analyzeRepository`、`generateArchitectureDocument`。
+- 代码审查 Skill：调用 `searchKnowledge`、`analyzeRepository`。
 
-### 4. 轻量 RAG 知识库
+工具调用结果会进入 Agent Trace，包括 Tool 名称、输入参数、输出摘要、耗时、token 使用量和错误信息。
+
+### 5. 轻量 RAG 知识库
 
 已实现：
 
@@ -101,11 +135,12 @@ MVP 内置 3 个普通函数工具，接口设计保持可迁移到 MCP Server�
 - 向量检索。
 - 回答展示引用来源。
 - 根据 Skill 限定知识范围。
+- 默认知识模板可选择导入。
 
 MVP 种子知识包括：
 
-- 微前端设计文档。
-- SDK 规范。
+- 微前端架构设计文档。
+- SDK 规范与工程约束。
 - IM 架构文档。
 - 低代码组件协议。
 - 项目开发规范。
@@ -115,8 +150,9 @@ MVP 种子知识包括：
 - Markdown/TXT 直接读取文本。
 - PDF 在 MVP 中支持上传和元数据入库；生产环境可接 PDF parser 抽取正文。
 - 当前向量检索使用本地 hash embedding，后续可替换为 Milvus、pgvector 或 Pinecone。
+- 这个 RAG 不是通用问答，而是按 Skill 动态选择知识域的研发架构知识库。
 
-### 5. 人工确认节点
+### 6. 人工确认节点
 
 AI 生成架构建议后会进入暂停状态：
 
@@ -139,7 +175,7 @@ POST /api/copilot/approvals/:id/reject
 - 高风险工具必须进入人工确认。
 - 审批结果必须保存，便于 Trace 和审计。
 
-### 6. Agent Trace 面板
+### 7. Agent Trace 面板
 
 右侧 Trace 面板展示完整执行轨迹：
 
@@ -148,7 +184,7 @@ POST /api/copilot/approvals/:id/reject
 → 选择 Skill
 → 加载上下文
 → 调用知识库
-→ 调用工具
+→ 按 allowedTools 调用工具
 → 生成结构化结果
 → 等待人工确认
 → 输出最终文档
@@ -163,19 +199,42 @@ POST /api/copilot/approvals/:id/reject
 - 错误信息。
 - 是否需要人工确认。
 
+新增路径还原机制：
+
+- `路径还原`：从最近一次 assistant 消息中恢复 Trace。
+- `下一步`：按步骤重放执行轨迹。
+- 用于面试演示“Agent 不是黑盒，而是可审计、可复盘的执行系统”。
+
+## SSE 与 WS 取舍
+
+MVP 的核心生成链路采用 SSE，不把 WebSocket 放进主路径。
+
+原因：
+
+- SSE 更适合服务端到客户端的单向流式生成。
+- 浏览器原生支持文本流，中止生成可以直接用 `AbortController`。
+- Agent Trace 和 token delta 与 SSE 事件天然匹配。
+- WebSocket 更适合多人协同、IM、实时通知、低码协同编辑等双向场景。
+
+后续如果加入多人评审、协同编辑、在线 IM 或实时告警，可以把 WS 作为独立实时通道引入，不污染当前生成链路。
+
 ## 架构设计
 
 ```mermaid
 flowchart LR
   User["架构师 / 研发负责人"] --> UI["React Copilot Workbench"]
   UI --> Chat["多会话 Chat"]
+  UI --> Task["任务模式 + 结构化表单"]
   UI --> Trace["Agent Trace Panel"]
   UI --> Review["Human Review Panel"]
   Chat --> BFF["Node.js BFF"]
+  Task --> BFF
+  BFF --> Auth["JWT Auth"]
   BFF --> Skill["Skill Runtime"]
   Skill --> Schema["Input / Output Schema"]
-  Skill --> Tools["Tool Calling"]
-  Skill --> RAG["RAG Retriever"]
+  Skill --> Guard["allowedTools / knowledgeScopes"]
+  Guard --> Tools["Tool Calling"]
+  Guard --> RAG["RAG Retriever"]
   Tools --> Search["searchKnowledge"]
   Tools --> Repo["analyzeRepository"]
   Tools --> Doc["generateArchitectureDocument"]
@@ -187,6 +246,26 @@ flowchart LR
   Approval --> Review
 ```
 
+## 动态对应关系
+
+```text
+任务模式
+  -> SkillDefinition
+    -> inputSchema / outputSchema
+    -> allowedTools
+    -> knowledgeScopes
+      -> RAG 检索上下文
+      -> Tool Calling 执行结果
+      -> Agent Trace
+      -> Human Approval
+```
+
+示例：
+
+- 选择“代码审查”时，Skill 会切换到 `code-review`，只允许调用 `searchKnowledge` 和 `analyzeRepository`。
+- 选择“架构文档”时，Skill 会切换到 `architecture-review`，允许生成文档草稿并进入人工确认。
+- RAG 引用来源会随 Skill 的 `knowledgeScopes` 和用户输入变化。
+
 ## API 设计
 
 ```text
@@ -196,11 +275,38 @@ POST /api/copilot/sessions
 GET  /api/copilot/sessions/:id
 POST /api/copilot/sessions/:id/messages/stream
 GET  /api/copilot/knowledge
+GET  /api/copilot/knowledge/templates
+POST /api/copilot/knowledge/templates/:id/import
 POST /api/copilot/knowledge/upload
 POST /api/copilot/approvals/:id/confirm
 POST /api/copilot/approvals/:id/revise
 POST /api/copilot/approvals/:id/reject
 ```
+
+## 前端目录结构
+
+```text
+client/src
+  api/
+    client.ts              # REST + SSE 请求封装
+  app/
+    App.tsx                # 登录、Shell、子应用容器
+  components/
+    ui.tsx                 # 通用 UI 基础组件
+  modules/
+    copilot/
+      CopilotWorkbench.tsx # MVP 主工作台
+  platform/
+    events.ts              # 全局事件总线
+    i18n.ts                # 国际化入口
+    microFrontend.tsx      # Wujie/本地子应用容器
+    router.ts              # Shell 路由
+    subapps.tsx            # 子应用 manifest
+  main.tsx
+  styles.less
+```
+
+本分支删除了与 AI Architecture Copilot MVP 无关的旧模块，避免“多个入口、同一功能”的产品噪音。
 
 ## 约束规范
 
@@ -237,7 +343,7 @@ POST /api/copilot/approvals/:id/reject
 ### 前端工程规范
 
 - 前端源码使用 TypeScript + Less。
-- UI 模块按 `modules` 拆分。
+- MVP 只保留 `modules/copilot` 主模块。
 - 平台能力放在 `platform`。
 - API 和 SSE 统一通过 `api/client.ts`。
 - 运行前执行：
@@ -276,3 +382,4 @@ telemetry
 - RAG 替换为 pgvector / Milvus。
 - Trace 接入 OpenTelemetry。
 - Approval 支持暂停恢复和多人审批。
+- 引入 WS 支持多人协同评审、在线 IM 和实时通知。

@@ -208,7 +208,14 @@ input:focus, textarea:focus { border-color: #0f766e; box-shadow: 0 0 0 3px rgba(
 }
 .user-box span { color: #aebdcb; font-size: 12px; }
 
-.workspace { padding: 28px; overflow: auto; }
+.workspace {
+  min-width: 0;
+  padding: 28px;
+  overflow: auto;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(243, 246, 249, 0.86)),
+    radial-gradient(circle at 78% 0%, rgba(15, 118, 110, 0.1), transparent 28%);
+}
 .page-header { display: flex; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
 
 .hero-panel {
@@ -241,7 +248,11 @@ input:focus, textarea:focus { border-color: #0f766e; box-shadow: 0 0 0 3px rgba(
   border: 1px solid #dce5ee;
   border-radius: 8px;
 }
-.panel { padding: 20px; margin-bottom: 18px; }
+.panel {
+  padding: 20px;
+  margin-bottom: 18px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
+}
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
 .metric-card { min-height: 122px; padding: 18px; display: grid; gap: 8px; align-content: center; }
 .metric-card svg { color: #0f766e; }
@@ -894,7 +905,7 @@ kbd {
 
 .copilot-layout {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 360px;
+  grid-template-columns: 312px minmax(0, 1fr) 380px;
   gap: 18px;
   align-items: start;
 }
@@ -907,6 +918,7 @@ kbd {
 
 .session-list,
 .skill-list,
+.knowledge-template-list,
 .knowledge-mini-list,
 .trace-list {
   display: grid;
@@ -914,27 +926,32 @@ kbd {
 }
 
 .session-list button,
-.skill-list button {
+.skill-list button,
+.knowledge-template-list button {
   display: grid;
   gap: 5px;
   border: 1px solid #dce5ee;
   border-radius: 8px;
-  padding: 11px;
+  padding: 12px;
   color: #172026;
   background: #fff;
   text-align: left;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
 }
 
 .session-list button.active,
 .skill-list button.active,
 .session-list button:hover,
-.skill-list button:hover {
+.skill-list button:hover,
+.knowledge-template-list button:hover {
   border-color: #0f766e;
   background: #f0fdfa;
+  transform: translateY(-1px);
 }
 
 .session-list span,
-.skill-list span {
+.skill-list span,
+.knowledge-template-list span {
   color: #667789;
   font-size: 12px;
 }
@@ -972,17 +989,110 @@ kbd {
 .copilot-chat {
   min-height: calc(100vh - 56px);
   display: grid;
-  grid-template-rows: minmax(420px, 1fr) auto auto;
+  grid-template-rows: auto minmax(360px, 1fr) auto auto;
+  gap: 14px;
+}
+
+.generation-console {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 16px;
+  background: linear-gradient(180deg, #fff, #f8fafc);
+}
+
+.mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mode-tabs button {
+  min-height: 86px;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 12px;
+  color: #172026;
+  background: #fff;
+  text-align: left;
+}
+
+.mode-tabs button.active {
+  border-color: #0f766e;
+  background: #f0fdfa;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.mode-tabs span {
+  color: #667789;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.generation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.generation-meta strong {
+  margin-right: 4px;
+  color: #172026;
+}
+
+.generation-meta span {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 0 10px;
+  color: #0f766e;
+  background: #e7f3f1;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.generation-meta em {
+  margin-left: auto;
+  color: #667789;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.generation-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
+.generation-form label:first-child {
+  grid-column: 1 / -1;
+}
+
 .chat-stream {
-  max-height: calc(100vh - 280px);
+  max-height: calc(100vh - 350px);
   overflow: auto;
   display: grid;
   align-content: start;
   gap: 16px;
-  padding-right: 4px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 16px;
+  background: #fbfdff;
+}
+
+.knowledge-template-list {
+  margin: 12px 0;
 }
 
 .chat-message {
@@ -1052,6 +1162,10 @@ kbd {
 .chat-composer {
   display: grid;
   gap: 10px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
 }
 
 .chat-composer div,
@@ -1065,6 +1179,39 @@ kbd {
   border: 1px solid #dce5ee;
   border-radius: 8px;
   background: #fff;
+}
+
+.trace-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.trace-actions .secondary-button {
+  min-height: 32px;
+}
+
+.trace-path {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.trace-path span {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 10px;
+  color: #506575;
+  background: #eef4f8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.trace-path span.active {
+  color: #fff;
+  background: #0f766e;
 }
 
 .trace-list summary {
@@ -1122,6 +1269,14 @@ kbd {
   .sidebar nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hero-panel, .two-column, .two-column.wide-left, .metric-grid, .capability-grid, .ops-grid, .terminal-grid, .flow-list, .hero-grid, .flow-editor-layout, .editor-architecture-grid, .realtime-grid, .im-layout, .copilot-layout {
     grid-template-columns: 1fr;
+  }
+  .mode-tabs,
+  .generation-form {
+    grid-template-columns: 1fr;
+  }
+  .generation-meta em {
+    width: 100%;
+    margin-left: 0;
   }
   .workspace { padding: 18px; }
 }

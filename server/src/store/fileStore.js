@@ -103,6 +103,7 @@ export class FileStore {
       _id: crypto.randomUUID(),
       documentId: docId,
       documentTitle: title,
+      tags,
       content: chunk,
       chunkIndex: index,
       embedding: embedText(chunk),

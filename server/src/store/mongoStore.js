@@ -96,6 +96,7 @@ export class MongoStore {
         chunks.map((chunk, index) => ({
           documentId: result.insertedId,
           documentTitle: title,
+          tags,
           content: chunk,
           chunkIndex: index,
           embedding: embedText(chunk),
