@@ -36,8 +36,8 @@ function Login({ onLogin }: { onLogin: (user: any) => void }) {
         <div className="brand-row">
           <div className="brand-mark"><BrainCircuit size={26} /></div>
           <div>
-            <h1>员工展业 AI 平台</h1>
-            <p>PC / H5 / 企微三端展业、智能问答、知识库 RAG、Spec Coding、AI Skill 与低码流程编排。</p>
+            <h1>AI Architecture Copilot</h1>
+            <p>面向架构师的 Agent 工程系统：多会话 Chat、Skill Runtime、Tool Calling、RAG、人工确认和 Trace。</p>
           </div>
         </div>
         <form className="form-stack" onSubmit={submit}>

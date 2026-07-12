@@ -1,8 +1,8 @@
 {
-  "name": "employee-enablement-ai-platform",
+  "name": "ai-architecture-copilot",
   "version": "1.0.0",
   "private": true,
-  "description": "Enterprise employee enablement AI platform demo with React, Node.js, MongoDB, RAG, WeCom assistant, Spec Coding and AI Skill orchestration.",
+  "description": "AI Architecture Copilot MVP with multi-session chat, skill runtime, tool calling, RAG, human-in-the-loop approvals and agent tracing.",
   "workspaces": [
     "client",
     "server"

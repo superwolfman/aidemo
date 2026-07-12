@@ -13,6 +13,7 @@ import { harnessRouter } from './routes/harness.js';
 import { observabilityRouter } from './routes/observability.js';
 import { architectRouter } from './routes/architect.js';
 import { enablementRouter } from './routes/enablement.js';
+import { copilotRouter } from './routes/copilot.js';
 import { attachRealtime } from './realtime.js';
 
 const store = await createStore();
@@ -80,6 +81,7 @@ app.use('/api/harness', auth, harnessRouter());
 app.use('/api/observability', auth, observabilityRouter(store));
 app.use('/api/architect', auth, architectRouter());
 app.use('/api/enablement', auth, enablementRouter(store));
+app.use('/api/copilot', auth, copilotRouter(store));
 
 app.use((err, req, res, next) => {
   console.error(err);
