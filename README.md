@@ -1,6 +1,8 @@
 # AI Architecture Copilot
 
-`mvp` 分支是基于 `master` 1.0 基线切出的架构 Copilot 版本。产品定位不再是泛增长中台，而是面向架构师、研发负责人和技术面试展示的 Agent 工程系统，聚焦一个专业工作台完成多会话 Chat、Skill Runtime、Tool Calling、轻量 RAG、人工确认和 Agent Trace。
+`mcp-poc` 分支基于 `mvp` 分支继续演进，目标是回答面试官深入追问时最容易暴露的 5 个问题：真实 LLM Provider、MCP Server、RAG 后端替换边界、后端旧路由纯净度、专业 UI 细节。
+
+它仍然不是生产级 AI 平台，而是一个更完整的 AI 应用工程 POC：能本地离线演示，也能通过环境变量切到真实模型和 MCP 工具接入路径。
 
 ## 快速启动
 
@@ -22,6 +24,142 @@ npm run dev
 admin@growth.ai
 demo123456
 ```
+
+## mcp-poc 增强点
+
+### 1. 真实 LLM Provider Adapter
+
+默认仍然使用 `mock`，保证本地无 API Key 也能稳定演示。有 Key 时可切换到真实 OpenAI-compatible Provider：
+
+```bash
+LLM_PROVIDER=openai
+LLM_API_KEY=sk-xxx
+LLM_MODEL=gpt-4.1-mini
+```
+
+也可以接 DeepSeek、通义千问兼容模式或任意 OpenAI-compatible 服务：
+
+```bash
+LLM_PROVIDER=openai-compatible
+LLM_BASE_URL=https://your-provider.example.com/v1
+LLM_API_KEY=xxx
+LLM_MODEL=your-model
+```
+
+运行时接口：
+
+```text
+GET /api/copilot/runtime
+```
+
+页面左侧 Runtime Board 会显示：
+
+- LLM 当前是 `live` 还是 `fallback`。
+- 当前模型名。
+- RAG 后端。
+- MCP transport 和启动命令。
+
+### 2. MCP Server POC
+
+本分支新增一个最小可运行 MCP Server：
+
+```bash
+node server/src/mcp/architectureMcpServer.js
+```
+
+实现位置：
+
+```text
+server/src/mcp/architectureMcpServer.js
+```
+
+它暴露：
+
+resources:
+
+- `architecture://documents`
+- `project://rules`
+
+tools:
+
+- `search_architecture_docs`
+- `inspect_project_structure`
+- `generate_project_rule`
+
+prompts:
+
+- `architecture_review`
+- `migration_plan`
+
+说明：
+
+- 当前实现不依赖 SDK，使用 stdio JSON-RPC 和 `Content-Length` framing。
+- MCP Host 应使用 `node server/src/mcp/architectureMcpServer.js` 作为 command，避免 `npm run` banner 污染 stdio。
+- 这是 POC，用于证明工具、资源、Prompt 可以标准化暴露给外部 AI Host。
+- 后续可替换为官方 MCP SDK，并增加鉴权、审计和工具权限策略。
+
+### 3. RAG 后端抽象
+
+当前本地默认：
+
+```bash
+RAG_BACKEND=local-hash
+```
+
+特点：
+
+- 离线可跑。
+- 支持文档切分、本地 hash embedding、向量相似度和关键词融合。
+- 适合 MVP 演示链路，不宣传为生产检索质量。
+
+可替换目标：
+
+- `mongodb-atlas`
+- `pgvector`
+- `milvus`
+
+抽象入口：
+
+```text
+server/src/services/ragEngine.js
+```
+
+### 4. 后端 API 纯净度
+
+`mcp-poc` 分支已移除旧增长平台残留挂载：
+
+- `/api/dashboard`
+- `/api/agent`
+- `/api/enablement`
+- `/api/rag`
+- `/api/ai`
+- `/api/harness`
+- `/api/observability`
+- `/ws`
+
+当前后端只保留：
+
+- `/api/auth`
+- `/api/copilot`
+- `/health`
+- `/`
+
+根接口名称也已改为：
+
+```text
+AI Architecture Copilot API
+```
+
+### 5. UI 专业度增强
+
+本分支补强：
+
+- Runtime Board：展示 LLM / RAG / MCP 运行时状态。
+- Skill Schema 面板：可展开查看 inputSchema、outputSchema、allowedTools、knowledgeScopes。
+- 生成中 skeleton：提升流式生成等待体验。
+- Trace Timeline：用状态条表达执行路径。
+- 引用来源详情：可展开查看来源和 score。
+- 审批历史：确认、修改、拒绝会保留最近记录。
 
 ## 产品收敛原则
 
@@ -270,6 +408,7 @@ flowchart LR
 
 ```text
 GET  /api/copilot/skills
+GET  /api/copilot/runtime
 GET  /api/copilot/sessions
 POST /api/copilot/sessions
 GET  /api/copilot/sessions/:id
