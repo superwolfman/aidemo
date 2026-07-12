@@ -12,5 +12,8 @@ export const config = {
     .map((origin) => origin.trim())
     .filter(Boolean),
   mongodbUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/growth_ai_assistant',
-  llmProvider: process.env.LLM_PROVIDER || 'mock'
+  llmProvider: process.env.LLM_PROVIDER || 'mock',
+  llmApiKey: process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || '',
+  llmBaseUrl: process.env.LLM_BASE_URL || '',
+  llmModel: process.env.LLM_MODEL || ''
 };

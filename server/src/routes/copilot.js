@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import express from 'express';
+import { generateLlmAnswer, getProviderStatus } from '../services/llmProvider.js';
+import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
 import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
 
 const skills = [
@@ -164,12 +166,8 @@ async function ensureKnowledge(store) {
 }
 
 async function searchKnowledge(store, query, scopes) {
-  const chunks = await store.searchChunks(`${query} ${scopes.join(' ')}`, 8);
-  const filtered = chunks.filter((chunk) => {
-    const tags = chunk.tags || [];
-    return !tags.length || tags.some((tag) => scopes.includes(tag) || tag === 'copilot');
-  });
-  return (filtered.length ? filtered : chunks).slice(0, 5);
+  const result = await retrieveKnowledge({ store, query, scopes, limit: 5 });
+  return result.sources;
 }
 
 async function analyzeRepository({ skillId, mode }) {
@@ -279,7 +277,19 @@ export function copilotRouter(store) {
   });
 
   router.get('/skills', (req, res) => {
-    res.json({ skills });
+    res.json({ skills, provider: getProviderStatus(), rag: getRagStatus() });
+  });
+
+  router.get('/runtime', (req, res) => {
+    res.json({
+      llm: getProviderStatus(),
+      rag: getRagStatus(),
+      mcp: {
+        enabled: true,
+        transport: 'stdio-jsonrpc',
+        command: 'node server/src/mcp/architectureMcpServer.js'
+      }
+    });
   });
 
   router.get('/knowledge/templates', (req, res) => {
@@ -366,6 +376,9 @@ export function copilotRouter(store) {
 
     await emitStep(step('request', '用户请求', 'success', { input: { prompt }, tokenUsage: tokenCount(prompt) }));
     await emitStep(step('skill', '选择 Skill', 'success', { output: { id: skill.id, version: skill.version } }));
+    await emitStep(step('runtime', '检查运行时 Provider', 'success', {
+      output: { llm: getProviderStatus(), rag: getRagStatus() }
+    }));
     await emitStep(step('context', '加载上下文', 'running', { output: { knowledgeScopes: skill.knowledgeScopes } }));
     const sources = await searchKnowledge(store, prompt, skill.knowledgeScopes);
     await emitStep(step('knowledge', '调用知识库 searchKnowledge', 'success', {
@@ -398,7 +411,34 @@ export function copilotRouter(store) {
       }));
     }
 
-    const answer = buildAnswer({ prompt, skill, sources, repoAnalysis, documentDraft });
+    const fallbackAnswer = buildAnswer({ prompt, skill, sources, repoAnalysis, documentDraft });
+    const toolResults = {
+      searchKnowledge: sources.map((source) => ({ title: source.documentTitle, score: source.score })),
+      analyzeRepository: repoAnalysis,
+      generateArchitectureDocument: documentDraft ? { chars: documentDraft.length } : null
+    };
+    let answer = fallbackAnswer;
+    try {
+      const generated = await generateLlmAnswer({
+        systemPrompt: skill.systemPrompt,
+        prompt,
+        sources,
+        toolResults,
+        fallback: fallbackAnswer
+      });
+      answer = generated.text;
+      await emitStep(step('llm', '调用真实 LLM Provider', generated.provider.mode === 'live' ? 'success' : 'success', {
+        input: { provider: generated.provider.provider, model: generated.provider.model },
+        output: { mode: generated.provider.mode },
+        tokenUsage: tokenCount(answer)
+      }));
+    } catch (error) {
+      await emitStep(step('llm', '调用真实 LLM Provider', 'failed', {
+        input: getProviderStatus(),
+        error: error.message
+      }));
+      answer = `${fallbackAnswer}\n\n### Provider 降级\n真实 LLM 调用失败，当前已降级到本地 deterministic runtime。错误：${error.message}`;
+    }
     const approvalDraft = documentDraft || `# ${skill.name} 人工确认草稿\n\n${answer}`;
     await emitStep(step('structured', '生成结构化结果', 'success', { tokenUsage: tokenCount(answer) }));
     await emitStep(step('human', '等待人工确认', 'waiting', { humanRequired: true }));

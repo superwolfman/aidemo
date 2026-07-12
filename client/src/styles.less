@@ -925,6 +925,30 @@ kbd {
   gap: 8px;
 }
 
+.runtime-board {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.runtime-board span {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #506575;
+  background: #f8fafc;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.runtime-board strong {
+  color: #0f766e;
+}
+
 .session-list button,
 .skill-list button,
 .knowledge-template-list button {
@@ -954,6 +978,35 @@ kbd {
 .knowledge-template-list span {
   color: #667789;
   font-size: 12px;
+}
+
+.schema-card {
+  margin-top: 12px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.schema-card summary {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: #172026;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.schema-card pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  border-top: 1px solid #edf1f5;
+  padding: 12px;
+  color: #33495a;
+  background: #f8fafc;
+  font-size: 11px;
 }
 
 .upload-button {
@@ -1091,6 +1144,31 @@ kbd {
   background: #fbfdff;
 }
 
+.stream-skeleton {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 16px;
+  background: #fff;
+}
+
+.stream-skeleton span {
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e7eef4, #f8fafc, #e7eef4);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+
+.stream-skeleton span:nth-child(2) { width: 78%; }
+.stream-skeleton span:nth-child(3) { width: 54%; }
+
+@keyframes shimmer {
+  from { background-position: 0 0; }
+  to { background-position: -200% 0; }
+}
+
 .knowledge-template-list {
   margin: 12px 0;
 }
@@ -1159,6 +1237,24 @@ kbd {
   gap: 8px;
 }
 
+.source-detail {
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.source-detail summary {
+  color: #172026;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.source-detail .source-strip {
+  margin-top: 10px;
+}
+
 .chat-composer {
   display: grid;
   gap: 10px;
@@ -1214,6 +1310,24 @@ kbd {
   background: #0f766e;
 }
 
+.trace-timeline {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20px, 1fr));
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.trace-timeline i {
+  height: 6px;
+  border-radius: 999px;
+  background: #94a3b8;
+}
+
+.trace-timeline i.success { background: #0f766e; }
+.trace-timeline i.running { background: #2563eb; }
+.trace-timeline i.waiting { background: #ca8a04; }
+.trace-timeline i.failed { background: #dc2626; }
+
 .trace-list summary {
   min-height: 44px;
   display: grid;
@@ -1261,6 +1375,31 @@ kbd {
 .approval-box textarea {
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 12px;
+}
+
+.approval-history {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  border-top: 1px solid #edf1f5;
+  padding-top: 12px;
+}
+
+.approval-history strong {
+  color: #172026;
+  font-size: 13px;
+}
+
+.approval-history span {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #506575;
+  background: #f8fafc;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 @media (max-width: 980px) {

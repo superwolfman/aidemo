@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, CheckCircle2, FileText, Pause, Play, RefreshCw, RotateCcw, Send, ShieldCheck, UploadCloud } from 'lucide-react';
 import { request, streamRequest } from '../../api/client';
-import { Card, Header, Status } from '../../components/ui';
+import { Header, Status } from '../../components/ui';
 
 type Skill = {
   id: string;
@@ -49,6 +49,26 @@ type Approval = {
   status: 'pending' | 'confirmed' | 'revised' | 'rejected';
   documentDraft: string;
   finalDocument?: string;
+  reviewedAt?: string;
+};
+
+type RuntimeStatus = {
+  llm: {
+    provider: string;
+    mode: string;
+    model: string;
+    configured: boolean;
+  };
+  rag: {
+    backend: string;
+    vectorStore: string;
+    productionReady: boolean;
+  };
+  mcp: {
+    enabled: boolean;
+    transport: string;
+    command: string;
+  };
 };
 
 type TaskMode = {
@@ -165,9 +185,11 @@ export default function CopilotWorkbench() {
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
   const [sources, setSources] = useState<any[]>([]);
   const [approval, setApproval] = useState<Approval | null>(null);
+  const [approvalHistory, setApprovalHistory] = useState<Approval[]>([]);
   const [draftRevision, setDraftRevision] = useState('');
   const [documents, setDocuments] = useState<any[]>([]);
   const [knowledgeTemplates, setKnowledgeTemplates] = useState<any[]>([]);
+  const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [running, setRunning] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -177,15 +199,17 @@ export default function CopilotWorkbench() {
   const replayTrace = replayIndex === null ? trace : trace.slice(0, replayIndex + 1);
 
   const load = useCallback(async () => {
-    const [skillResult, sessionResult, knowledgeResult, templateResult] = await Promise.all([
+    const [skillResult, sessionResult, knowledgeResult, templateResult, runtimeResult] = await Promise.all([
       request('/api/copilot/skills'),
       request('/api/copilot/sessions'),
       request('/api/copilot/knowledge'),
-      request('/api/copilot/knowledge/templates')
+      request('/api/copilot/knowledge/templates'),
+      request('/api/copilot/runtime')
     ]);
     setSkills(skillResult.skills);
     setDocuments(knowledgeResult.documents);
     setKnowledgeTemplates(templateResult.templates || []);
+    setRuntime(runtimeResult);
     if (!sessionResult.sessions.length) {
       const created = await request('/api/copilot/sessions', { method: 'POST', body: JSON.stringify({ title: 'MVP 架构评审会话', skillId: 'architecture-review' }) });
       setSessions([created.session]);
@@ -316,6 +340,7 @@ export default function CopilotWorkbench() {
       body: JSON.stringify({ revision: draftRevision, note: action })
     });
     setApproval(result.approval);
+    setApprovalHistory((items) => [result.approval, ...items.filter((item) => item._id !== result.approval._id)].slice(0, 5));
     setTrace((items) => items.map((item) => item.id === 'human' ? { ...item, status: action === 'reject' ? 'failed' : 'success', output: { action } } : item));
   }
 
@@ -360,6 +385,13 @@ export default function CopilotWorkbench() {
 
           <section className="panel">
             <h2>Skill 系统</h2>
+            {runtime ? (
+              <div className="runtime-board">
+                <span>LLM <strong>{runtime.llm.mode}</strong> · {runtime.llm.model}</span>
+                <span>RAG <strong>{runtime.rag.backend}</strong> · {runtime.rag.vectorStore}</span>
+                <span>MCP <strong>{runtime.mcp.transport}</strong></span>
+              </div>
+            ) : null}
             <div className="skill-list">
               {skills.map((skill) => (
                 <button key={skill.id} className={skill.id === skillId ? 'active' : ''} onClick={() => setSkillId(skill.id)}>
@@ -369,7 +401,17 @@ export default function CopilotWorkbench() {
               ))}
             </div>
             {activeSkill ? (
-              <Card title="SkillDefinition" text={`${schemaRequired(activeSkill.inputSchema)} -> ${activeSkill.knowledgeScopes.join(' / ')}`} />
+              <details className="schema-card" open>
+                <summary>SkillDefinition · {schemaRequired(activeSkill.inputSchema)}</summary>
+                <pre>{JSON.stringify({
+                  id: activeSkill.id,
+                  version: activeSkill.version,
+                  inputSchema: activeSkill.inputSchema,
+                  outputSchema: activeSkill.outputSchema,
+                  allowedTools: activeSkill.allowedTools,
+                  knowledgeScopes: activeSkill.knowledgeScopes
+                }, null, 2)}</pre>
+              </details>
             ) : null}
           </section>
 
@@ -431,12 +473,24 @@ export default function CopilotWorkbench() {
                 <MarkdownView content={message.content} />
               </article>
             ))}
+            {running ? (
+              <div className="stream-skeleton">
+                <span />
+                <span />
+                <span />
+              </div>
+            ) : null}
             {!messages.length ? <div className="empty">选择 Skill 后输入架构问题，Copilot 会流式输出并展示 Trace。</div> : null}
           </div>
 
-          <div className="source-strip">
-            {sources.map((source) => <span key={source._id}>{source.documentTitle} · score {source.score}</span>)}
-          </div>
+          <details className="source-detail" open={Boolean(sources.length)}>
+            <summary>引用来源 · {sources.length}</summary>
+            <div className="source-strip">
+              {sources.map((source) => (
+                <span key={source._id} title={source.content}>{source.documentTitle} · score {source.score}</span>
+              ))}
+            </div>
+          </details>
 
           <div className="chat-composer">
             <label>
@@ -463,6 +517,11 @@ export default function CopilotWorkbench() {
             <div className="trace-path">
               {(replayTrace.length ? replayTrace : trace).map((item, index) => (
                 <span key={item.id} className={index === replayIndex ? 'active' : ''}>{index + 1}. {item.name}</span>
+              ))}
+            </div>
+            <div className="trace-timeline">
+              {(replayTrace.length ? replayTrace : trace).map((item) => (
+                <i key={item.id} className={item.status} title={`${item.name} · ${item.durationMs || 0}ms`} />
               ))}
             </div>
             <div className="trace-list">
@@ -492,6 +551,14 @@ export default function CopilotWorkbench() {
                 </div>
               </div>
             ) : <div className="empty">架构建议生成后，会在这里暂停等待确认。</div>}
+            {approvalHistory.length ? (
+              <div className="approval-history">
+                <strong>审批历史</strong>
+                {approvalHistory.map((item) => (
+                  <span key={item._id}>{item.status} · {item.reviewedAt || 'just now'}</span>
+                ))}
+              </div>
+            ) : null}
           </section>
         </aside>
       </div>
