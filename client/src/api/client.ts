@@ -28,7 +28,7 @@ export async function request(path: string, options: RequestOptions = {}) {
   return response.json();
 }
 
-export async function streamRequest(path: string, body: Record<string, unknown>, handlers: StreamHandlers = {}) {
+export async function streamRequest(path: string, body: Record<string, unknown>, handlers: StreamHandlers = {}, signal?: AbortSignal) {
   const token = localStorage.getItem(tokenKey);
   const response = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
@@ -36,7 +36,8 @@ export async function streamRequest(path: string, body: Record<string, unknown>,
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal
   });
 
   if (!response.ok || !response.body) throw new Error('Stream failed');

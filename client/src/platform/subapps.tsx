@@ -1,15 +1,11 @@
 import { lazy } from 'react';
 import {
   Bot,
-  Code2,
   Database,
-  GitBranch,
   Globe2,
-  LineChart,
-  Map,
-  MessageSquareText,
-  MonitorDot,
-  Smartphone,
+  GitPullRequestArrow,
+  ListChecks,
+  Route,
   Sparkles
 } from 'lucide-react';
 import type { ComponentType, LazyExoticComponent } from 'react';
@@ -39,92 +35,70 @@ export type SubAppManifest = {
 
 export const subApps: SubAppManifest[] = [
   {
-    id: 'overview',
-    name: '平台总览',
-    labelKey: 'nav.overview',
-    icon: LineChart,
-    domain: 'shell',
-    mode: 'local',
-    sandbox: 'wujie',
-    capabilities: ['route', 'event-bus', 'telemetry'],
-    loader: lazy(() => import('../modules/overview/Overview'))
-  },
-  {
-    id: 'terminals',
-    name: '三端展业',
-    labelKey: 'nav.terminals',
-    icon: Smartphone,
-    domain: 'terminal',
-    mode: 'local',
-    sandbox: 'wujie',
-    capabilities: ['pc', 'h5', 'wecom-miniapp', 'bridge'],
-    loader: lazy(() => import('../modules/terminals/Terminals'))
-  },
-  {
-    id: 'assistant',
-    name: '企微 AI 助手',
-    labelKey: 'nav.assistant',
+    id: 'copilot',
+    name: 'AI Copilot',
+    labelKey: 'nav.copilot',
     icon: Bot,
-    domain: 'wecom-ai',
+    domain: 'architecture-copilot',
     mode: 'local',
     sandbox: 'wujie',
-    capabilities: ['sse', 'conversation-memory', 'rag-grounding'],
-    loader: lazy(() => import('../modules/assistant/Assistant'))
-  },
-  {
-    id: 'knowledge',
-    name: '知识库 RAG',
-    labelKey: 'nav.knowledge',
-    icon: Database,
-    domain: 'rag',
-    mode: 'local',
-    sandbox: 'wujie',
-    capabilities: ['embedding', 'retrieval', 'rerank', 'citation'],
-    loader: lazy(() => import('../modules/knowledge/Knowledge'))
-  },
-  {
-    id: 'spec',
-    name: 'Spec Coding',
-    labelKey: 'nav.spec',
-    icon: Code2,
-    domain: 'spec',
-    mode: 'local',
-    sandbox: 'wujie',
-    capabilities: ['spec-to-api', 'state-machine', 'review-checklist'],
-    loader: lazy(() => import('../modules/spec/SpecCoding'))
+    capabilities: ['multi-session-chat', 'skill-runtime', 'tool-calling', 'rag', 'human-in-loop', 'agent-trace'],
+    loader: lazy(() => import('../modules/copilot/CopilotWorkbench'))
   },
   {
     id: 'skills',
-    name: 'AI Skill 编排',
+    name: 'Skill 系统',
     labelKey: 'nav.skills',
     icon: Sparkles,
-    domain: 'ai-skill',
+    domain: 'skill-runtime',
     mode: 'local',
     sandbox: 'wujie',
-    capabilities: ['tool-calling', 'permission', 'audit'],
-    loader: lazy(() => import('../modules/skills/Skills'))
+    capabilities: ['input-schema', 'output-schema', 'allowed-tools', 'knowledge-scopes', 'versioning'],
+    loader: lazy(() => import('../modules/copilot/CopilotWorkbench'))
   },
   {
-    id: 'annotation',
-    name: '标注工作台',
-    labelKey: 'nav.annotation',
-    icon: Map,
-    domain: 'annotation',
+    id: 'knowledge',
+    name: 'RAG 知识库',
+    labelKey: 'nav.knowledge',
+    icon: Database,
+    domain: 'architecture-rag',
     mode: 'local',
     sandbox: 'wujie',
-    capabilities: ['pre-label', 'review-flow', 'map-visualization'],
-    loader: lazy(() => import('../modules/annotation/Annotation'))
+    capabilities: ['markdown', 'txt', 'pdf', 'chunking', 'vector-search', 'citations'],
+    loader: lazy(() => import('../modules/copilot/CopilotWorkbench'))
   },
   {
-    id: 'flow-editor',
-    name: '低码流程编辑器',
-    labelKey: 'nav.flow-editor',
-    icon: GitBranch,
-    domain: 'workflow-core',
+    id: 'trace',
+    name: 'Agent Trace',
+    labelKey: 'nav.trace',
+    icon: Route,
+    domain: 'agent-trace',
     mode: 'local',
     sandbox: 'wujie',
-    capabilities: ['document-model', 'schema', 'plugin', 'selection', 'history', 'command', 'offline-sync'],
-    loader: lazy(() => import('../modules/flow-editor/FlowEditor'))
+    capabilities: ['tool-input-output', 'token-usage', 'latency', 'human-confirmation'],
+    loader: lazy(() => import('../modules/copilot/CopilotWorkbench'))
+  },
+  {
+    id: 'review',
+    name: '人工确认',
+    labelKey: 'nav.review',
+    icon: ListChecks,
+    domain: 'human-in-loop',
+    mode: 'local',
+    sandbox: 'wujie',
+    capabilities: ['confirm', 'revise', 'reject', 'resume'],
+    loader: lazy(() => import('../modules/copilot/CopilotWorkbench'))
+  },
+  {
+    id: 'docs',
+    name: '接入文档',
+    labelKey: 'nav.docs',
+    icon: GitPullRequestArrow,
+    domain: 'docs',
+    mode: 'local',
+    sandbox: 'wujie',
+    capabilities: ['architecture', 'constraints', 'onboarding'],
+    loader: lazy(() => import('../modules/copilot/CopilotWorkbench'))
   },
   {
     id: 'i18n',
@@ -134,30 +108,8 @@ export const subApps: SubAppManifest[] = [
     domain: 'platform-i18n',
     mode: 'local',
     sandbox: 'wujie',
-    capabilities: ['crowdin', 'nacos', 'runtime-cache', 'timezone', 'rtl', 'lint-coverage'],
+    capabilities: ['runtime-cache', 'rtl', 'lint-coverage'],
     loader: lazy(() => import('../modules/i18n/I18nGovernance'))
-  },
-  {
-    id: 'im',
-    name: '在线 IM',
-    labelKey: 'nav.im',
-    icon: MessageSquareText,
-    domain: 'client-im',
-    mode: 'local',
-    sandbox: 'wujie',
-    capabilities: ['websocket', 'robot', 'agent-handoff', 'conversation'],
-    loader: lazy(() => import('../modules/im/IMCenter'))
-  },
-  {
-    id: 'ops',
-    name: '发布运维',
-    labelKey: 'nav.ops',
-    icon: MonitorDot,
-    domain: 'ops',
-    mode: 'local',
-    sandbox: 'wujie',
-    capabilities: ['gray-release', 'trace', 'incident-review'],
-    loader: lazy(() => import('../modules/ops/Ops'))
   }
 ];
 
