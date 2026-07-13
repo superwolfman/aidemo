@@ -903,71 +903,78 @@ kbd {
 
 .boot, .empty { color: #667789; }
 
-.interview-hero {
+.product-command {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 520px;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
   align-items: stretch;
-  border: 1px solid #cfe0e8;
+  border: 1px solid #dce5ee;
   border-radius: 8px;
-  padding: 20px;
-  margin-bottom: 18px;
-  background:
-    linear-gradient(135deg, rgba(240, 253, 250, 0.92), rgba(248, 250, 252, 0.98)),
-    linear-gradient(90deg, rgba(15, 118, 110, 0.14), transparent);
-  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.06);
+  padding: 16px;
+  margin-bottom: 14px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
 }
 
-.interview-hero span {
+.product-command span {
   display: inline-flex;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   color: #0f766e;
   font-size: 12px;
   font-weight: 950;
   text-transform: uppercase;
 }
 
-.interview-hero h2 {
-  margin: 0 0 10px;
-  font-size: 27px;
-  line-height: 1.15;
+.product-command strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #172026;
+  font-size: 19px;
 }
 
-.interview-hero p {
-  max-width: 880px;
+.product-command p {
+  max-width: 980px;
   margin: 0;
   color: #475b6b;
+  font-size: 13px;
 }
 
-.hero-flow {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+.command-metrics {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  align-content: center;
 }
 
-.hero-flow strong {
+.command-metrics span {
+  min-width: 92px;
   min-height: 54px;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   border: 1px solid #cfe0e8;
   border-radius: 8px;
-  padding: 8px;
+  padding: 8px 10px;
   color: #172026;
-  background: rgba(255, 255, 255, 0.78);
+  background: #f8fafc;
   font-size: 12px;
-  text-align: center;
+  text-transform: none;
 }
 
-.capability-strip {
+.command-metrics strong {
+  margin: 0;
+  color: #0f766e;
+  font-size: 18px;
+}
+
+.release-roadmap {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
 
-.capability-strip article {
-  min-height: 118px;
+.release-roadmap article {
+  min-height: 126px;
   display: grid;
   align-content: start;
   gap: 8px;
@@ -978,16 +985,35 @@ kbd {
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
 }
 
-.capability-strip svg {
+.release-roadmap article > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.release-roadmap strong {
   color: #0f766e;
+  font-size: 12px;
+  font-weight: 950;
 }
 
-.capability-strip strong {
+.release-roadmap article > div span {
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: #315262;
+  background: #eef4f8;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.release-roadmap h2 {
+  margin: 0;
   color: #172026;
-  font-size: 13px;
+  font-size: 16px;
 }
 
-.capability-strip span {
+.release-roadmap p {
+  margin: 0;
   color: #667789;
   font-size: 12px;
   line-height: 1.55;
@@ -1495,26 +1521,27 @@ kbd {
   font-size: 12px;
 }
 
-.coverage-list {
+.benchmark-list {
   display: grid;
   gap: 8px;
 }
 
-.coverage-list span {
-  min-height: 34px;
+.benchmark-list span {
+  min-height: 42px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   border: 1px solid #dce5ee;
   border-radius: 8px;
-  padding: 0 10px;
+  padding: 9px 10px;
   color: #33495a;
   background: #f8fafc;
   font-size: 12px;
   font-weight: 850;
 }
 
-.coverage-list svg {
+.benchmark-list svg {
+  margin-top: 2px;
   color: #0f766e;
   flex: 0 0 auto;
 }
@@ -1670,14 +1697,15 @@ kbd {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
   .sidebar nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .interview-hero,
-  .capability-strip,
+  .product-command,
+  .release-roadmap,
   .hero-panel, .two-column, .two-column.wide-left, .metric-grid, .capability-grid, .ops-grid, .terminal-grid, .flow-list, .hero-grid, .flow-editor-layout, .editor-architecture-grid, .realtime-grid, .im-layout, .copilot-layout {
     grid-template-columns: 1fr;
   }
-  .hero-flow,
+  .command-metrics,
   .artifact-empty {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
   }
   .mode-tabs,
   .generation-form {

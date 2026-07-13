@@ -26,32 +26,34 @@
 
 ## 版本迭代
 
-### v0.1 MVP
+### v1.0 AI Dev Workflow
 
-- 多会话 AI Chat。
-- Skill Runtime。
-- Tool Calling。
-- 轻量 RAG。
-- Human-in-the-loop。
+- 研发提效 Skill。
+- 代码草案 Artifact。
+- 测试策略 Artifact。
+- 文档草稿 Artifact。
+- PR 质量门禁与人工确认。
+
+### v2.0 RAG & Context Engineering
+
+- 轻量 RAG 知识库。
+- 知识域过滤和引用来源。
+- Prompt Contract。
+- Context Pack。
+- 上下文分层、压缩策略和 Guardrails。
+
+### v3.0 Agent Runtime
+
+- SkillDefinition 运行时。
+- Tool Calling 权限约束。
+- SSE 流式输出。
 - Agent Trace。
+- Human-in-the-loop 审批。
 
-### v0.2 MCP POC
+### v4.0 Open Platform Roadmap
 
-- OpenAI-compatible LLM Provider Adapter。
 - MCP Server POC。
-- RAG backend adapter。
-- 后端旧平台路由收敛。
-- Runtime Board 和 Trace Timeline。
-
-### v0.3 Open Source Interview Edition
-
-- 增加 `研发提效 Skill`：代码生成、测试辅助、文档生成、PR 质量门禁。
-- 增加 `上下文工程 Skill`：Prompt Contract、Context Pack、压缩策略、Guardrails。
-- 增加 Artifact 展示区：代码、测试、文档、上下文包。
-- 增加能力矩阵，直接对应前端架构师 + AI 面试要求。
-
-### v0.4 Roadmap
-
+- OpenAI-compatible LLM Provider Adapter。
 - 接入真实向量库：MongoDB Atlas Vector Search / pgvector / Milvus。
 - 将 MCP POC 替换为官方 SDK 实现。
 - 增加 Eval：引用准确率、工具调用成功率、审批通过率、AI 建议采纳率。
