@@ -1,6 +1,6 @@
 # AI Architecture Copilot
 
-面向前端架构师 / AI 前端工程师的开源 MVP：把 AI 引入研发流程和产品体验，展示 Skill Runtime、Tool Calling、RAG、Context Engineering、Human-in-the-loop 和 Agent Trace 如何落到一个真实可运行的前端工作台。
+面向研发团队与前端架构场景的开源 MVP：把 AI 引入研发流程和产品体验，展示 Skill Runtime、Tool Calling、RAG、Context Engineering、Human-in-the-loop 和 Agent Trace 如何落到一个真实可运行的前端工作台。
 
 这个项目不是“大而全 AI 平台”，也不是普通 Chatbot。它聚焦一个清晰场景：
 
@@ -8,14 +8,14 @@
 
 它适合用于：
 
-- 前端技术架构师面试作品集。
-- AI Native Frontend / AI 应用工程师面试 Demo。
 - 团队内部探索 AI Coding、RAG、Agent 工作流的 PoC。
+- AI Native Frontend / AI 应用工程化的本地实践样例。
+- 研发效能、架构治理和知识库工作流的产品原型。
 - GitHub 开源项目展示“前端架构能力如何迁移到 AI 应用工程”。
 
 ## 能力映射
 
-| 面试要求 | 项目对应实现 |
+| 能力模块 | 项目对应实现 |
 |---|---|
 | AI 进入研发流程 | `研发提效 Skill` 支持代码草案、测试策略、文档草稿、PR 质量门禁 Artifact |
 | AI 产品落地 | 多会话智能助手 + RAG 知识库 + Agent Trace + 人工确认 |
@@ -28,7 +28,7 @@
 
 ### 当前迭代：Competitive Workbench
 
-这一版把页面从“面试说明型 Demo”收敛成真实产品工作区：
+这一版把页面从说明型展示收敛成真实产品工作区：
 
 - 主流程只保留任务输入、Skill 约束、RAG Context、Artifact、Agent Trace 和人工确认。
 - 大版本路线从主视觉移到紧凑 Release Plan，避免像 PPT 展示页。
@@ -107,7 +107,7 @@ removed-public-password
 
 ### 1. 真实 LLM Provider Adapter
 
-默认仍然使用 `mock`，保证本地无 API Key 也能稳定演示。有 Key 时可切换到真实 OpenAI-compatible Provider：
+默认仍然使用 `mock`，保证本地无 API Key 也能稳定运行。有 Key 时可切换到真实 OpenAI-compatible Provider：
 
 ```bash
 LLM_PROVIDER=openai
@@ -190,7 +190,7 @@ RAG_BACKEND=local-hash
 
 - 离线可跑。
 - 支持文档切分、本地 hash embedding、向量相似度和关键词融合。
-- 适合 MVP 演示链路，不宣传为生产检索质量。
+- 适合本地链路验证，不宣传为生产检索质量。
 
 可替换目标：
 
@@ -429,7 +429,7 @@ POST /api/copilot/approvals/:id/reject
 
 - `路径还原`：从最近一次 assistant 消息中恢复 Trace。
 - `下一步`：按步骤重放执行轨迹。
-- 用于面试演示“Agent 不是黑盒，而是可审计、可复盘的执行系统”。
+- 用于说明“Agent 不是黑盒，而是可审计、可复盘的执行系统”。
 
 ## SSE 与 WS 取舍
 
