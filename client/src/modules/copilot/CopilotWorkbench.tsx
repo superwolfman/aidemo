@@ -79,6 +79,29 @@ type Artifact = {
   content: string | Record<string, unknown>;
 };
 
+type KnowledgeTemplate = {
+  id: string;
+  title: string;
+  description?: string;
+  tags: string[];
+};
+
+type KnowledgeDocument = {
+  _id: string;
+  title: string;
+  tags?: string[];
+  chunkCount?: number;
+  createdAt?: string;
+};
+
+type RagSource = {
+  _id: string;
+  documentTitle: string;
+  content: string;
+  score: number;
+  tags?: string[];
+};
+
 type TaskMode = {
   id: string;
   label: string;
@@ -211,10 +234,10 @@ const releaseTracks = [
 ];
 
 const benchmarkPatterns = [
-  'Cursor 式任务输入：少菜单，直接围绕研发任务组织上下文',
-  'Copilot Workspace 式 Artifact：输出代码、测试、文档，而不是只输出聊天文本',
-  'Dify / LangSmith 式 Trace：展示工具输入输出、耗时、token 和人工确认',
-  '企业 AI 平台式 Guardrails：Skill schema、allowedTools、knowledgeScopes 和审批'
+  'Task-first：围绕研发任务输入上下文，减少无关菜单和展示页',
+  'Artifact-first：输出代码、测试、文档和 Context Pack，而不是只返回聊天文本',
+  'Trace-first：展示工具输入输出、耗时、token、错误和人工确认',
+  'Guardrails：Skill schema、allowedTools、knowledgeScopes 和审批开关进入运行时'
 ];
 
 function escapeHtml(value: string) {
@@ -273,8 +296,11 @@ export default function CopilotWorkbench() {
   const [approval, setApproval] = useState<Approval | null>(null);
   const [approvalHistory, setApprovalHistory] = useState<Approval[]>([]);
   const [draftRevision, setDraftRevision] = useState('');
-  const [documents, setDocuments] = useState<any[]>([]);
-  const [knowledgeTemplates, setKnowledgeTemplates] = useState<any[]>([]);
+  const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
+  const [knowledgeTemplates, setKnowledgeTemplates] = useState<KnowledgeTemplate[]>([]);
+  const [ragQuery, setRagQuery] = useState('');
+  const [ragPreview, setRagPreview] = useState<RagSource[]>([]);
+  const [ragSearching, setRagSearching] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [running, setRunning] = useState(false);
@@ -284,6 +310,11 @@ export default function CopilotWorkbench() {
   const activeMode = useMemo(() => taskModes.find((mode) => mode.id === taskModeId) || taskModes[1], [taskModeId]);
   const messages = active?.messages || [];
   const replayTrace = replayIndex === null ? trace : trace.slice(0, replayIndex + 1);
+  const activeScopes = activeSkill?.knowledgeScopes || ['architecture', 'standards'];
+  const indexedChunks = documents.reduce((sum, doc) => sum + (doc.chunkCount || 0), 0);
+  const activeTemplatePacks = knowledgeTemplates
+    .filter((template) => template.tags?.some((tag) => activeScopes.includes(tag) || tag === 'copilot'))
+    .slice(0, 4);
 
   const load = useCallback(async () => {
     const [skillResult, sessionResult, knowledgeResult, templateResult, runtimeResult] = await Promise.all([
@@ -322,6 +353,7 @@ export default function CopilotWorkbench() {
     setSources([]);
     setArtifacts([]);
     setApproval(null);
+    setRagPreview([]);
   }
 
   async function refreshActive(sessionId: string) {
@@ -409,6 +441,7 @@ export default function CopilotWorkbench() {
     setSources([]);
     setArtifacts([]);
     setApproval(null);
+    setRagPreview([]);
     const mode = taskModes.find((item) => item.skillId === session.activeSkillId);
     if (mode) {
       setTaskModeId(mode.id);
@@ -428,6 +461,7 @@ export default function CopilotWorkbench() {
     setTrace([]);
     setSources([]);
     setApproval(null);
+    setRagPreview([]);
   }
 
   function buildPromptFromMode() {
@@ -459,6 +493,24 @@ export default function CopilotWorkbench() {
       body: JSON.stringify({})
     });
     setDocuments((items) => [result.document, ...items.filter((item) => item.title !== result.document.title)]);
+    setRagQuery(result.document.title);
+  }
+
+  async function searchKnowledgePreview() {
+    setRagSearching(true);
+    try {
+      const result = await request('/api/copilot/knowledge/search', {
+        method: 'POST',
+        body: JSON.stringify({
+          query: ragQuery || buildPromptFromMode(),
+          scopes: activeScopes,
+          limit: 4
+        })
+      });
+      setRagPreview(result.sources || []);
+    } finally {
+      setRagSearching(false);
+    }
   }
 
   async function review(action: 'confirm' | 'revise' | 'reject') {
@@ -506,19 +558,6 @@ export default function CopilotWorkbench() {
           <span><strong>4</strong> Artifact types</span>
           <span><strong>MCP</strong> POC</span>
         </div>
-      </section>
-
-      <section className="release-roadmap">
-        {releaseTracks.map((track) => (
-          <article key={track.version}>
-            <div>
-              <strong>{track.version}</strong>
-              <span>{track.status}</span>
-            </div>
-            <h2>{track.title}</h2>
-            <p>{track.items.join(' / ')}</p>
-          </article>
-        ))}
       </section>
 
       <div className="copilot-layout">
@@ -570,22 +609,45 @@ export default function CopilotWorkbench() {
             ) : null}
           </section>
 
-          <section className="panel">
-            <h2>RAG 知识库</h2>
+          <section className="panel knowledge-context-panel">
+            <div className="section-head">
+              <h2>Knowledge Context</h2>
+              <span>{documents.length} docs · {indexedChunks || documents.length} chunks</span>
+            </div>
+            <div className="scope-row">
+              {activeScopes.map((scope) => <span key={scope}>{scope}</span>)}
+            </div>
             <label className="upload-button">
               <UploadCloud size={16} /> 上传 Markdown / TXT / PDF
               <input type="file" accept=".md,.markdown,.txt,.pdf" onChange={(event) => uploadKnowledge(event.target.files?.[0])} />
             </label>
-            <div className="knowledge-template-list">
-              {knowledgeTemplates.map((template) => (
+            <div className="template-pack-list">
+              <strong>Context 模板包</strong>
+              {activeTemplatePacks.map((template) => (
                 <button key={template.id} onClick={() => importTemplate(template.id)}>
                   <strong>{template.title}</strong>
                   <span>{template.tags?.join(' / ')}</span>
                 </button>
               ))}
             </div>
-            <div className="knowledge-mini-list">
-              {documents.slice(0, 6).map((doc) => <span key={doc._id}><FileText size={13} />{doc.title}</span>)}
+            <div className="rag-search">
+              <input value={ragQuery} placeholder="按当前 Skill 知识域检索上下文..." onChange={(event) => setRagQuery(event.target.value)} />
+              <button className="secondary-button" disabled={ragSearching} onClick={searchKnowledgePreview}>{ragSearching ? '检索中' : '检索预览'}</button>
+            </div>
+            <div className="rag-preview-list">
+              {ragPreview.map((source) => (
+                <article key={source._id}>
+                  <div>
+                    <strong>{source.documentTitle}</strong>
+                    <span>score {source.score}</span>
+                  </div>
+                  <p>{source.content}</p>
+                </article>
+              ))}
+              {!ragPreview.length ? <span className="rag-empty">命中结果会展示 chunk、score 和引用来源，并进入生成时的 citations。</span> : null}
+            </div>
+            <div className="knowledge-mini-list compact">
+              {documents.slice(0, 5).map((doc) => <span key={doc._id}><FileText size={13} />{doc.title}</span>)}
             </div>
           </section>
         </aside>
@@ -694,11 +756,27 @@ export default function CopilotWorkbench() {
         </main>
 
         <aside className="trace-panel">
-          <section className="panel">
-            <h2>竞品对齐点</h2>
+          <section className="panel benchmark-panel">
+            <h2>Product Benchmarks</h2>
             <div className="benchmark-list">
               {benchmarkPatterns.map((item) => (
                 <span key={item}><CheckCircle2 size={14} />{item}</span>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel release-panel">
+            <h2>Release Plan</h2>
+            <div className="release-stack">
+              {releaseTracks.map((track) => (
+                <article key={track.version}>
+                  <div>
+                    <strong>{track.version}</strong>
+                    <span>{track.status}</span>
+                  </div>
+                  <h3>{track.title}</h3>
+                  <p>{track.items.join(' / ')}</p>
+                </article>
               ))}
             </div>
           </section>

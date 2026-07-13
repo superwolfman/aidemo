@@ -507,6 +507,19 @@ export function copilotRouter(store) {
     res.json({ documents });
   });
 
+  router.post('/knowledge/search', async (req, res) => {
+    const query = String(req.body.query || '').trim();
+    const scopes = Array.isArray(req.body.scopes) && req.body.scopes.length ? req.body.scopes : ['architecture', 'standards'];
+    const limit = Number(req.body.limit || 5);
+    const result = await retrieveKnowledge({
+      store,
+      query: query || scopes.join(' '),
+      scopes,
+      limit: Number.isFinite(limit) ? limit : 5
+    });
+    res.json({ rag: result.status, sources: result.sources });
+  });
+
   router.post('/sessions/:id/messages/stream', async (req, res) => {
     initSse(res);
     const session = await store.getRecord('copilot_sessions', req.params.id);
