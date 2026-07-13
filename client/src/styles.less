@@ -903,6 +903,40 @@ kbd {
 
 .boot, .empty { color: #667789; }
 
+.capability-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.capability-strip article {
+  min-height: 118px;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 14px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
+}
+
+.capability-strip svg {
+  color: #0f766e;
+}
+
+.capability-strip strong {
+  color: #172026;
+  font-size: 13px;
+}
+
+.capability-strip span {
+  color: #667789;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .copilot-layout {
   display: grid;
   grid-template-columns: 312px minmax(0, 1fr) 380px;
@@ -1057,7 +1091,7 @@ kbd {
 
 .mode-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   gap: 10px;
 }
 
@@ -1255,6 +1289,93 @@ kbd {
   margin-top: 10px;
 }
 
+.artifact-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 14px;
+  background: #fff;
+}
+
+.artifact-panel .section-head {
+  min-height: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+  background: transparent;
+}
+
+.artifact-panel .section-head h2 {
+  margin: 0;
+}
+
+.artifact-panel .section-head span {
+  color: #667789;
+  font-size: 12px;
+}
+
+.artifact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.artifact-card {
+  min-width: 0;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.artifact-card > div {
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border-bottom: 1px solid #e5edf4;
+  padding: 0 12px;
+}
+
+.artifact-card svg {
+  color: #0f766e;
+}
+
+.artifact-card strong {
+  overflow: hidden;
+  color: #172026;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-card em {
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: #0f766e;
+  background: #e7f3f1;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.artifact-card pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  color: #243746;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.artifact-card.code pre {
+  color: #d7e3f4;
+  background: #111827;
+}
+
 .chat-composer {
   display: grid;
   gap: 10px;
@@ -1406,6 +1527,7 @@ kbd {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
   .sidebar nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .capability-strip,
   .hero-panel, .two-column, .two-column.wide-left, .metric-grid, .capability-grid, .ops-grid, .terminal-grid, .flow-list, .hero-grid, .flow-editor-layout, .editor-architecture-grid, .realtime-grid, .im-layout, .copilot-layout {
     grid-template-columns: 1fr;
   }

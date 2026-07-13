@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CheckCircle2, FileText, Pause, Play, RefreshCw, RotateCcw, Send, ShieldCheck, UploadCloud } from 'lucide-react';
+import { Bot, CheckCircle2, FileCode2, FileText, Pause, Play, RefreshCw, RotateCcw, Send, ShieldCheck, Sparkles, UploadCloud } from 'lucide-react';
 import { request, streamRequest } from '../../api/client';
 import { Header, Status } from '../../components/ui';
 
@@ -71,6 +71,14 @@ type RuntimeStatus = {
   };
 };
 
+type Artifact = {
+  id: string;
+  type: 'code' | 'test' | 'document' | 'context';
+  title: string;
+  language?: string;
+  content: string | Record<string, unknown>;
+};
+
 type TaskMode = {
   id: string;
   label: string;
@@ -82,6 +90,19 @@ type TaskMode = {
 };
 
 const taskModes: TaskMode[] = [
+  {
+    id: 'engineering-productivity',
+    label: '研发提效',
+    skillId: 'engineering-productivity',
+    goal: '生成代码、测试、文档和 PR 质量门禁',
+    prompt: '请为前端团队设计一套 AI 研发提效工作流，要求覆盖代码生成、测试辅助、文档生成、PR 检查和人工确认。',
+    deliverables: ['代码草案', '测试策略', '文档草稿', '质量门禁'],
+    fields: [
+      { key: 'workflowGoal', label: '提效目标', placeholder: '例：把组件开发、单测补全、PR Review 接入 AI 工作流' },
+      { key: 'targetStack', label: '技术栈', placeholder: '例：React / TypeScript / Vite / Node BFF / MongoDB' },
+      { key: 'qualityGate', label: '质量门禁', placeholder: '例：typecheck、lint、unit test、review checklist、人工确认' }
+    ]
+  },
   {
     id: 'requirement-analysis',
     label: '需求分析',
@@ -119,17 +140,27 @@ const taskModes: TaskMode[] = [
     ]
   },
   {
-    id: 'architecture-document',
-    label: '架构文档',
-    skillId: 'architecture-review',
-    goal: '生成可审阅的 Markdown 架构文档草稿',
-    prompt: '请生成一份可进入人工确认的架构文档草稿，要求包含背景、目标、模块图、接口、风险和上线计划。',
-    deliverables: ['Markdown 草稿', '引用来源', '上线计划', '人工确认'],
+    id: 'context-engineering',
+    label: '上下文工程',
+    skillId: 'context-engineering',
+    goal: '设计 Prompt、RAG 上下文和工具状态拼接策略',
+    prompt: '请为一个 AI Agent 任务设计 Context Engineering 方案，要求包含 Prompt Contract、上下文分层、RAG 拼接、压缩策略和幻觉防护。',
+    deliverables: ['Prompt Contract', 'Context Pack', '压缩策略', 'Guardrails'],
     fields: [
-      { key: 'docAudience', label: '读者对象', placeholder: '例：前端架构师、后端负责人、面试官' },
-      { key: 'docScope', label: '文档范围', placeholder: '例：MVP 架构、Skill Runtime、Tool Calling、RAG、Trace' }
+      { key: 'agentGoal', label: 'Agent 目标', placeholder: '例：帮助研发团队完成架构评审、代码审查和文档生成' },
+      { key: 'contextSources', label: '上下文来源', placeholder: '例：用户输入、会话历史、RAG 文档、工具结果、审批状态' },
+      { key: 'riskControl', label: '风险控制', placeholder: '例：引用来源、工具权限、人工确认、Provider fallback' }
     ]
   }
+];
+
+const capabilityCards = [
+  { title: 'AI 研发流程', text: '代码生成、测试辅助、文档生成、PR 检查进入同一个可审计工作流。' },
+  { title: 'AI 产品落地', text: 'RAG、Agent、Skill、Tool Calling 与业务知识域绑定，避免普通聊天化。' },
+  { title: 'Context Engineering', text: '系统指令、用户意图、RAG 引用、工具状态、会话记忆分层拼接。' },
+  { title: 'Agent UX', text: '多轮对话、SSE 流式反馈、停止生成、重新生成、Trace 和人工确认。' },
+  { title: '大前端架构', text: 'React + TypeScript + Less + Node BFF，前端承接 AI 工作流和 Artifact 展示。' },
+  { title: '开源可讲述', text: 'README 提供版本路线、能力映射、架构取舍和面试表达。' }
 ];
 
 function escapeHtml(value: string) {
@@ -189,6 +220,7 @@ export default function CopilotWorkbench() {
   const [draftRevision, setDraftRevision] = useState('');
   const [documents, setDocuments] = useState<any[]>([]);
   const [knowledgeTemplates, setKnowledgeTemplates] = useState<any[]>([]);
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [running, setRunning] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -232,6 +264,7 @@ export default function CopilotWorkbench() {
     setTrace([]);
     setReplayIndex(null);
     setSources([]);
+    setArtifacts([]);
     setApproval(null);
   }
 
@@ -249,6 +282,7 @@ export default function CopilotWorkbench() {
     setTrace([]);
     setReplayIndex(null);
     setSources([]);
+    setArtifacts([]);
     setApproval(null);
     const assistant: Message = { id: `assistant-local-${Date.now()}`, role: 'assistant', content: '' };
     const optimistic: Session = {
@@ -261,6 +295,7 @@ export default function CopilotWorkbench() {
       await streamRequest(`/api/copilot/sessions/${active._id}/messages/stream`, { prompt: nextPrompt, skillId, mode: taskModeId, form }, {
         trace: (step) => setTrace((items) => [...items.filter((item) => item.id !== step.id), step]),
         sources: (payload) => setSources(payload.sources || []),
+        artifacts: (payload) => setArtifacts(payload.artifacts || []),
         delta: (payload) => {
           setActive((current) => current ? {
             ...current,
@@ -362,9 +397,19 @@ export default function CopilotWorkbench() {
     <section>
       <Header
         title="AI Architecture Copilot"
-        desc="多会话 AI Chat、Skill Runtime、Tool Calling、轻量 RAG、人工确认和 Agent Trace 的 MVP 工作台。"
+        desc="面向前端架构师和 AI 前端工程师的开源 MVP：研发提效、RAG/Agent、Context Engineering、实时工作流和可审计 Trace。"
         action={<Status status={running ? 'streaming' : 'mvp'} />}
       />
+
+      <section className="capability-strip">
+        {capabilityCards.map((item) => (
+          <article key={item.title}>
+            <Sparkles size={16} />
+            <strong>{item.title}</strong>
+            <span>{item.text}</span>
+          </article>
+        ))}
+      </section>
 
       <div className="copilot-layout">
         <aside className="copilot-sidebar">
@@ -491,6 +536,29 @@ export default function CopilotWorkbench() {
               ))}
             </div>
           </details>
+
+          <section className="artifact-panel">
+            <div className="section-head">
+              <h2>Artifacts</h2>
+              <span>{artifacts.length} generated</span>
+            </div>
+            {artifacts.length ? (
+              <div className="artifact-grid">
+                {artifacts.map((artifact) => (
+                  <article key={artifact.id} className={`artifact-card ${artifact.type}`}>
+                    <div>
+                      {artifact.type === 'code' ? <FileCode2 size={15} /> : <FileText size={15} />}
+                      <strong>{artifact.title}</strong>
+                      <em>{artifact.type}</em>
+                    </div>
+                    <pre>{typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content, null, 2)}</pre>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="empty">选择“研发提效”或“上下文工程”后，会生成代码、测试、文档或 Context Pack。</div>
+            )}
+          </section>
 
           <div className="chat-composer">
             <label>
