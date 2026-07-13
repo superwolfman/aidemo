@@ -26,6 +26,26 @@
 
 ## 版本迭代
 
+### 当前迭代：Competitive Workbench
+
+这一版把页面从“面试说明型 Demo”收敛成真实产品工作区：
+
+- 主流程只保留任务输入、Skill 约束、RAG Context、Artifact、Agent Trace 和人工确认。
+- 大版本路线从主视觉移到紧凑 Release Plan，避免像 PPT 展示页。
+- RAG 不再只是上传列表，支持按当前 Skill 的 `knowledgeScopes` 展示知识域、导入模板包、检索预览、chunk score 和引用来源。
+- 竞品对齐从“能力罗列”改成 Product Benchmarks，用来解释产品原则，而不是占用主流程。
+- Agent 输出从聊天文本升级为可审计 Artifact：代码草案、测试策略、文档草稿、Context Pack。
+
+### 竞品对齐点
+
+| 参考产品 | 对齐方式 |
+|---|---|
+| Cursor | Task-first 输入方式，少菜单，围绕研发任务组织上下文 |
+| GitHub Copilot Workspace | Artifact-first 输出，生成代码、测试、文档和 Context Pack |
+| Dify | Skill / Tool / Knowledge Scope 分层，知识库支持模板包和引用来源 |
+| LangSmith / LangGraph | Trace-first 执行轨迹，展示工具输入输出、耗时、token、错误和人工确认 |
+| 企业 AI 平台 | Guardrails 内建到运行时：schema、allowedTools、knowledgeScopes、审批 |
+
 ### v1.0 AI Dev Workflow
 
 - 研发提效 Skill。
@@ -38,6 +58,9 @@
 
 - 轻量 RAG 知识库。
 - 知识域过滤和引用来源。
+- 知识模板包导入。
+- 当前 Skill 知识域检索预览。
+- chunk score 和引用来源详情。
 - Prompt Contract。
 - Context Pack。
 - 上下文分层、压缩策略和 Guardrails。
@@ -482,6 +505,7 @@ GET  /api/copilot/knowledge
 GET  /api/copilot/knowledge/templates
 POST /api/copilot/knowledge/templates/:id/import
 POST /api/copilot/knowledge/upload
+POST /api/copilot/knowledge/search
 POST /api/copilot/approvals/:id/confirm
 POST /api/copilot/approvals/:id/revise
 POST /api/copilot/approvals/:id/reject
