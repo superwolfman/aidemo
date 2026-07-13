@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CheckCircle2, FileCode2, FileText, Pause, Play, RefreshCw, RotateCcw, Send, ShieldCheck, Sparkles, UploadCloud } from 'lucide-react';
+import { Bot, CheckCircle2, FileCode2, FileText, Pause, Play, RefreshCw, RotateCcw, Send, ShieldCheck, UploadCloud } from 'lucide-react';
 import { request, streamRequest } from '../../api/client';
 import { Header, Status } from '../../components/ui';
 
@@ -154,15 +154,6 @@ const taskModes: TaskMode[] = [
   }
 ];
 
-const capabilityCards = [
-  { title: 'AI 研发流程', text: '代码生成、测试辅助、文档生成、PR 检查进入同一个可审计工作流。' },
-  { title: 'AI 产品落地', text: 'RAG、Agent、Skill、Tool Calling 与业务知识域绑定，避免普通聊天化。' },
-  { title: 'Context Engineering', text: '系统指令、用户意图、RAG 引用、工具状态、会话记忆分层拼接。' },
-  { title: 'Agent UX', text: '多轮对话、SSE 流式反馈、停止生成、重新生成、Trace 和人工确认。' },
-  { title: '大前端架构', text: 'React + TypeScript + Less + Node BFF，前端承接 AI 工作流和 Artifact 展示。' },
-  { title: '开源可讲述', text: 'README 提供版本路线、能力映射、架构取舍和面试表达。' }
-];
-
 const demoScenarios = [
   {
     title: 'AI 研发提效落地',
@@ -192,13 +183,38 @@ const demoScenarios = [
   }
 ];
 
-const coverageItems = [
-  'AI Coding / 测试辅助 / 文档生成',
-  'RAG 知识库与引用来源',
-  'Agent Trace 与人工确认',
-  'Prompt / Context Engineering',
-  'SSE 多轮对话与实时反馈',
-  'MCP POC 与工具标准化'
+const releaseTracks = [
+  {
+    version: 'v1.0',
+    title: 'AI Dev Workflow',
+    status: 'implemented',
+    items: ['代码草案 Artifact', '测试策略', '文档草稿', 'PR 质量门禁']
+  },
+  {
+    version: 'v2.0',
+    title: 'RAG & Context',
+    status: 'implemented',
+    items: ['知识域过滤', '引用来源', 'Context Pack', 'Prompt Contract']
+  },
+  {
+    version: 'v3.0',
+    title: 'Agent Runtime',
+    status: 'implemented',
+    items: ['Skill Runtime', 'Tool Calling', 'SSE Trace', 'Human-in-the-loop']
+  },
+  {
+    version: 'v4.0',
+    title: 'Open Platform',
+    status: 'poc',
+    items: ['MCP Server', 'LLM Provider', 'Eval 指标', '向量库替换']
+  }
+];
+
+const benchmarkPatterns = [
+  'Cursor 式任务输入：少菜单，直接围绕研发任务组织上下文',
+  'Copilot Workspace 式 Artifact：输出代码、测试、文档，而不是只输出聊天文本',
+  'Dify / LangSmith 式 Trace：展示工具输入输出、耗时、token 和人工确认',
+  '企业 AI 平台式 Guardrails：Skill schema、allowedTools、knowledgeScopes 和审批'
 ];
 
 function escapeHtml(value: string) {
@@ -281,15 +297,16 @@ export default function CopilotWorkbench() {
     setDocuments(knowledgeResult.documents);
     setKnowledgeTemplates(templateResult.templates || []);
     setRuntime(runtimeResult);
-    if (!sessionResult.sessions.length) {
+    const productivitySession = sessionResult.sessions.find((session: Session) => session.activeSkillId === 'engineering-productivity');
+    if (!sessionResult.sessions.length || !productivitySession) {
       const created = await request('/api/copilot/sessions', { method: 'POST', body: JSON.stringify({ title: 'AI 研发提效演示会话', skillId: 'engineering-productivity' }) });
-      setSessions([created.session]);
+      setSessions([created.session, ...sessionResult.sessions]);
       setActive(created.session);
       return;
     }
     setSessions(sessionResult.sessions);
-    setActive((current) => current || sessionResult.sessions[0]);
-    setSkillId((current) => sessionResult.sessions[0]?.activeSkillId || current);
+    setActive((current) => current || productivitySession);
+    setSkillId('engineering-productivity');
   }, []);
 
   useEffect(() => {
@@ -297,7 +314,7 @@ export default function CopilotWorkbench() {
   }, [load]);
 
   async function createSession() {
-    const result = await request('/api/copilot/sessions', { method: 'POST', body: JSON.stringify({ title: '新的架构会话', skillId }) });
+    const result = await request('/api/copilot/sessions', { method: 'POST', body: JSON.stringify({ title: `${activeMode.label}会话`, skillId }) });
     setSessions((items) => [result.session, ...items]);
     setActive(result.session);
     setTrace([]);
@@ -374,6 +391,15 @@ export default function CopilotWorkbench() {
     setSkillId(mode.skillId);
     setPrompt(mode.prompt);
     setForm(Object.fromEntries(mode.fields.map((field) => [field.key, ''])));
+  }
+
+  function selectSkill(skill: Skill) {
+    const mode = taskModes.find((item) => item.skillId === skill.id);
+    if (mode) {
+      changeMode(mode);
+      return;
+    }
+    setSkillId(skill.id);
   }
 
   function selectSession(session: Session) {
@@ -468,27 +494,29 @@ export default function CopilotWorkbench() {
         action={<Status status={running ? 'streaming' : 'mvp'} />}
       />
 
-      <section className="interview-hero">
+      <section className="product-command">
         <div>
-          <span>Open Source Interview Edition · v0.3</span>
-          <h2>AI Native Frontend Architecture Workbench</h2>
-          <p>不是普通聊天页，而是把 AI Coding、RAG、Agent、Context Engineering 和前端工作流体验收敛成一个可演示、可解释、可开源的 MVP。</p>
+          <span>Open Source Interview Edition</span>
+          <strong>AI Dev Workflow + RAG + Agent Trace</strong>
+          <p>参考 Cursor、Copilot Workspace、Dify、LangSmith 的产品形态，收敛为一个研发任务工作台：输入需求，加载上下文，调用工具，产出 Artifact，并进入人工确认。</p>
         </div>
-        <div className="hero-flow">
-          <strong>用户请求</strong>
-          <strong>Skill 约束</strong>
-          <strong>RAG / Tool</strong>
-          <strong>Artifact</strong>
-          <strong>人工确认</strong>
+        <div className="command-metrics">
+          <span><strong>5</strong> Skills</span>
+          <span><strong>5</strong> Tools</span>
+          <span><strong>4</strong> Artifact types</span>
+          <span><strong>MCP</strong> POC</span>
         </div>
       </section>
 
-      <section className="capability-strip">
-        {capabilityCards.map((item) => (
-          <article key={item.title}>
-            <Sparkles size={16} />
-            <strong>{item.title}</strong>
-            <span>{item.text}</span>
+      <section className="release-roadmap">
+        {releaseTracks.map((track) => (
+          <article key={track.version}>
+            <div>
+              <strong>{track.version}</strong>
+              <span>{track.status}</span>
+            </div>
+            <h2>{track.title}</h2>
+            <p>{track.items.join(' / ')}</p>
           </article>
         ))}
       </section>
@@ -521,7 +549,7 @@ export default function CopilotWorkbench() {
             ) : null}
             <div className="skill-list">
               {skills.map((skill) => (
-                <button key={skill.id} className={skill.id === skillId ? 'active' : ''} onClick={() => setSkillId(skill.id)}>
+                <button key={skill.id} className={skill.id === skillId ? 'active' : ''} onClick={() => selectSkill(skill)}>
                   <strong>{skill.name}</strong>
                   <span>v{skill.version} · {skill.allowedTools.join(', ')}</span>
                 </button>
@@ -557,7 +585,7 @@ export default function CopilotWorkbench() {
               ))}
             </div>
             <div className="knowledge-mini-list">
-              {documents.slice(0, 8).map((doc) => <span key={doc._id}><FileText size={13} />{doc.title}</span>)}
+              {documents.slice(0, 6).map((doc) => <span key={doc._id}><FileText size={13} />{doc.title}</span>)}
             </div>
           </section>
         </aside>
@@ -667,9 +695,9 @@ export default function CopilotWorkbench() {
 
         <aside className="trace-panel">
           <section className="panel">
-            <h2>面试能力覆盖</h2>
-            <div className="coverage-list">
-              {coverageItems.map((item) => (
+            <h2>竞品对齐点</h2>
+            <div className="benchmark-list">
+              {benchmarkPatterns.map((item) => (
                 <span key={item}><CheckCircle2 size={14} />{item}</span>
               ))}
             </div>
