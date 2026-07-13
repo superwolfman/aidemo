@@ -163,6 +163,44 @@ const capabilityCards = [
   { title: '开源可讲述', text: 'README 提供版本路线、能力映射、架构取舍和面试表达。' }
 ];
 
+const demoScenarios = [
+  {
+    title: 'AI 研发提效落地',
+    modeId: 'engineering-productivity',
+    form: {
+      workflowGoal: '把组件开发、单测补全、PR Review 和技术文档生成接入 AI 工作流',
+      targetStack: 'React / TypeScript / Vite / Node BFF / MongoDB / SSE',
+      qualityGate: 'typecheck、lint、unit test、review checklist、人工确认'
+    }
+  },
+  {
+    title: 'Agent 上下文工程',
+    modeId: 'context-engineering',
+    form: {
+      agentGoal: '帮助研发团队完成架构评审、代码审查和文档生成',
+      contextSources: '用户输入、会话历史、RAG 文档、工具结果、审批状态',
+      riskControl: '引用来源、工具权限、人工确认、Provider fallback'
+    }
+  },
+  {
+    title: '前端架构评审',
+    modeId: 'architecture-review',
+    form: {
+      targetSystem: 'AI Architecture Copilot Open Source MVP',
+      proposal: 'React Workbench + Skill Runtime + Tool Registry + RAG + Context Pack + Agent Trace'
+    }
+  }
+];
+
+const coverageItems = [
+  'AI Coding / 测试辅助 / 文档生成',
+  'RAG 知识库与引用来源',
+  'Agent Trace 与人工确认',
+  'Prompt / Context Engineering',
+  'SSE 多轮对话与实时反馈',
+  'MCP POC 与工具标准化'
+];
+
 function escapeHtml(value: string) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -205,12 +243,13 @@ export default function CopilotWorkbench() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [active, setActive] = useState<Session | null>(null);
-  const [skillId, setSkillId] = useState('architecture-review');
-  const [prompt, setPrompt] = useState('请评审一个面向企业内部研发团队的 AI 架构 Copilot，要求包含 Skill、Tool Calling、RAG、人工确认和 Trace。');
-  const [taskModeId, setTaskModeId] = useState('architecture-review');
+  const [skillId, setSkillId] = useState('engineering-productivity');
+  const [prompt, setPrompt] = useState('请为前端团队设计一套 AI 研发提效工作流，要求覆盖代码生成、测试辅助、文档生成、PR 检查和人工确认。');
+  const [taskModeId, setTaskModeId] = useState('engineering-productivity');
   const [form, setForm] = useState<Record<string, string>>({
-    targetSystem: 'AI Architecture Copilot MVP',
-    proposal: 'React + Node BFF + MongoDB + SSE + Skill Runtime + Tool Calling + RAG + Human-in-the-loop + Agent Trace'
+    workflowGoal: '把组件开发、单测补全、PR Review 和技术文档生成接入 AI 工作流',
+    targetStack: 'React / TypeScript / Vite / Node BFF / MongoDB / SSE',
+    qualityGate: 'typecheck、lint、unit test、review checklist、人工确认'
   });
   const [trace, setTrace] = useState<TraceStep[]>([]);
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
@@ -243,7 +282,7 @@ export default function CopilotWorkbench() {
     setKnowledgeTemplates(templateResult.templates || []);
     setRuntime(runtimeResult);
     if (!sessionResult.sessions.length) {
-      const created = await request('/api/copilot/sessions', { method: 'POST', body: JSON.stringify({ title: 'MVP 架构评审会话', skillId: 'architecture-review' }) });
+      const created = await request('/api/copilot/sessions', { method: 'POST', body: JSON.stringify({ title: 'AI 研发提效演示会话', skillId: 'engineering-productivity' }) });
       setSessions([created.session]);
       setActive(created.session);
       return;
@@ -337,6 +376,34 @@ export default function CopilotWorkbench() {
     setForm(Object.fromEntries(mode.fields.map((field) => [field.key, ''])));
   }
 
+  function selectSession(session: Session) {
+    setActive(session);
+    setTrace([]);
+    setReplayIndex(null);
+    setSources([]);
+    setArtifacts([]);
+    setApproval(null);
+    const mode = taskModes.find((item) => item.skillId === session.activeSkillId);
+    if (mode) {
+      setTaskModeId(mode.id);
+      setSkillId(mode.skillId);
+      setPrompt(mode.prompt);
+      setForm(Object.fromEntries(mode.fields.map((field) => [field.key, ''])));
+    }
+  }
+
+  function applyScenario(scenario: typeof demoScenarios[number]) {
+    const mode = taskModes.find((item) => item.id === scenario.modeId) || taskModes[0];
+    setTaskModeId(mode.id);
+    setSkillId(mode.skillId);
+    setPrompt(mode.prompt);
+    setForm(scenario.form);
+    setArtifacts([]);
+    setTrace([]);
+    setSources([]);
+    setApproval(null);
+  }
+
   function buildPromptFromMode() {
     const fieldText = activeMode.fields
       .map((field) => `${field.label}: ${form[field.key] || field.placeholder}`)
@@ -401,6 +468,21 @@ export default function CopilotWorkbench() {
         action={<Status status={running ? 'streaming' : 'mvp'} />}
       />
 
+      <section className="interview-hero">
+        <div>
+          <span>Open Source Interview Edition · v0.3</span>
+          <h2>AI Native Frontend Architecture Workbench</h2>
+          <p>不是普通聊天页，而是把 AI Coding、RAG、Agent、Context Engineering 和前端工作流体验收敛成一个可演示、可解释、可开源的 MVP。</p>
+        </div>
+        <div className="hero-flow">
+          <strong>用户请求</strong>
+          <strong>Skill 约束</strong>
+          <strong>RAG / Tool</strong>
+          <strong>Artifact</strong>
+          <strong>人工确认</strong>
+        </div>
+      </section>
+
       <section className="capability-strip">
         {capabilityCards.map((item) => (
           <article key={item.title}>
@@ -420,7 +502,7 @@ export default function CopilotWorkbench() {
             </div>
             <div className="session-list">
               {sessions.map((session) => (
-                <button key={session._id} className={active?._id === session._id ? 'active' : ''} onClick={() => setActive(session)}>
+                <button key={session._id} className={active?._id === session._id ? 'active' : ''} onClick={() => selectSession(session)}>
                   <strong>{session.title}</strong>
                   <span>{session.messages?.length || 0} messages</span>
                 </button>
@@ -490,6 +572,12 @@ export default function CopilotWorkbench() {
                 </button>
               ))}
             </div>
+            <div className="scenario-bar">
+              <strong>推荐演示场景</strong>
+              {demoScenarios.map((scenario) => (
+                <button key={scenario.title} onClick={() => applyScenario(scenario)}>{scenario.title}</button>
+              ))}
+            </div>
             <div className="generation-meta">
               <strong>{activeMode.label}交付物</strong>
               {activeMode.deliverables.map((item) => (
@@ -556,7 +644,11 @@ export default function CopilotWorkbench() {
                 ))}
               </div>
             ) : (
-              <div className="empty">选择“研发提效”或“上下文工程”后，会生成代码、测试、文档或 Context Pack。</div>
+              <div className="artifact-empty">
+                <article><FileCode2 size={16} /><strong>Code Draft</strong><span>组件、Hook、Mock 草案</span></article>
+                <article><FileText size={16} /><strong>Test Plan</strong><span>单测、契约测试、回归点</span></article>
+                <article><FileText size={16} /><strong>Context Pack</strong><span>Prompt、RAG、工具状态分层</span></article>
+              </div>
             )}
           </section>
 
@@ -574,6 +666,15 @@ export default function CopilotWorkbench() {
         </main>
 
         <aside className="trace-panel">
+          <section className="panel">
+            <h2>面试能力覆盖</h2>
+            <div className="coverage-list">
+              {coverageItems.map((item) => (
+                <span key={item}><CheckCircle2 size={14} />{item}</span>
+              ))}
+            </div>
+          </section>
+
           <section className="panel">
             <div className="section-head">
               <h2>Agent Trace</h2>
