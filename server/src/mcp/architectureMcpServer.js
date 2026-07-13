@@ -88,6 +88,27 @@ async function handleToolCall(store, name, args = {}) {
     return { content: text(JSON.stringify(rule, null, 2)) };
   }
 
+  if (name === 'generate_engineering_artifacts') {
+    return {
+      content: text(JSON.stringify({
+        code: '生成组件/Hook/接口 Mock 草案，必须进入人工确认后落盘。',
+        test: ['交互测试', '工具权限契约测试', 'RAG 引用回归测试', 'Provider fallback 测试'],
+        docs: '根据 PR diff 和架构决策生成 Markdown 文档草稿。',
+        qualityGates: ['typecheck', 'lint', 'unit test', 'review checklist', 'human approval']
+      }, null, 2))
+    };
+  }
+
+  if (name === 'compose_context_pack') {
+    return {
+      content: text(JSON.stringify({
+        layers: ['system', 'user', 'retrieval', 'tools', 'memory', 'guardrails'],
+        compression: ['保留决策和引用', '压缩重复对话', '工具结果只保留摘要', '敏感信息隔离'],
+        guardrails: ['引用来源展示', 'allowedTools 控制', '高风险人工确认', 'Provider fallback']
+      }, null, 2))
+    };
+  }
+
   return fail(null, -32601, `Unknown tool: ${name}`);
 }
 
@@ -183,6 +204,28 @@ async function dispatch(store, message) {
             properties: {
               name: { type: 'string' },
               scope: { type: 'string' }
+            }
+          }
+        },
+        {
+          name: 'generate_engineering_artifacts',
+          description: 'Generate code/test/doc artifacts for AI-assisted frontend development.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              workflowGoal: { type: 'string' },
+              targetStack: { type: 'string' }
+            }
+          }
+        },
+        {
+          name: 'compose_context_pack',
+          description: 'Compose context layers, compression policy and guardrails for an Agent task.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentGoal: { type: 'string' },
+              contextSources: { type: 'array', items: { type: 'string' } }
             }
           }
         }

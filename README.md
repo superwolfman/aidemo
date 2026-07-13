@@ -1,8 +1,61 @@
 # AI Architecture Copilot
 
-`mcp-poc` 分支基于 `mvp` 分支继续演进，目标是回答面试官深入追问时最容易暴露的 5 个问题：真实 LLM Provider、MCP Server、RAG 后端替换边界、后端旧路由纯净度、专业 UI 细节。
+面向前端架构师 / AI 前端工程师的开源 MVP：把 AI 引入研发流程和产品体验，展示 Skill Runtime、Tool Calling、RAG、Context Engineering、Human-in-the-loop 和 Agent Trace 如何落到一个真实可运行的前端工作台。
 
-它仍然不是生产级 AI 平台，而是一个更完整的 AI 应用工程 POC：能本地离线演示，也能通过环境变量切到真实模型和 MCP 工具接入路径。
+这个项目不是“大而全 AI 平台”，也不是普通 Chatbot。它聚焦一个清晰场景：
+
+> 帮助研发团队完成需求分析、架构评审、代码审查、研发提效方案和上下文工程设计，并让 AI 执行过程可解释、可审计、可人工确认。
+
+它适合用于：
+
+- 前端技术架构师面试作品集。
+- AI Native Frontend / AI 应用工程师面试 Demo。
+- 团队内部探索 AI Coding、RAG、Agent 工作流的 PoC。
+- GitHub 开源项目展示“前端架构能力如何迁移到 AI 应用工程”。
+
+## 能力映射
+
+| 面试要求 | 项目对应实现 |
+|---|---|
+| AI 进入研发流程 | `研发提效 Skill` 支持代码草案、测试策略、文档草稿、PR 质量门禁 Artifact |
+| AI 产品落地 | 多会话智能助手 + RAG 知识库 + Agent Trace + 人工确认 |
+| Agent / Prompt / Context Engineering | SkillDefinition、allowedTools、knowledgeScopes、Context Pack、Prompt Contract |
+| AI 产品交互 | SSE 流式输出、停止生成、重新生成、引用来源、Trace 时间线、审批节点 |
+| 大前端技术趋势 | React + TypeScript + Less + Node BFF + MCP POC + LLM Provider Adapter |
+| Agent 体验 / 多模态展示 | Chat、Markdown、代码高亮、Artifact 面板、Trace、文档草稿、Context JSON |
+
+## 版本迭代
+
+### v0.1 MVP
+
+- 多会话 AI Chat。
+- Skill Runtime。
+- Tool Calling。
+- 轻量 RAG。
+- Human-in-the-loop。
+- Agent Trace。
+
+### v0.2 MCP POC
+
+- OpenAI-compatible LLM Provider Adapter。
+- MCP Server POC。
+- RAG backend adapter。
+- 后端旧平台路由收敛。
+- Runtime Board 和 Trace Timeline。
+
+### v0.3 Open Source Interview Edition
+
+- 增加 `研发提效 Skill`：代码生成、测试辅助、文档生成、PR 质量门禁。
+- 增加 `上下文工程 Skill`：Prompt Contract、Context Pack、压缩策略、Guardrails。
+- 增加 Artifact 展示区：代码、测试、文档、上下文包。
+- 增加能力矩阵，直接对应前端架构师 + AI 面试要求。
+
+### v0.4 Roadmap
+
+- 接入真实向量库：MongoDB Atlas Vector Search / pgvector / Milvus。
+- 将 MCP POC 替换为官方 SDK 实现。
+- 增加 Eval：引用准确率、工具调用成功率、审批通过率、AI 建议采纳率。
+- 增加 Coding Agent 文件级变更预览，但继续保留人工确认。
 
 ## 快速启动
 
@@ -85,6 +138,8 @@ tools:
 - `search_architecture_docs`
 - `inspect_project_structure`
 - `generate_project_rule`
+- `generate_engineering_artifacts`
+- `compose_context_pack`
 
 prompts:
 
@@ -198,12 +253,13 @@ MVP 只保留一个侧边栏入口：`AI Copilot`。
 
 ### 2. 细化生成工作台
 
-MVP 不再只提供一个大输入框，而是内置 4 个任务模式：
+MVP 不提供零散菜单，而是在一个 Workbench 内内置 5 个任务模式：
 
+- 研发提效：输出代码草案、测试策略、文档草稿、PR 质量门禁。
 - 需求分析：输出业务目标拆解、非功能约束、验收标准、待确认问题。
 - 架构评审：输出架构决策、模块边界、风险清单、演进路线。
 - 代码审查：输出风险发现、修复建议、测试缺口、合并建议。
-- 架构文档：输出 Markdown 草稿、引用来源、上线计划、人工确认。
+- 上下文工程：输出 Prompt Contract、Context Pack、压缩策略、Guardrails。
 
 每个任务模式都会绑定：
 
@@ -212,16 +268,19 @@ MVP 不再只提供一个大输入框，而是内置 4 个任务模式：
 - 对应 Skill。
 - 可用工具。
 - 最终请求预览。
+- Artifact 展示。
 
 这能体现 MVP 是“受约束的技能运行时”，不是单纯 Prompt 页面。
 
 ### 3. Skill 系统
 
-内置 3 个 Skill：
+内置 5 个 Skill：
 
+- 研发提效 Skill：生成代码草案、测试策略、文档草稿和 PR 质量门禁。
 - 需求分析 Skill：拆解目标、约束、验收标准和风险。
 - 架构评审 Skill：审查前端架构、BFF、RAG、Agent、可观测性和发布风险。
 - 代码审查 Skill：关注 PR 风险、测试缺口、性能和工程规范。
+- 上下文工程 Skill：设计 Prompt Contract、Context Pack、压缩策略和 Guardrails。
 
 每个 Skill 都符合以下结构：
 
@@ -249,17 +308,21 @@ type SkillDefinition = {
 
 ### 4. Tool Calling
 
-MVP 内置 3 个普通函数工具，接口设计保持可迁移到 MCP Server：
+MVP 内置 5 个普通函数工具，接口设计保持可迁移到 MCP Server：
 
 - `searchKnowledge`：按 Skill 的 `knowledgeScopes` 检索研发知识库。
 - `analyzeRepository`：分析当前工程栈、模块、关注点和风险。
 - `generateArchitectureDocument`：生成 Markdown 架构文档草稿。
+- `generateEngineeringArtifacts`：生成代码、测试、文档类 Artifact。
+- `composeContextPack`：生成 Context Engineering 分层上下文包。
 
 工具调用不是固定假流程。后端会根据 `allowedTools` 动态决定是否执行：
 
-- 需求分析 Skill：只调用 `searchKnowledge`。
+- 研发提效 Skill：调用 `searchKnowledge`、`analyzeRepository`、`generateEngineeringArtifacts`。
+- 需求分析 Skill：调用 `searchKnowledge`。
 - 架构评审 Skill：调用 `searchKnowledge`、`analyzeRepository`、`generateArchitectureDocument`。
 - 代码审查 Skill：调用 `searchKnowledge`、`analyzeRepository`。
+- 上下文工程 Skill：调用 `searchKnowledge`、`composeContextPack`。
 
 工具调用结果会进入 Agent Trace，包括 Tool 名称、输入参数、输出摘要、耗时、token 使用量和错误信息。
 

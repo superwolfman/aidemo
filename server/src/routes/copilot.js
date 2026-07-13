@@ -6,6 +6,34 @@ import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
 
 const skills = [
   {
+    id: 'engineering-productivity',
+    name: '研发提效 Skill',
+    version: '1.1.0',
+    description: '面向前端团队研发流程，生成代码脚手架、测试策略、文档草稿和 PR 检查建议。',
+    systemPrompt: '你是 AI 研发效能专家，必须围绕代码生成、测试辅助、文档生成、PR 审查和团队落地规范输出可执行方案。',
+    inputSchema: {
+      type: 'object',
+      required: ['workflowGoal', 'targetStack'],
+      properties: {
+        workflowGoal: { type: 'string' },
+        targetStack: { type: 'string' },
+        qualityGate: { type: 'string' }
+      }
+    },
+    outputSchema: {
+      type: 'object',
+      required: ['automationPlan', 'testPlan', 'codeArtifacts', 'adoptionMetrics'],
+      properties: {
+        automationPlan: { type: 'array', items: { type: 'string' } },
+        testPlan: { type: 'array', items: { type: 'string' } },
+        codeArtifacts: { type: 'array', items: { type: 'string' } },
+        adoptionMetrics: { type: 'array', items: { type: 'string' } }
+      }
+    },
+    allowedTools: ['searchKnowledge', 'analyzeRepository', 'generateEngineeringArtifacts'],
+    knowledgeScopes: ['standards', 'sdk', 'architecture']
+  },
+  {
     id: 'requirement-analysis',
     name: '需求分析 Skill',
     version: '1.0.0',
@@ -84,6 +112,34 @@ const skills = [
     },
     allowedTools: ['analyzeRepository', 'searchKnowledge'],
     knowledgeScopes: ['standards', 'sdk']
+  },
+  {
+    id: 'context-engineering',
+    name: '上下文工程 Skill',
+    version: '1.0.0',
+    description: '为 Agent 任务设计 Prompt、上下文分层、RAG 拼接、压缩、隔离和引用策略。',
+    systemPrompt: '你是 Context Engineering 专家，必须说明上下文来源、优先级、压缩策略、引用策略、工具状态和幻觉防护。',
+    inputSchema: {
+      type: 'object',
+      required: ['agentGoal', 'contextSources'],
+      properties: {
+        agentGoal: { type: 'string' },
+        contextSources: { type: 'array', items: { type: 'string' } },
+        riskControl: { type: 'string' }
+      }
+    },
+    outputSchema: {
+      type: 'object',
+      required: ['promptContract', 'contextLayers', 'compressionPolicy', 'guardrails'],
+      properties: {
+        promptContract: { type: 'string' },
+        contextLayers: { type: 'array', items: { type: 'string' } },
+        compressionPolicy: { type: 'array', items: { type: 'string' } },
+        guardrails: { type: 'array', items: { type: 'string' } }
+      }
+    },
+    allowedTools: ['searchKnowledge', 'composeContextPack'],
+    knowledgeScopes: ['architecture', 'standards', 'sdk']
   }
 ];
 
@@ -117,6 +173,24 @@ const seedKnowledge = [
     tags: ['copilot', 'standards'],
     content:
       '前端必须使用 TypeScript 和 Less，模块需要拆分清晰，公共能力进入 platform。Node BFF 负责鉴权、RAG、工具调用、会话和 Trace。高风险工具必须通过人工确认。'
+  },
+  {
+    title: 'AI 研发效能落地手册',
+    tags: ['copilot', 'standards', 'sdk'],
+    content:
+      'AI 进入研发流程应从需求澄清、代码生成、单测生成、接口 Mock、文档生成、PR 检查和知识库检索切入。团队落地需要定义任务模板、质量门禁、人工确认、采纳率、返工率和缺陷逃逸率指标。'
+  },
+  {
+    title: 'AI Native 前端交互规范',
+    tags: ['copilot', 'architecture', 'ai-native'],
+    content:
+      'AI Native 前端体验需要支持多轮对话、流式反馈、停止和重试、工具调用状态、引用来源、人工确认、结果修订、执行轨迹和可恢复上下文。复杂输出应以文本、代码、文档、Trace、表格等 Artifact 形式组织。'
+  },
+  {
+    title: 'Context Engineering 设计规范',
+    tags: ['copilot', 'architecture', 'standards'],
+    content:
+      '上下文工程应区分系统指令、用户意图、会话记忆、RAG 引用、工具结果和安全约束。上下文拼接需要定义优先级、token 预算、压缩策略、去重策略、引用保真和敏感信息隔离。'
   }
 ];
 
@@ -172,17 +246,88 @@ async function searchKnowledge(store, query, scopes) {
 
 async function analyzeRepository({ skillId, mode }) {
   const focusMap = {
+    'engineering-productivity': ['代码生成', '测试辅助', '文档生成', 'PR 质量门禁'],
     'requirement-analysis': ['业务目标完整性', '约束可验证性', '验收标准'],
     'architecture-review': ['模块边界', '数据流', '可观测性', '发布风险'],
-    'code-review': ['变更风险', '测试缺口', '性能与可维护性']
+    'code-review': ['变更风险', '测试缺口', '性能与可维护性'],
+    'context-engineering': ['上下文分层', 'RAG 拼接', '压缩策略', '幻觉防护']
   };
   return {
-    stack: ['React', 'TypeScript', 'Less', 'Node.js', 'MongoDB', 'WebSocket', 'SSE'],
-    modules: ['copilot', 'skills', 'knowledge', 'trace', 'human-review'],
+    stack: ['React', 'TypeScript', 'Less', 'Node.js', 'MongoDB', 'SSE', 'MCP POC'],
+    modules: ['copilot-workbench', 'skill-runtime', 'tool-registry', 'rag-engine', 'context-engine', 'human-review', 'agent-trace'],
     focus: focusMap[skillId] || focusMap['architecture-review'],
     mode,
     risks: ['缺少真实 LLM Provider 时需要 mock provider 边界', 'PDF 文本抽取在 MVP 中采用轻量兼容策略'],
     recommendation: '保持工具接口稳定，后续可替换为 MCP Server 或 OpenAI Agents SDK tools。'
+  };
+}
+
+function generateEngineeringArtifacts({ prompt, skill, sources, repoAnalysis }) {
+  return [
+    {
+      id: 'artifact-code-scaffold',
+      type: 'code',
+      title: '组件生成草案',
+      language: 'tsx',
+      content: [
+        'type ReviewPanelProps = {',
+        '  title: string;',
+        '  findings: string[];',
+        '  onApprove: () => void;',
+        '};',
+        '',
+        'export function ReviewPanel(props: ReviewPanelProps) {',
+        '  return <section aria-label={props.title}>{props.findings.map((item) => <p key={item}>{item}</p>)}</section>;',
+        '}'
+      ].join('\n')
+    },
+    {
+      id: 'artifact-test-plan',
+      type: 'test',
+      title: '智能测试策略',
+      content: [
+        '1. 为 Skill 切换、SSE 中止、重新生成、人工确认增加交互测试。',
+        '2. 为 allowedTools 与 knowledgeScopes 增加契约测试。',
+        '3. 为 RAG 引用来源、Trace 顺序和 Provider fallback 增加回归测试。',
+        `4. 当前关注技术栈：${repoAnalysis?.stack?.join(' / ') || 'React / Node'}。`
+      ].join('\n')
+    },
+    {
+      id: 'artifact-doc',
+      type: 'document',
+      title: '研发提效落地说明',
+      content: [
+        '# AI 研发提效方案',
+        '',
+        `目标：${prompt}`,
+        '',
+        `Skill：${skill.name} / ${skill.version}`,
+        '',
+        '落地路径：先从代码生成、单测生成、文档草稿、PR 检查四类低风险任务切入，高风险改动进入人工确认。',
+        '',
+        `引用：${sources.map((source) => source.documentTitle).join('、') || '暂无'}`
+      ].join('\n')
+    }
+  ];
+}
+
+function composeContextPack({ prompt, skill, sources }) {
+  return {
+    id: 'artifact-context-pack',
+    type: 'context',
+    title: 'Context Pack',
+    content: {
+      goal: prompt,
+      skill: { id: skill.id, version: skill.version },
+      layers: [
+        { name: 'system', priority: 1, policy: '稳定角色、输出结构、风险边界' },
+        { name: 'user', priority: 2, policy: '保留原始意图和结构化表单字段' },
+        { name: 'retrieval', priority: 3, policy: '只注入与 knowledgeScopes 命中的引用片段' },
+        { name: 'tools', priority: 4, policy: '只拼接 allowedTools 的输入输出摘要' },
+        { name: 'memory', priority: 5, policy: '保留最近会话决策，超过 token 预算时压缩' }
+      ],
+      guardrails: ['引用来源必须展示', '工具越权不执行', '高风险动作进入人工确认', 'Provider 失败可降级']
+    }
   };
 }
 
@@ -212,14 +357,20 @@ ${sources.map((source, index) => `${index + 1}. ${source.documentTitle || source
 - 若拒绝，则保留 Trace 和原因用于复盘。`;
 }
 
-function buildAnswer({ prompt, skill, sources, repoAnalysis, documentDraft }) {
+function buildAnswer({ prompt, skill, sources, repoAnalysis, documentDraft, artifacts = [] }) {
   const sourceText = sources.map((source, index) => `[${index + 1}] ${source.documentTitle}: ${source.content}`).join('\n');
   const toolText = [
     `searchKnowledge 命中 ${sources.length} 条上下文`,
     repoAnalysis ? `analyzeRepository 识别重点：${repoAnalysis.focus.join(' / ')}` : '',
-    documentDraft ? 'generateArchitectureDocument 已生成草稿，等待人工确认' : ''
+    documentDraft ? 'generateArchitectureDocument 已生成草稿，等待人工确认' : '',
+    artifacts.length ? `生成 ${artifacts.length} 个 Artifact，用于代码、测试、文档或上下文展示` : ''
   ].filter(Boolean).join('。\n- ');
   const skillSpecific = {
+    'engineering-productivity': `### 研发提效方案
+- 切入点：代码生成、测试辅助、文档生成、PR 检查，先做低风险自动化，再进入高风险人工确认。
+- 团队机制：沉淀任务模板、Prompt 规范、质量门禁和采纳率指标。
+- 前端实现：用流式反馈展示生成过程，用 Artifact 区分代码、测试、文档和 Trace，用审批节点兜底风险。
+- 成效指标：PR 周期、单测覆盖率、缺陷逃逸率、文档补全率、AI 建议采纳率。`,
     'requirement-analysis': `### 需求拆解
 - 业务目标：${prompt}
 - 关键约束：需要把输入 Schema、输出 Schema、知识域、工具权限和人工确认写入验收标准。
@@ -233,7 +384,12 @@ function buildAnswer({ prompt, skill, sources, repoAnalysis, documentDraft }) {
     'code-review': `### Code Review
 - Findings：当前改动重点应检查前端模块边界、SSE 中止、Trace 状态一致性和审批持久化。
 - Test Gaps：需要覆盖不同 Skill 的 allowedTools、知识域过滤、模板导入去重和流式中断。
-- Recommendation：允许进入 MVP，但合并前必须跑 typecheck、lint、build 和 Node 语法检查。`
+- Recommendation：允许进入 MVP，但合并前必须跑 typecheck、lint、build 和 Node 语法检查。`,
+    'context-engineering': `### Context Engineering
+- Prompt Contract：系统指令负责边界，用户输入负责目标，结构化表单负责约束，RAG 负责事实，工具结果负责状态。
+- Context Layers：system / user / retrieval / tools / memory / guardrails 分层拼接。
+- Compression：优先保留决策、引用来源、工具输出摘要，压缩长对话和重复片段。
+- Guardrails：知识域隔离、引用展示、工具权限、人工确认和 Provider fallback。`
   };
   return `## ${skill.name} 输出
 
@@ -411,11 +567,38 @@ export function copilotRouter(store) {
       }));
     }
 
-    const fallbackAnswer = buildAnswer({ prompt, skill, sources, repoAnalysis, documentDraft });
+    let artifacts = [];
+    if (skill.allowedTools.includes('generateEngineeringArtifacts')) {
+      artifacts = generateEngineeringArtifacts({ prompt, skill, sources, repoAnalysis });
+      await emitStep(step('artifacts', '生成研发效能 Artifacts', 'success', {
+        tool: 'generateEngineeringArtifacts',
+        input: { artifactTypes: ['code', 'test', 'document'] },
+        output: artifacts.map((artifact) => ({ type: artifact.type, title: artifact.title })),
+        tokenUsage: tokenCount(JSON.stringify(artifacts))
+      }));
+    }
+
+    if (skill.allowedTools.includes('composeContextPack')) {
+      const contextPack = composeContextPack({ prompt, skill, sources });
+      artifacts = [...artifacts, contextPack];
+      await emitStep(step('context-pack', '构建 Context Pack', 'success', {
+        tool: 'composeContextPack',
+        input: { sources: sources.map((source) => source.documentTitle), skill: skill.id },
+        output: { layers: contextPack.content.layers.length, guardrails: contextPack.content.guardrails.length },
+        tokenUsage: tokenCount(JSON.stringify(contextPack))
+      }));
+    }
+
+    if (artifacts.length) {
+      sendEvent(res, 'artifacts', { artifacts });
+    }
+
+    const fallbackAnswer = buildAnswer({ prompt, skill, sources, repoAnalysis, documentDraft, artifacts });
     const toolResults = {
       searchKnowledge: sources.map((source) => ({ title: source.documentTitle, score: source.score })),
       analyzeRepository: repoAnalysis,
-      generateArchitectureDocument: documentDraft ? { chars: documentDraft.length } : null
+      generateArchitectureDocument: documentDraft ? { chars: documentDraft.length } : null,
+      artifacts: artifacts.map((artifact) => ({ type: artifact.type, title: artifact.title }))
     };
     let answer = fallbackAnswer;
     try {
