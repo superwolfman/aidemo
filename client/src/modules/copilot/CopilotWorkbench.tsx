@@ -58,6 +58,8 @@ type RuntimeStatus = {
     mode: string;
     model: string;
     configured: boolean;
+    streaming?: boolean;
+    protocol?: string;
   };
   rag: {
     backend: string;
@@ -69,6 +71,16 @@ type RuntimeStatus = {
     transport: string;
     command: string;
   };
+};
+
+type ModelPreset = {
+  id: string;
+  label: string;
+  provider: string;
+  model: string;
+  description: string;
+  configured: boolean;
+  active?: boolean;
 };
 
 type Artifact = {
@@ -206,40 +218,6 @@ const demoScenarios = [
   }
 ];
 
-const releaseTracks = [
-  {
-    version: 'v1.0',
-    title: 'AI Dev Workflow',
-    status: 'implemented',
-    items: ['代码草案 Artifact', '测试策略', '文档草稿', 'PR 质量门禁']
-  },
-  {
-    version: 'v2.0',
-    title: 'RAG & Context',
-    status: 'implemented',
-    items: ['知识域过滤', '引用来源', 'Context Pack', 'Prompt Contract']
-  },
-  {
-    version: 'v3.0',
-    title: 'Agent Runtime',
-    status: 'implemented',
-    items: ['Skill Runtime', 'Tool Calling', 'SSE Trace', 'Human-in-the-loop']
-  },
-  {
-    version: 'v4.0',
-    title: 'Open Platform',
-    status: 'poc',
-    items: ['MCP Server', 'LLM Provider', 'Eval 指标', '向量库替换']
-  }
-];
-
-const benchmarkPatterns = [
-  'Task-first：围绕研发任务输入上下文，减少无关菜单和展示页',
-  'Artifact-first：输出代码、测试、文档和 Context Pack，而不是只返回聊天文本',
-  'Trace-first：展示工具输入输出、耗时、token、错误和人工确认',
-  'Guardrails：Skill schema、allowedTools、knowledgeScopes 和审批开关进入运行时'
-];
-
 function escapeHtml(value: string) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -303,31 +281,45 @@ export default function CopilotWorkbench() {
   const [ragSearching, setRagSearching] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
+  const [modelPresets, setModelPresets] = useState<ModelPreset[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState('');
   const [running, setRunning] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const chatStreamRef = useRef<HTMLDivElement | null>(null);
 
   const activeSkill = useMemo(() => skills.find((skill) => skill.id === skillId), [skills, skillId]);
   const activeMode = useMemo(() => taskModes.find((mode) => mode.id === taskModeId) || taskModes[1], [taskModeId]);
-  const messages = active?.messages || [];
+  const messages = useMemo(() => active?.messages || [], [active?.messages]);
+  const visibleMessages = useMemo(
+    () => messages.filter((message) => message.role === 'assistant' && message.content.trim()),
+    [messages]
+  );
   const replayTrace = replayIndex === null ? trace : trace.slice(0, replayIndex + 1);
   const activeScopes = activeSkill?.knowledgeScopes || ['architecture', 'standards'];
   const indexedChunks = documents.reduce((sum, doc) => sum + (doc.chunkCount || 0), 0);
   const activeTemplatePacks = knowledgeTemplates
     .filter((template) => template.tags?.some((tag) => activeScopes.includes(tag) || tag === 'copilot'))
     .slice(0, 4);
+  const selectedModel = useMemo(
+    () => modelPresets.find((model) => model.id === selectedModelId) || modelPresets[0],
+    [modelPresets, selectedModelId]
+  );
 
   const load = useCallback(async () => {
-    const [skillResult, sessionResult, knowledgeResult, templateResult, runtimeResult] = await Promise.all([
+    const [skillResult, sessionResult, knowledgeResult, templateResult, runtimeResult, modelResult] = await Promise.all([
       request('/api/copilot/skills'),
       request('/api/copilot/sessions'),
       request('/api/copilot/knowledge'),
       request('/api/copilot/knowledge/templates'),
-      request('/api/copilot/runtime')
+      request('/api/copilot/runtime'),
+      request('/api/copilot/models')
     ]);
     setSkills(skillResult.skills);
     setDocuments(knowledgeResult.documents);
     setKnowledgeTemplates(templateResult.templates || []);
     setRuntime(runtimeResult);
+    setModelPresets(modelResult.models || []);
+    setSelectedModelId((current) => current || modelResult.models?.find((item: ModelPreset) => item.active || item.configured)?.id || modelResult.models?.[0]?.id || '');
     const productivitySession = sessionResult.sessions.find((session: Session) => session.activeSkillId === 'engineering-productivity');
     if (!sessionResult.sessions.length || !productivitySession) {
       const created = await request('/api/copilot/sessions', { method: 'POST', body: JSON.stringify({ title: 'AI 研发提效演示会话', skillId: 'engineering-productivity' }) });
@@ -343,6 +335,12 @@ export default function CopilotWorkbench() {
   useEffect(() => {
     load().catch(console.error);
   }, [load]);
+
+  useEffect(() => {
+    const el = chatStreamRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages, running]);
 
   async function createSession() {
     const result = await request('/api/copilot/sessions', { method: 'POST', body: JSON.stringify({ title: `${activeMode.label}会话`, skillId }) });
@@ -380,7 +378,16 @@ export default function CopilotWorkbench() {
     setActive(optimistic);
 
     try {
-      await streamRequest(`/api/copilot/sessions/${active._id}/messages/stream`, { prompt: nextPrompt, skillId, mode: taskModeId, form }, {
+      await streamRequest(`/api/copilot/sessions/${active._id}/messages/stream`, {
+        prompt: nextPrompt,
+        skillId,
+        mode: taskModeId,
+        form,
+        model: selectedModel ? {
+          provider: selectedModel.provider,
+          model: selectedModel.model
+        } : undefined
+      }, {
         trace: (step) => setTrace((items) => [...items.filter((item) => item.id !== step.id), step]),
         sources: (payload) => setSources(payload.sources || []),
         artifacts: (payload) => setArtifacts(payload.artifacts || []),
@@ -542,21 +549,21 @@ export default function CopilotWorkbench() {
     <section>
       <Header
         title="AI Architecture Copilot"
-        desc="面向前端架构师和 AI 前端工程师的开源 MVP：研发提效、RAG/Agent、Context Engineering、实时工作流和可审计 Trace。"
+        desc="一个面向研发场景的 AI Copilot 工作台：输入任务，流式生成，查看引用、Trace、Artifact，并在高风险节点人工确认。"
         action={<Status status={running ? 'streaming' : 'mvp'} />}
       />
 
-      <section className="product-command">
+      <section className="copilot-command-bar">
         <div>
-          <span>Open Source Interview Edition</span>
-          <strong>AI Dev Workflow + RAG + Agent Trace</strong>
-          <p>参考 Cursor、Copilot Workspace、Dify、LangSmith 的产品形态，收敛为一个研发任务工作台：输入需求，加载上下文，调用工具，产出 Artifact，并进入人工确认。</p>
+          <span>Live Copilot Workbench</span>
+          <strong>{selectedModel ? `${selectedModel.provider} · ${selectedModel.model}` : runtime?.llm.mode === 'live' ? `${runtime.llm.provider} · ${runtime.llm.model}` : 'Local fallback runtime'}</strong>
+          <p>中间区域是输入和输出；右侧展示 Agent 执行过程、RAG 引用和人工确认。</p>
         </div>
         <div className="command-metrics">
-          <span><strong>5</strong> Skills</span>
-          <span><strong>5</strong> Tools</span>
-          <span><strong>4</strong> Artifact types</span>
-          <span><strong>MCP</strong> POC</span>
+          <span><strong>{skills.length || 5}</strong> Skills</span>
+          <span><strong>{sources.length}</strong> Citations</span>
+          <span><strong>{artifacts.length}</strong> Artifacts</span>
+          <span><strong>{trace.length}</strong> Trace steps</span>
         </div>
       </section>
 
@@ -581,7 +588,7 @@ export default function CopilotWorkbench() {
             <h2>Skill 系统</h2>
             {runtime ? (
               <div className="runtime-board">
-                <span>LLM <strong>{runtime.llm.mode}</strong> · {runtime.llm.model}</span>
+                <span>LLM <strong>{runtime.llm.mode}</strong> · {selectedModel?.model || runtime.llm.model}{runtime.llm.streaming ? ' · streaming' : ''}</span>
                 <span>RAG <strong>{runtime.rag.backend}</strong> · {runtime.rag.vectorStore}</span>
                 <span>MCP <strong>{runtime.mcp.transport}</strong></span>
               </div>
@@ -595,7 +602,7 @@ export default function CopilotWorkbench() {
               ))}
             </div>
             {activeSkill ? (
-              <details className="schema-card" open>
+              <details className="schema-card">
                 <summary>SkillDefinition · {schemaRequired(activeSkill.inputSchema)}</summary>
                 <pre>{JSON.stringify({
                   id: activeSkill.id,
@@ -653,7 +660,14 @@ export default function CopilotWorkbench() {
         </aside>
 
         <main className="copilot-chat panel">
-          <section className="generation-console">
+          <section className="task-console">
+            <div className="section-head">
+              <div>
+                <h2>任务模式</h2>
+                <p>选择一个 Skill 后，下面输入框会带上对应的上下文和交付约束。</p>
+              </div>
+              <span className="live-badge">{runtime?.llm.mode || 'fallback'}{runtime?.llm.streaming ? ' · streaming' : ''}</span>
+            </div>
             <div className="mode-tabs">
               {taskModes.map((mode) => (
                 <button key={mode.id} className={mode.id === taskModeId ? 'active' : ''} onClick={() => changeMode(mode)}>
@@ -668,29 +682,25 @@ export default function CopilotWorkbench() {
                 <button key={scenario.title} onClick={() => applyScenario(scenario)}>{scenario.title}</button>
               ))}
             </div>
-            <div className="generation-meta">
+            <div className="generation-meta compact">
               <strong>{activeMode.label}交付物</strong>
               {activeMode.deliverables.map((item) => (
                 <span key={item}><CheckCircle2 size={14} />{item}</span>
               ))}
               <em>Skill: {activeSkill?.name || activeMode.skillId} · Tools: {activeSkill?.allowedTools.join(' / ') || '-'}</em>
             </div>
-            <div className="generation-form">
-              <label>
-                生成目标
-                <textarea rows={2} value={prompt} onChange={(event) => setPrompt(event.target.value)} />
-              </label>
-              {activeMode.fields.map((field) => (
-                <label key={field.key}>
-                  {field.label}
-                  <input value={form[field.key] || ''} placeholder={field.placeholder} onChange={(event) => setForm((value) => ({ ...value, [field.key]: event.target.value }))} />
-                </label>
-              ))}
-            </div>
           </section>
 
-          <div className="chat-stream">
-            {messages.map((message) => (
+          <div className="conversation-title">
+            <div>
+              <h2>对话输出</h2>
+              <p>DeepSeek / Agent 的回答会显示在这里，包含 Markdown、代码块和结构化结论。</p>
+            </div>
+            {running ? <Status status="streaming" /> : null}
+          </div>
+
+          <div className="chat-stream" ref={chatStreamRef}>
+            {visibleMessages.map((message) => (
               <article key={message.id} className={`chat-message ${message.role}`}>
                 <div className="chat-role">{message.role === 'assistant' ? <Bot size={16} /> : 'U'}</div>
                 <MarkdownView content={message.content} />
@@ -698,22 +708,92 @@ export default function CopilotWorkbench() {
             ))}
             {running ? (
               <div className="stream-skeleton">
+                <strong>正在流式生成...</strong>
                 <span />
                 <span />
                 <span />
               </div>
             ) : null}
-            {!messages.length ? <div className="empty">选择 Skill 后输入架构问题，Copilot 会流式输出并展示 Trace。</div> : null}
+            {!visibleMessages.length ? (
+              <div className="chat-empty-state">
+                <Bot size={26} />
+                <strong>还没有输出结果</strong>
+                <span>在下方输入问题后，结果会以对话形式显示在这里。</span>
+              </div>
+            ) : null}
           </div>
 
-          <details className="source-detail" open={Boolean(sources.length)}>
-            <summary>引用来源 · {sources.length}</summary>
-            <div className="source-strip">
-              {sources.map((source) => (
-                <span key={source._id} title={source.content}>{source.documentTitle} · score {source.score}</span>
-              ))}
+          <section className="chat-composer">
+            <div className="composer-head">
+              <div>
+                <h2>输入任务</h2>
+                <p>这里是主输入区，会发送给 Skill、RAG、Tool Calling 和 DeepSeek Provider。</p>
+              </div>
+              <span>{selectedModel ? `${selectedModel.label} · ${selectedModel.configured ? 'live' : '未配置'}` : activeSkill?.name || activeMode.label}</span>
             </div>
-          </details>
+            <details className="model-select" title={selectedModel ? `${selectedModel.label} / ${selectedModel.provider} / ${selectedModel.model}` : '选择模型'}>
+              <summary>
+                <span>{selectedModel?.label || '选择模型'}</span>
+                <em>{selectedModel?.provider || 'provider'} · {selectedModel?.configured ? 'live' : '未配置'}</em>
+              </summary>
+              <div className="model-menu">
+                <strong>模型</strong>
+                {selectedModel ? (
+                  <div className="model-current">
+                    <span>{selectedModel.label}</span>
+                    <em>{selectedModel.provider} · {selectedModel.model} · {selectedModel.configured ? 'live' : '未配置'}</em>
+                  </div>
+                ) : null}
+                {modelPresets.map((model) => (
+                  <button
+                    key={model.id}
+                    className={model.id === selectedModel?.id ? 'active' : ''}
+                    type="button"
+                    onClick={(event) => {
+                      setSelectedModelId(model.id);
+                      event.currentTarget.closest('details')?.removeAttribute('open');
+                    }}
+                  >
+                    <span>{model.label}{model.id === 'deepseek-reasoner' ? <b>推理</b> : null}</span>
+                    <em>{model.description}</em>
+                    <i>{model.provider} · {model.model} · {model.configured ? '可用' : '未配置'}</i>
+                  </button>
+                ))}
+              </div>
+            </details>
+            <div className="composer-input-shell">
+              <textarea
+                className="composer-input"
+                rows={5}
+                value={prompt}
+                placeholder="例如：请基于当前项目，分析 RAG 和 Agent 设计是否合理，并指出三条可改进点。"
+                onChange={(event) => setPrompt(event.target.value)}
+              />
+            </div>
+            <details className="structured-fields">
+              <summary>结构化约束与最终请求预览</summary>
+              <div className="generation-form">
+                {activeMode.fields.map((field) => (
+                  <label key={field.key}>
+                    {field.label}
+                    <input value={form[field.key] || ''} placeholder={field.placeholder} onChange={(event) => setForm((value) => ({ ...value, [field.key]: event.target.value }))} />
+                  </label>
+                ))}
+              </div>
+              <label>
+                最终发送内容
+                <textarea rows={4} value={buildPromptFromMode()} readOnly />
+              </label>
+            </details>
+            <div className="composer-actions">
+              <span>{selectedModel?.configured ? `将使用 ${selectedModel.label}` : '当前模型未配置 Key，可能降级或失败'}</span>
+              <div>
+                <button className="primary-button" disabled={running || !prompt.trim()} onClick={() => sendPrompt(buildPromptFromMode())}><Send size={16} />生成</button>
+                <button className="secondary-button" disabled={!running} onClick={stop}><Pause size={16} />停止生成</button>
+                <button className="secondary-button" disabled={running || !messages.length} onClick={regenerate}><RefreshCw size={16} />重新生成</button>
+              </div>
+            </div>
+          </section>
 
           <section className="artifact-panel">
             <div className="section-head">
@@ -741,46 +821,9 @@ export default function CopilotWorkbench() {
               </div>
             )}
           </section>
-
-          <div className="chat-composer">
-            <label>
-              最终请求预览
-              <textarea rows={4} value={buildPromptFromMode()} readOnly />
-            </label>
-            <div>
-              <button className="primary-button" disabled={running} onClick={() => sendPrompt(buildPromptFromMode())}><Send size={16} />生成</button>
-              <button className="secondary-button" disabled={!running} onClick={stop}><Pause size={16} />停止生成</button>
-              <button className="secondary-button" disabled={running || !messages.length} onClick={regenerate}><RefreshCw size={16} />重新生成</button>
-            </div>
-          </div>
         </main>
 
         <aside className="trace-panel">
-          <section className="panel benchmark-panel">
-            <h2>Product Benchmarks</h2>
-            <div className="benchmark-list">
-              {benchmarkPatterns.map((item) => (
-                <span key={item}><CheckCircle2 size={14} />{item}</span>
-              ))}
-            </div>
-          </section>
-
-          <section className="panel release-panel">
-            <h2>Release Plan</h2>
-            <div className="release-stack">
-              {releaseTracks.map((track) => (
-                <article key={track.version}>
-                  <div>
-                    <strong>{track.version}</strong>
-                    <span>{track.status}</span>
-                  </div>
-                  <h3>{track.title}</h3>
-                  <p>{track.items.join(' / ')}</p>
-                </article>
-              ))}
-            </div>
-          </section>
-
           <section className="panel">
             <div className="section-head">
               <h2>Agent Trace</h2>
@@ -811,6 +854,23 @@ export default function CopilotWorkbench() {
                 </details>
               ))}
             </div>
+          </section>
+
+          <section className="panel">
+            <h2>引用来源</h2>
+            {sources.length ? (
+              <div className="citation-list">
+                {sources.map((source, index) => (
+                  <article key={source._id}>
+                    <div>
+                      <strong>[{index + 1}] {source.documentTitle}</strong>
+                      <span>score {source.score}</span>
+                    </div>
+                    <p>{source.content}</p>
+                  </article>
+                ))}
+              </div>
+            ) : <div className="empty">生成后这里会展示 RAG 命中的 chunk、score 和 citation。</div>}
           </section>
 
           <section className="panel">

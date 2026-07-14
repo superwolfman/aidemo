@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import express from 'express';
-import { generateLlmAnswer, getProviderStatus } from '../services/llmProvider.js';
+import { generateLlmAnswer, getModelPresets, getProviderStatus, streamLlmAnswer } from '../services/llmProvider.js';
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
 import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
 
@@ -448,6 +448,13 @@ export function copilotRouter(store) {
     });
   });
 
+  router.get('/models', (req, res) => {
+    res.json({
+      active: getProviderStatus(),
+      models: getModelPresets()
+    });
+  });
+
   router.get('/knowledge/templates', (req, res) => {
     res.json({ templates: knowledgeTemplates });
   });
@@ -533,6 +540,14 @@ export function copilotRouter(store) {
     const prompt = [String(req.body.prompt || '').trim(), formContext ? `\n结构化输入:\n${formContext}` : ''].join('').trim();
     const skill = skills.find((item) => item.id === req.body.skillId) || skills[1];
     const mode = req.body.mode || skill.id;
+    const modelConfig = req.body.model && typeof req.body.model === 'object'
+      ? {
+          provider: req.body.model.provider,
+          model: req.body.model.model,
+          baseUrl: req.body.model.baseUrl
+        }
+      : {};
+    const providerStatus = getProviderStatus(modelConfig);
     const traceId = `trace-${crypto.randomUUID()}`;
     const userMessage = { id: `user-${Date.now()}`, role: 'user', content: prompt, createdAt: now(), skillId: skill.id };
 
@@ -546,7 +561,7 @@ export function copilotRouter(store) {
     await emitStep(step('request', '用户请求', 'success', { input: { prompt }, tokenUsage: tokenCount(prompt) }));
     await emitStep(step('skill', '选择 Skill', 'success', { output: { id: skill.id, version: skill.version } }));
     await emitStep(step('runtime', '检查运行时 Provider', 'success', {
-      output: { llm: getProviderStatus(), rag: getRagStatus() }
+      output: { llm: providerStatus, rag: getRagStatus() }
     }));
     await emitStep(step('context', '加载上下文', 'running', { output: { knowledgeScopes: skill.knowledgeScopes } }));
     const sources = await searchKnowledge(store, prompt, skill.knowledgeScopes);
@@ -613,24 +628,45 @@ export function copilotRouter(store) {
       generateArchitectureDocument: documentDraft ? { chars: documentDraft.length } : null,
       artifacts: artifacts.map((artifact) => ({ type: artifact.type, title: artifact.title }))
     };
+    const assistantId = `assistant-${Date.now()}`;
     let answer = fallbackAnswer;
+    let streamedByProvider = false;
     try {
-      const generated = await generateLlmAnswer({
+      await emitStep(step('llm', '调用真实 LLM Provider', 'running', {
+        input: { provider: providerStatus.provider, model: providerStatus.requestedModel || providerStatus.model }
+      }));
+      const generated = await streamLlmAnswer({
         systemPrompt: skill.systemPrompt,
         prompt,
         sources,
         toolResults,
-        fallback: fallbackAnswer
+        modelConfig,
+        onDelta: (text) => {
+          sendEvent(res, 'delta', { id: assistantId, text });
+        }
       });
-      answer = generated.text;
+      if (generated.streamed && generated.text.trim()) {
+        answer = generated.text;
+        streamedByProvider = true;
+      } else {
+        const completed = await generateLlmAnswer({
+          systemPrompt: skill.systemPrompt,
+          prompt,
+          sources,
+          toolResults,
+          modelConfig,
+          fallback: fallbackAnswer
+        });
+        answer = completed.text;
+      }
       await emitStep(step('llm', '调用真实 LLM Provider', generated.provider.mode === 'live' ? 'success' : 'success', {
         input: { provider: generated.provider.provider, model: generated.provider.model },
-        output: { mode: generated.provider.mode },
+        output: { mode: generated.provider.mode, streaming: generated.streamed },
         tokenUsage: tokenCount(answer)
       }));
     } catch (error) {
       await emitStep(step('llm', '调用真实 LLM Provider', 'failed', {
-        input: getProviderStatus(),
+        input: providerStatus,
         error: error.message
       }));
       answer = `${fallbackAnswer}\n\n### Provider 降级\n真实 LLM 调用失败，当前已降级到本地 deterministic runtime。错误：${error.message}`;
@@ -639,10 +675,11 @@ export function copilotRouter(store) {
     await emitStep(step('structured', '生成结构化结果', 'success', { tokenUsage: tokenCount(answer) }));
     await emitStep(step('human', '等待人工确认', 'waiting', { humanRequired: true }));
 
-    const assistantId = `assistant-${Date.now()}`;
-    for (let index = 0; index < answer.length; index += 18) {
-      sendEvent(res, 'delta', { id: assistantId, text: answer.slice(index, index + 18) });
-      await sleep(18);
+    if (!streamedByProvider) {
+      for (let index = 0; index < answer.length; index += 18) {
+        sendEvent(res, 'delta', { id: assistantId, text: answer.slice(index, index + 18) });
+        await sleep(18);
+      }
     }
 
     const approval = await store.createRecord('copilot_approvals', {
