@@ -1,4 +1,5 @@
 import { MongoClient, ObjectId } from 'mongodb';
+import { config } from '../config.js';
 import { cosineSimilarity, embedText, keywordOverlap, splitIntoChunks } from '../utils/embedding.js';
 import { hashPassword } from '../utils/password.js';
 
@@ -24,11 +25,43 @@ export class MongoStore {
 
     await this.db.collection('users').createIndex({ email: 1 }, { unique: true });
     await this.db.collection('chunks').createIndex({ documentId: 1 });
+    await this.db.collection('chunks').createIndex({ tags: 1 });
     await this.db.collection('tasks').createIndex({ createdAt: -1 });
     await this.db.collection('telemetry').createIndex({ createdAt: -1 });
     await this.db.collection('telemetry').createIndex({ traceId: 1 });
+    await this.ensureVectorIndex();
 
     await this.seed();
+  }
+
+  async ensureVectorIndex() {
+    if (!config.ragCreateVectorIndex) return;
+    const chunks = this.db.collection('chunks');
+    if (typeof chunks.createSearchIndex !== 'function') return;
+
+    try {
+      await chunks.createSearchIndex({
+        name: config.ragVectorIndex,
+        type: 'vectorSearch',
+        definition: {
+          fields: [
+            {
+              type: 'vector',
+              path: config.ragVectorPath,
+              numDimensions: config.ragVectorDimensions,
+              similarity: 'cosine'
+            },
+            {
+              type: 'filter',
+              path: 'tags'
+            }
+          ]
+        }
+      });
+      console.log(`[rag] requested MongoDB Atlas Vector Search index: ${config.ragVectorIndex}`);
+    } catch (error) {
+      console.warn(`[rag] skip vector index creation: ${error.message}`);
+    }
   }
 
   async seed() {
@@ -128,6 +161,46 @@ export class MongoStore {
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
+  }
+
+  async searchVectorChunks(question, { scopes = [], limit = 5, numCandidates = 80 } = {}) {
+    const queryEmbedding = embedText(question);
+    const pipeline = [
+      {
+        $vectorSearch: {
+          index: config.ragVectorIndex,
+          path: config.ragVectorPath,
+          queryVector: queryEmbedding,
+          numCandidates: Math.max(numCandidates, limit * 8),
+          limit: Math.max(limit * 3, limit)
+        }
+      },
+      {
+        $project: {
+          documentId: 1,
+          documentTitle: 1,
+          tags: 1,
+          content: 1,
+          chunkIndex: 1,
+          createdAt: 1,
+          vectorScore: { $meta: 'vectorSearchScore' }
+        }
+      }
+    ];
+
+    const chunks = await this.db.collection('chunks').aggregate(pipeline).toArray();
+    const allowedScopes = new Set([...scopes, 'copilot']);
+    const filtered = chunks.filter((chunk) => {
+      const tags = chunk.tags || [];
+      return !tags.length || tags.some((tag) => allowedScopes.has(tag));
+    });
+
+    return (filtered.length ? filtered : chunks).slice(0, limit).map((chunk) => serialize({
+      ...chunk,
+      documentId: String(chunk.documentId),
+      score: Number((chunk.vectorScore || 0).toFixed(4)),
+      retrievalBackend: 'mongodb-atlas-vector-search'
+    }));
   }
 
   async createTask(task) {

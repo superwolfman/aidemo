@@ -56,7 +56,8 @@
 
 ### v2.0 RAG & Context Engineering
 
-- 轻量 RAG 知识库。
+- MongoDB Atlas Vector Search Adapter。
+- 本地 hash embedding fallback。
 - 知识域过滤和引用来源。
 - 知识模板包导入。
 - 当前 Skill 知识域检索预览。
@@ -77,7 +78,7 @@
 
 - MCP Server POC。
 - OpenAI-compatible LLM Provider Adapter。
-- 接入真实向量库：MongoDB Atlas Vector Search / pgvector / Milvus。
+- 向量库继续演进：pgvector / Milvus / 多 embedding provider。
 - 将 MCP POC 替换为官方 SDK 实现。
 - 增加 Eval：引用准确率、工具调用成功率、审批通过率、AI 建议采纳率。
 - 增加 Coding Agent 文件级变更预览，但继续保留人工确认。
@@ -221,9 +222,45 @@ RAG_BACKEND=local-hash
 - 支持文档切分、本地 hash embedding、向量相似度和关键词融合。
 - 适合本地链路验证，不宣传为生产检索质量。
 
-可替换目标：
+MongoDB Atlas Vector Search：
 
-- `mongodb-atlas`
+```bash
+RAG_BACKEND=mongodb-atlas
+MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>/<db>
+RAG_VECTOR_INDEX=chunks_vector_index
+RAG_VECTOR_PATH=embedding
+RAG_VECTOR_DIMENSIONS=96
+RAG_CREATE_VECTOR_INDEX=false
+```
+
+说明：
+
+- 文档上传或模板导入后，chunk 会写入 `chunks` collection，并带上 `embedding` 数组字段。
+- `RAG_BACKEND=mongodb-atlas` 时，检索会调用 MongoDB Atlas `$vectorSearch`。
+- 如果 Atlas 索引未创建、当前 MongoDB 不是 Atlas、或 `$vectorSearch` 不可用，服务会自动降级为 local-hash，并在 RAG status / Trace 中标出 `mode: fallback` 与错误原因。
+- `RAG_CREATE_VECTOR_INDEX=true` 时，服务会尝试通过 MongoDB driver 请求创建 Search Index；生产环境更建议在 Atlas 控制台或 IaC 中显式管理索引。
+
+Atlas Vector Search index 示例：
+
+```json
+{
+  "fields": [
+    {
+      "type": "vector",
+      "path": "embedding",
+      "numDimensions": 96,
+      "similarity": "cosine"
+    },
+    {
+      "type": "filter",
+      "path": "tags"
+    }
+  ]
+}
+```
+
+后续可替换目标：
+
 - `pgvector`
 - `milvus`
 
@@ -231,6 +268,7 @@ RAG_BACKEND=local-hash
 
 ```text
 server/src/services/ragEngine.js
+server/src/store/mongoStore.js
 ```
 
 ### 4. 后端 API 纯净度
@@ -321,7 +359,6 @@ MVP 不提供零散菜单，而是在一个 Workbench 内内置 5 个任务模�
 - 结构化字段。
 - 对应 Skill。
 - 可用工具。
-- 最终请求预览。
 - Artifact 展示。
 
 这能体现 MVP 是“受约束的技能运行时”，不是单纯 Prompt 页面。
@@ -387,7 +424,7 @@ MVP 内置 5 个普通函数工具，接口设计保持可迁移到 MCP Server�
 - 上传 Markdown、TXT、PDF。
 - 文档切分。
 - 本地 embedding。
-- 向量检索。
+- MongoDB Atlas Vector Search / local-hash 双后端检索。
 - 回答展示引用来源。
 - 根据 Skill 限定知识范围。
 - 默认知识模板可选择导入。
@@ -404,7 +441,8 @@ MVP 种子知识包括：
 
 - Markdown/TXT 直接读取文本。
 - PDF 在 MVP 中支持上传和元数据入库；生产环境可接 PDF parser 抽取正文。
-- 当前向量检索使用本地 hash embedding，后续可替换为 Milvus、pgvector 或 Pinecone。
+- 当前已接入 MongoDB Atlas Vector Search adapter；本地没有 Atlas 索引时自动 fallback 到 hash embedding。
+- 当前 embedding 仍是 96 维本地 deterministic embedding，用于稳定演示向量库链路；生产级语义检索建议替换为 OpenAI / 通义 / bge-m3 等 embedding provider。
 - 这个 RAG 不是通用问答，而是按 Skill 动态选择知识域的研发架构知识库。
 
 ### 6. 人工确认节点
@@ -493,7 +531,7 @@ flowchart LR
   Tools --> Search["searchKnowledge"]
   Tools --> Repo["analyzeRepository"]
   Tools --> Doc["generateArchitectureDocument"]
-  RAG --> Vector["Local Embedding + Vector Search"]
+  RAG --> Vector["MongoDB Atlas Vector Search / Local fallback"]
   Vector --> Mongo["MongoDB Documents / Chunks"]
   BFF --> SSE["SSE Streaming"]
   SSE --> UI
@@ -632,11 +670,11 @@ telemetry
 
 ## 后续演进
 
-- 接入真实 LLM Provider。
+- 扩展更多真实 LLM Provider。
 - 将普通函数 Tool 迁移为 MCP Server。
 - 接入 OpenAI Agents SDK 或 LangGraph 的 durable execution。
 - PDF 文档接入真实 parser。
-- RAG 替换为 pgvector / Milvus。
+- RAG 增加 pgvector / Milvus adapter，并替换为生产级 embedding provider。
 - Trace 接入 OpenTelemetry。
 - Approval 支持暂停恢复和多人审批。
 - 引入 WS 支持多人协同评审、在线 IM 和实时通知。
