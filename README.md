@@ -107,7 +107,7 @@ removed-public-password
 
 ### 1. 真实 LLM Provider Adapter
 
-默认仍然使用 `mock`，保证本地无 API Key 也能稳定运行。有 Key 时可切换到真实 OpenAI-compatible Provider：
+默认仍然使用 `mock`，保证本地无 API Key 也能稳定运行。有 Key 时可切换到真实模型。后端通过 OpenAI-compatible `chat.completions` 协议接入，真实 Provider 会直接以 SSE token 形式透传到前端，不再等待完整结果后本地模拟流式。
 
 ```bash
 LLM_PROVIDER=openai
@@ -115,7 +115,23 @@ LLM_API_KEY=sk-xxx
 LLM_MODEL=gpt-4.1-mini
 ```
 
-也可以接 DeepSeek、通义千问兼容模式或任意 OpenAI-compatible 服务：
+DeepSeek：
+
+```bash
+LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=sk-xxx
+LLM_MODEL=deepseek-chat
+```
+
+通义千问兼容模式：
+
+```bash
+LLM_PROVIDER=dashscope
+DASHSCOPE_API_KEY=sk-xxx
+LLM_MODEL=qwen-plus
+```
+
+任意 OpenAI-compatible 服务：
 
 ```bash
 LLM_PROVIDER=openai-compatible
@@ -123,6 +139,18 @@ LLM_BASE_URL=https://your-provider.example.com/v1
 LLM_API_KEY=xxx
 LLM_MODEL=your-model
 ```
+
+配置优先级：
+
+| 字段 | 说明 |
+|---|---|
+| `LLM_PROVIDER` | `mock` / `openai` / `deepseek` / `dashscope` / `openai-compatible` |
+| `LLM_API_KEY` | 通用 API Key，优先级最高 |
+| `OPENAI_API_KEY` | OpenAI 专用 Key |
+| `DEEPSEEK_API_KEY` | DeepSeek 专用 Key |
+| `DASHSCOPE_API_KEY` | 通义千问兼容模式专用 Key |
+| `LLM_BASE_URL` | 仅 `openai-compatible` 必填；其他 Provider 有默认值 |
+| `LLM_MODEL` | 可覆盖默认模型 |
 
 运行时接口：
 
@@ -134,6 +162,7 @@ GET /api/copilot/runtime
 
 - LLM 当前是 `live` 还是 `fallback`。
 - 当前模型名。
+- 真实模型是否启用流式输出。
 - RAG 后端。
 - MCP transport 和启动命令。
 

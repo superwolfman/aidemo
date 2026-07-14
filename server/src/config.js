@@ -1,5 +1,10 @@
 import dotenv from 'dotenv';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 dotenv.config();
 
 export const config = {
@@ -13,7 +18,18 @@ export const config = {
     .filter(Boolean),
   mongodbUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/growth_ai_assistant',
   llmProvider: process.env.LLM_PROVIDER || 'mock',
-  llmApiKey: process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || '',
+  llmApiKeys: {
+    openai: process.env.OPENAI_API_KEY || process.env.LLM_API_KEY || '',
+    deepseek: process.env.DEEPSEEK_API_KEY || process.env.LLM_API_KEY || '',
+    dashscope: process.env.DASHSCOPE_API_KEY || process.env.LLM_API_KEY || '',
+    'openai-compatible': process.env.LLM_API_KEY || ''
+  },
+  llmApiKey:
+    process.env.LLM_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    process.env.DEEPSEEK_API_KEY ||
+    process.env.DASHSCOPE_API_KEY ||
+    '',
   llmBaseUrl: process.env.LLM_BASE_URL || '',
   llmModel: process.env.LLM_MODEL || ''
 };
