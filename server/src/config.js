@@ -31,5 +31,10 @@ export const config = {
     process.env.DASHSCOPE_API_KEY ||
     '',
   llmBaseUrl: process.env.LLM_BASE_URL || '',
-  llmModel: process.env.LLM_MODEL || ''
+  llmModel: process.env.LLM_MODEL || '',
+  ragBackend: process.env.RAG_BACKEND || 'local-hash',
+  ragVectorIndex: process.env.RAG_VECTOR_INDEX || 'chunks_vector_index',
+  ragVectorPath: process.env.RAG_VECTOR_PATH || 'embedding',
+  ragVectorDimensions: Number(process.env.RAG_VECTOR_DIMENSIONS || 96),
+  ragCreateVectorIndex: process.env.RAG_CREATE_VECTOR_INDEX === 'true'
 };

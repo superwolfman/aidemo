@@ -239,9 +239,8 @@ async function ensureKnowledge(store) {
   }
 }
 
-async function searchKnowledge(store, query, scopes) {
-  const result = await retrieveKnowledge({ store, query, scopes, limit: 5 });
-  return result.sources;
+async function searchKnowledgeWithStatus(store, query, scopes) {
+  return retrieveKnowledge({ store, query, scopes, limit: 5 });
 }
 
 async function analyzeRepository({ skillId, mode }) {
@@ -564,14 +563,22 @@ export function copilotRouter(store) {
       output: { llm: providerStatus, rag: getRagStatus() }
     }));
     await emitStep(step('context', '加载上下文', 'running', { output: { knowledgeScopes: skill.knowledgeScopes } }));
-    const sources = await searchKnowledge(store, prompt, skill.knowledgeScopes);
+    const knowledgeResult = await searchKnowledgeWithStatus(store, prompt, skill.knowledgeScopes);
+    const sources = knowledgeResult.sources;
     await emitStep(step('knowledge', '调用知识库 searchKnowledge', 'success', {
       tool: 'searchKnowledge',
       input: { query: prompt, scopes: skill.knowledgeScopes },
-      output: sources.map((source) => ({ title: source.documentTitle, score: source.score })),
+      output: {
+        rag: knowledgeResult.status,
+        sources: sources.map((source) => ({
+          title: source.documentTitle,
+          score: source.score,
+          backend: source.retrievalBackend
+        }))
+      },
       tokenUsage: tokenCount(JSON.stringify(sources))
     }));
-    sendEvent(res, 'sources', { sources });
+    sendEvent(res, 'sources', { rag: knowledgeResult.status, sources });
 
     let repoAnalysis = null;
     if (skill.allowedTools.includes('analyzeRepository')) {
