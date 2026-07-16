@@ -111,7 +111,7 @@ type ModelPreset = {
 
 type Artifact = {
   id: string;
-  type: 'code' | 'test' | 'document' | 'context' | 'prd' | 'flow' | 'api' | 'task';
+  type: 'code' | 'test' | 'document' | 'context' | 'prd' | 'flow' | 'api' | 'task' | 'risk';
   title: string;
   language?: string;
   content: string | Record<string, unknown>;
@@ -300,6 +300,14 @@ const runLifecycle: Array<{ status: RunStatus; label: string }> = [
   { status: 'streaming', label: '流式' },
   { status: 'waiting_approval', label: '确认' },
   { status: 'completed', label: '完成' }
+];
+
+const productWorkflowSlots: Array<{ type: Artifact['type']; title: string; desc: string }> = [
+  { type: 'prd', title: 'PRD 摘要', desc: '目标、范围、用户角色、验收标准' },
+  { type: 'flow', title: '页面结构', desc: '页面模块、用户流程、状态流转' },
+  { type: 'api', title: '接口协议', desc: 'BFF 接口、请求响应、引用来源' },
+  { type: 'task', title: '研发任务列表', desc: '前端、BFF、模型、测试任务拆解' },
+  { type: 'risk', title: '风险和待确认问题', desc: '风险点、人工确认项、下一步决策' }
 ];
 
 function escapeHtml(value: string) {
@@ -1014,94 +1022,16 @@ export default function CopilotWorkbench() {
             </div>
           </section>
 
-          <div className="conversation-title">
-            <div>
-              <h2>对话输出</h2>
-              <p>DeepSeek / Agent 的回答会显示在这里，包含 Markdown、代码块和结构化结论。</p>
-            </div>
-            {running ? <Status status="streaming" /> : null}
-          </div>
-
-          <div className="chat-stream" ref={chatStreamRef}>
-            {visibleMessages.map((message) => (
-              <article key={message.id} className={`chat-message ${message.role}`}>
-                <div className="chat-role">{message.role === 'assistant' ? <Bot size={16} /> : 'U'}</div>
-                <div className="chat-message-body">
-                  <MarkdownView content={message.content} streaming={running && message.id === visibleMessages[visibleMessages.length - 1]?.id} />
-                  <div className="message-actions">
-                    <button type="button" onClick={() => copyToClipboard(message.content)}><Copy size={13} />复制回答</button>
-                    <button type="button" onClick={() => editAsPrompt(message.content)}><PencilLine size={13} />编辑为输入</button>
-                  </div>
+          <section className="product-workflow-board">
+            <div className="workflow-column workflow-input-panel">
+              <div className="column-head">
+                <span>01</span>
+                <div>
+                  <h2>业务需求输入</h2>
+                  <p>输入业务需求、用户角色、交付目标和约束条件。</p>
                 </div>
-              </article>
-            ))}
-            {running ? (
-              <div className="stream-skeleton">
-                <strong>正在流式生成...</strong>
-                <span />
-                <span />
-                <span />
               </div>
-            ) : null}
-            {!visibleMessages.length ? (
-              <div className="chat-empty-state">
-                <Bot size={26} />
-                <strong>还没有输出结果</strong>
-                <span>在下方输入问题后，结果会以对话形式显示在这里。</span>
-              </div>
-            ) : null}
-          </div>
-
-          <section className="chat-composer">
-            <div className="composer-head">
-              <div>
-                <h2>输入任务</h2>
-                <p>这里是主输入区，会发送给 Skill、RAG、Tool Calling 和 DeepSeek Provider。</p>
-              </div>
-              <span>{selectedModel ? `${selectedModel.label} · ${selectedModel.configured ? 'live' : '未配置'}` : activeSkill?.name || activeMode.label}</span>
-            </div>
-            <details className="model-select" title={selectedModel ? `${selectedModel.label} / ${selectedModel.provider} / ${selectedModel.model}` : '选择模型'}>
-              <summary>
-                <span>{selectedModel?.label || '选择模型'}</span>
-                <em>{selectedModel?.provider || 'provider'} · {selectedModel?.configured ? 'live' : '未配置'}</em>
-              </summary>
-              <div className="model-menu">
-                <strong>模型</strong>
-                {selectedModel ? (
-                  <div className="model-current">
-                    <span>{selectedModel.label}</span>
-                    <em>{selectedModel.provider} · {selectedModel.model} · {selectedModel.configured ? 'live' : '未配置'}</em>
-                  </div>
-                ) : null}
-                {modelPresets.map((model) => (
-                  <button
-                    key={model.id}
-                    className={model.id === selectedModel?.id ? 'active' : ''}
-                    type="button"
-                    onClick={(event) => {
-                      setSelectedModelId(model.id);
-                      event.currentTarget.closest('details')?.removeAttribute('open');
-                    }}
-                  >
-                    <span>{model.label}{model.id === 'deepseek-reasoner' ? <b>推理</b> : null}</span>
-                    <em>{model.description}</em>
-                    <i>{model.provider} · {model.model} · {model.configured ? '可用' : '未配置'}</i>
-                  </button>
-                ))}
-              </div>
-            </details>
-            <div className="composer-input-shell">
-              <textarea
-                className="composer-input"
-                rows={5}
-                value={prompt}
-                placeholder="例如：请基于当前项目，分析 RAG 和 Agent 设计是否合理，并指出三条可改进点。"
-                onChange={(event) => setPrompt(event.target.value)}
-              />
-            </div>
-            <details className="structured-fields">
-              <summary>结构化约束与最终请求预览</summary>
-              <div className="generation-form">
+              <div className="generation-form workflow-fields">
                 {activeMode.fields.map((field) => (
                   <label key={field.key}>
                     {field.label}
@@ -1110,46 +1040,144 @@ export default function CopilotWorkbench() {
                 ))}
               </div>
               <label>
-                最终发送内容
-                <textarea rows={4} value={buildPromptFromMode()} readOnly />
+                Prompt Contract
+                <textarea
+                  className="composer-input"
+                  rows={5}
+                  value={prompt}
+                  placeholder="描述 AI 需要如何分析需求、输出页面原型、接口协议和任务拆解。"
+                  onChange={(event) => setPrompt(event.target.value)}
+                />
               </label>
-            </details>
-            <div className="composer-actions">
-              <span>{selectedModel?.configured ? `将使用 ${selectedModel.label}` : '当前模型未配置 Key，可能降级或失败'}</span>
-              <div>
-                <button className="primary-button" disabled={running || !prompt.trim()} onClick={() => sendPrompt(buildPromptFromMode())}><Send size={16} />生成</button>
-                <button className="secondary-button" disabled={!running} onClick={stop}><Pause size={16} />停止生成</button>
-                <button className="secondary-button" disabled={running || !messages.length} onClick={regenerate}><RefreshCw size={16} />重新生成</button>
+              <details className="model-select" title={selectedModel ? `${selectedModel.label} / ${selectedModel.provider} / ${selectedModel.model}` : '选择模型'}>
+                <summary>
+                  <span>{selectedModel?.label || '选择模型'}</span>
+                  <em>{selectedModel?.provider || 'provider'} · {selectedModel?.configured ? 'live' : '未配置'}</em>
+                </summary>
+                <div className="model-menu">
+                  <strong>模型</strong>
+                  {selectedModel ? (
+                    <div className="model-current">
+                      <span>{selectedModel.label}</span>
+                      <em>{selectedModel.provider} · {selectedModel.model} · {selectedModel.configured ? 'live' : '未配置'}</em>
+                    </div>
+                  ) : null}
+                  {modelPresets.map((model) => (
+                    <button
+                      key={model.id}
+                      className={model.id === selectedModel?.id ? 'active' : ''}
+                      type="button"
+                      onClick={(event) => {
+                        setSelectedModelId(model.id);
+                        event.currentTarget.closest('details')?.removeAttribute('open');
+                      }}
+                    >
+                      <span>{model.label}{model.id === 'deepseek-reasoner' ? <b>推理</b> : null}</span>
+                      <em>{model.description}</em>
+                      <i>{model.provider} · {model.model} · {model.configured ? '可用' : '未配置'}</i>
+                    </button>
+                  ))}
+                </div>
+              </details>
+              <details className="structured-fields">
+                <summary>最终请求预览</summary>
+                <label>
+                  将发送给 Skill / RAG / Tool 的内容
+                  <textarea rows={5} value={buildPromptFromMode()} readOnly />
+                </label>
+              </details>
+              <div className="composer-actions workflow-actions">
+                <span>{selectedModel?.configured ? `将使用 ${selectedModel.label}` : '当前模型未配置 Key，可能降级或失败'}</span>
+                <div>
+                  <button className="primary-button" disabled={running || !prompt.trim()} onClick={() => sendPrompt(buildPromptFromMode())}><Send size={16} />生成工作流</button>
+                  <button className="secondary-button" disabled={!running} onClick={stop}><Pause size={16} />停止</button>
+                  <button className="secondary-button" disabled={running || !messages.length} onClick={regenerate}><RefreshCw size={16} />重生成</button>
+                </div>
               </div>
             </div>
-          </section>
 
-          <section className="artifact-panel">
-            <div className="section-head">
-              <h2>Artifacts</h2>
-              <span>{artifacts.length} generated</span>
-            </div>
-            {artifacts.length ? (
-              <div className="artifact-grid">
-                {artifacts.map((artifact) => (
-                  <article key={artifact.id} className={`artifact-card ${artifact.type}`}>
-                    <div>
-                      {artifact.type === 'code' ? <FileCode2 size={15} /> : <FileText size={15} />}
-                      <strong>{artifact.title}</strong>
-                      <em>{artifact.type}</em>
+            <div className="workflow-column workflow-stream-panel">
+              <div className="column-head">
+                <span>02</span>
+                <div>
+                  <h2>AI 流式分析过程</h2>
+                  <p>需求摘要、用户角色、业务流程、页面模块会在这里逐步生成。</p>
+                </div>
+                {running ? <Status status="streaming" /> : null}
+              </div>
+              <div className="workflow-stream-stage">
+                {runLifecycle.map((item, index) => (
+                  <span
+                    key={item.status}
+                    className={[
+                      index < currentRunIndex || runState.status === 'completed' ? 'done' : '',
+                      index === currentRunIndex ? 'active' : ''
+                    ].filter(Boolean).join(' ')}
+                  >
+                    {item.label}
+                  </span>
+                ))}
+                <em>{runState.label}</em>
+              </div>
+              <div className="chat-stream workflow-chat-stream" ref={chatStreamRef}>
+                {visibleMessages.map((message) => (
+                  <article key={message.id} className={`chat-message ${message.role}`}>
+                    <div className="chat-role">{message.role === 'assistant' ? <Bot size={16} /> : 'U'}</div>
+                    <div className="chat-message-body">
+                      <MarkdownView content={message.content} streaming={running && message.id === visibleMessages[visibleMessages.length - 1]?.id} />
+                      <div className="message-actions">
+                        <button type="button" onClick={() => copyToClipboard(message.content)}><Copy size={13} />复制回答</button>
+                        <button type="button" onClick={() => editAsPrompt(message.content)}><PencilLine size={13} />编辑为输入</button>
+                      </div>
                     </div>
-                    <pre>{typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content, null, 2)}</pre>
                   </article>
                 ))}
+                {running ? (
+                  <div className="stream-skeleton">
+                    <strong>正在流式生成...</strong>
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                ) : null}
+                {!visibleMessages.length ? (
+                  <div className="chat-empty-state">
+                    <Bot size={26} />
+                    <strong>等待生成 AI Product Workflow</strong>
+                    <span>点击左侧“生成工作流”后，这里会展示流式分析过程。</span>
+                  </div>
+                ) : null}
               </div>
-            ) : (
-              <div className="artifact-empty">
-                <article><FileText size={16} /><strong>PRD Summary</strong><span>目标、范围、验收标准</span></article>
-                <article><FileText size={16} /><strong>UI Flow</strong><span>页面结构、状态流转</span></article>
-                <article><FileCode2 size={16} /><strong>API Contract</strong><span>接口协议、数据结构</span></article>
-                <article><FileText size={16} /><strong>Task Breakdown</strong><span>研发任务、风险、确认点</span></article>
+            </div>
+
+            <div className="workflow-column workflow-artifacts-panel">
+              <div className="column-head">
+                <span>03</span>
+                <div>
+                  <h2>Artifact 产物</h2>
+                  <p>PRD、页面结构、接口协议、状态流转、风险和任务拆解。</p>
+                </div>
               </div>
-            )}
+              <div className="workflow-artifact-list">
+                {productWorkflowSlots.map((slot) => {
+                  const artifact = artifacts.find((item) => item.type === slot.type);
+                  return (
+                    <article key={slot.type} className={`artifact-card ${slot.type} ${artifact ? 'ready' : 'pending'}`}>
+                      <div>
+                        {slot.type === 'api' ? <FileCode2 size={15} /> : <FileText size={15} />}
+                        <strong>{artifact?.title || slot.title}</strong>
+                        <em>{artifact ? 'ready' : 'pending'}</em>
+                      </div>
+                      {artifact ? (
+                        <pre>{typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content, null, 2)}</pre>
+                      ) : (
+                        <p>{slot.desc}</p>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
           </section>
         </main>
 

@@ -497,7 +497,7 @@ function generateProductWorkflowArtifacts({ prompt, skill, sources }) {
           },
           response: {
             traceId: 'string',
-            artifacts: ['prd', 'flow', 'api', 'task'],
+            artifacts: ['prd', 'flow', 'api', 'task', 'risk'],
             approvalId: 'string',
             citations: sources.map((source) => source.documentTitle)
           }
@@ -517,6 +517,28 @@ function generateProductWorkflowArtifacts({ prompt, skill, sources }) {
         '3. 算法/模型：定义 Prompt Contract、输出 Schema、引用约束和 fallback 策略。',
         '4. 测试：覆盖停止生成、重新生成、Provider 失败、引用为空、审批拒绝和重新执行。',
         '5. 可观测：记录 traceId、latency、token、tool input/output 和用户确认动作。',
+        '',
+        `引用来源：${citations}`
+      ].join('\n')
+    },
+    {
+      id: 'artifact-risk-open-questions',
+      type: 'risk',
+      title: '风险和待确认问题',
+      content: [
+        '# 风险和待确认问题',
+        '',
+        '## 主要风险',
+        '- LLM Provider 余额、限流或网络异常会影响流式生成，需要 fallback 和错误提示。',
+        '- RAG 检索质量依赖知识库覆盖度，需要展示 score、sourcePath 和引用片段，避免幻觉。',
+        '- Artifact 可能被误认为最终决策，高风险动作必须进入人工确认。',
+        '- 页面原型、接口协议和任务拆解需要保留人工编辑入口，不能只依赖一次性生成。',
+        '',
+        '## 待确认问题',
+        '- 目标用户优先服务产品经理、前端工程师还是技术负责人？',
+        '- 生成的接口协议是否需要直接写入 OpenAPI / Apifox / Swagger？',
+        '- 人工确认后是否需要触发任务系统、文档系统或代码仓库写入？',
+        '- Eval 指标优先看引用命中率、采纳率、生成稳定性还是任务节省时长？',
         '',
         `引用来源：${citations}`
       ].join('\n')

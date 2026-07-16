@@ -1332,6 +1332,173 @@ kbd {
   overflow: visible;
 }
 
+.product-workflow-board {
+  min-height: 560px;
+  display: grid;
+  grid-template-columns: minmax(240px, 0.9fr) minmax(340px, 1.25fr) minmax(280px, 1fr);
+  gap: 10px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.workflow-column {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.column-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.column-head > span {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #0f766e;
+  background: #e7f3f1;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.column-head h2 {
+  margin: 0 0 3px;
+  color: #172026;
+  font-size: 16px;
+}
+
+.column-head p {
+  margin: 0;
+  color: #667789;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workflow-fields {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.workflow-fields label:first-child {
+  grid-column: auto;
+}
+
+.workflow-input-panel .composer-input {
+  min-height: 120px;
+  max-height: 190px;
+}
+
+.workflow-actions {
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.workflow-actions > div {
+  justify-content: flex-start;
+}
+
+.workflow-actions .primary-button {
+  min-width: 128px;
+}
+
+.workflow-stream-stage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border: 1px solid #edf1f5;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fbfdff;
+}
+
+.workflow-stream-stage span {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #dce5ee;
+  border-radius: 999px;
+  padding: 0 9px;
+  color: #667789;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.workflow-stream-stage span.done {
+  color: #0f766e;
+  border-color: #b8ded8;
+  background: #e7f3f1;
+}
+
+.workflow-stream-stage span.active {
+  color: #fff;
+  border-color: #0f766e;
+  background: #0f766e;
+}
+
+.workflow-stream-stage em {
+  flex-basis: 100%;
+  color: #506575;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.workflow-chat-stream {
+  flex: 1 1 auto;
+  height: auto !important;
+  min-height: 360px !important;
+  max-height: 520px !important;
+  border: 1px solid #edf1f5;
+  border-radius: 8px;
+}
+
+.workflow-artifact-list {
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.workflow-artifact-list .artifact-card {
+  background: #fff;
+}
+
+.workflow-artifact-list .artifact-card.pending {
+  border-style: dashed;
+  background: #fbfdff;
+}
+
+.workflow-artifact-list .artifact-card.ready {
+  border-color: #b8ded8;
+  background: #f8fffd;
+}
+
+.workflow-artifact-list .artifact-card p {
+  margin: 0;
+  padding: 12px;
+  color: #667789;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.workflow-artifact-list .artifact-card pre {
+  max-height: 220px;
+}
+
 .task-console,
 .conversation-title,
 .chat-stream,
