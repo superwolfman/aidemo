@@ -10,6 +10,37 @@ const PROJECT_ROOT = process.cwd();
 
 const skills = [
   {
+    id: 'product-workflow',
+    name: 'AI 产品工作流 Skill',
+    version: '1.0.0',
+    description: '把业务需求转成需求摘要、用户流程、页面原型、接口协议、研发任务和待确认问题。',
+    systemPrompt: '你是 AI 产品前端交付专家，必须从业务需求出发，输出可落地的 PRD 摘要、页面模块、用户流程、接口协议、状态流转、研发任务拆解、风险和待确认问题。',
+    inputSchema: {
+      type: 'object',
+      required: ['businessRequirement', 'targetUsers', 'deliveryGoal'],
+      properties: {
+        businessRequirement: { type: 'string', minLength: 20 },
+        targetUsers: { type: 'string' },
+        deliveryGoal: { type: 'string' },
+        constraints: { type: 'string' }
+      }
+    },
+    outputSchema: {
+      type: 'object',
+      required: ['requirementSummary', 'userFlow', 'pagePrototype', 'apiContract', 'taskBreakdown', 'openQuestions'],
+      properties: {
+        requirementSummary: { type: 'array', items: { type: 'string' } },
+        userFlow: { type: 'array', items: { type: 'string' } },
+        pagePrototype: { type: 'array', items: { type: 'string' } },
+        apiContract: { type: 'array', items: { type: 'string' } },
+        taskBreakdown: { type: 'array', items: { type: 'string' } },
+        openQuestions: { type: 'array', items: { type: 'string' } }
+      }
+    },
+    allowedTools: ['searchKnowledge', 'generateProductWorkflowArtifacts'],
+    knowledgeScopes: ['architecture', 'standards', 'ai-native', 'frontend']
+  },
+  {
     id: 'engineering-productivity',
     name: '研发提效 Skill',
     version: '1.1.0',
@@ -402,6 +433,87 @@ function generateEngineeringArtifacts({ prompt, skill, sources, repoAnalysis }) 
   ];
 }
 
+function generateProductWorkflowArtifacts({ prompt, skill, sources }) {
+  const citations = sources.map((source, index) => `[${index + 1}] ${source.documentTitle}`).join('、') || '暂无引用';
+  return [
+    {
+      id: 'artifact-prd-summary',
+      type: 'prd',
+      title: 'PRD 摘要',
+      content: [
+        '# PRD 摘要',
+        '',
+        `业务输入：${prompt.slice(0, 420)}`,
+        '',
+        '## 目标',
+        '- 把模糊需求转成可评审、可拆分、可交付的产品方案。',
+        '- 让前端、后端、算法、产品能围绕同一份 Artifact 对齐。',
+        '- 在高风险动作前保留人工确认，避免 AI 直接替代决策。',
+        '',
+        '## 验收标准',
+        '- 页面结构、接口协议、状态流转和任务拆解同时输出。',
+        '- 每个关键结论可以追溯到 RAG 引用或用户输入。',
+        '- 生成结果可编辑、可确认、可拒绝。'
+      ].join('\n')
+    },
+    {
+      id: 'artifact-ui-flow',
+      type: 'flow',
+      title: '页面流程与原型结构',
+      content: {
+        entry: '需求输入页',
+        pages: [
+          { name: '需求输入', modules: ['业务目标', '用户角色', '约束条件', '参考资料'] },
+          { name: 'AI 分析过程', modules: ['流式输出', 'RAG 引用', 'Trace 状态', '异常提示'] },
+          { name: 'Artifact 工作台', modules: ['PRD 摘要', '页面模块', 'API Contract', '任务列表'] },
+          { name: '人工确认', modules: ['确认', '修改后执行', '拒绝', '审批历史'] }
+        ],
+        stateFlow: ['idle', 'validating', 'retrieving', 'tool_running', 'streaming', 'waiting_approval', 'completed']
+      }
+    },
+    {
+      id: 'artifact-api-contract',
+      type: 'api',
+      title: '接口协议草案',
+      language: 'json',
+      content: {
+        'POST /api/copilot/product-workflow/run': {
+          request: {
+            businessRequirement: 'string',
+            targetUsers: 'string',
+            deliveryGoal: 'string',
+            constraints: 'string',
+            skillId: skill.id
+          },
+          response: {
+            traceId: 'string',
+            artifacts: ['prd', 'flow', 'api', 'task'],
+            approvalId: 'string',
+            citations: sources.map((source) => source.documentTitle)
+          }
+        },
+        'GET /api/copilot/trace/:traceId': {
+          response: ['request', 'retrieval', 'tool_running', 'streaming', 'waiting_approval']
+        }
+      }
+    },
+    {
+      id: 'artifact-task-breakdown',
+      type: 'task',
+      title: '研发任务拆解',
+      content: [
+        '1. 前端：实现需求输入、模型选择、流式输出、Artifact 面板、引用来源和人工确认交互。',
+        '2. BFF：实现会话、SSE、RAG 检索、工具调用、审批状态和错误恢复。',
+        '3. 算法/模型：定义 Prompt Contract、输出 Schema、引用约束和 fallback 策略。',
+        '4. 测试：覆盖停止生成、重新生成、Provider 失败、引用为空、审批拒绝和重新执行。',
+        '5. 可观测：记录 traceId、latency、token、tool input/output 和用户确认动作。',
+        '',
+        `引用来源：${citations}`
+      ].join('\n')
+    }
+  ];
+}
+
 function composeContextPack({ prompt, skill, sources }) {
   return {
     id: 'artifact-context-pack',
@@ -748,8 +860,18 @@ export function copilotRouter(store) {
     }
 
     let artifacts = [];
+    if (skill.allowedTools.includes('generateProductWorkflowArtifacts')) {
+      artifacts = generateProductWorkflowArtifacts({ prompt, skill, sources });
+      await emitStep(step('product-workflow', '生成产品工作流 Artifacts', 'success', {
+        tool: 'generateProductWorkflowArtifacts',
+        input: { artifactTypes: ['prd', 'flow', 'api', 'task'], requireHumanApproval: true },
+        output: artifacts.map((artifact) => ({ type: artifact.type, title: artifact.title })),
+        tokenUsage: tokenCount(JSON.stringify(artifacts))
+      }));
+    }
+
     if (skill.allowedTools.includes('generateEngineeringArtifacts')) {
-      artifacts = generateEngineeringArtifacts({ prompt, skill, sources, repoAnalysis });
+      artifacts = [...artifacts, ...generateEngineeringArtifacts({ prompt, skill, sources, repoAnalysis })];
       await emitStep(step('artifacts', '生成研发效能 Artifacts', 'success', {
         tool: 'generateEngineeringArtifacts',
         input: { artifactTypes: ['code', 'test', 'document'] },
@@ -777,6 +899,7 @@ export function copilotRouter(store) {
     const toolResults = {
       searchKnowledge: sources.map((source) => ({ title: source.documentTitle, score: source.score })),
       analyzeRepository: repoAnalysis,
+      generateProductWorkflowArtifacts: artifacts.filter((artifact) => ['prd', 'flow', 'api', 'task'].includes(artifact.type)).map((artifact) => ({ type: artifact.type, title: artifact.title })),
       generateArchitectureDocument: documentDraft ? { chars: documentDraft.length } : null,
       artifacts: artifacts.map((artifact) => ({ type: artifact.type, title: artifact.title }))
     };

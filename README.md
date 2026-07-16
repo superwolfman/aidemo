@@ -1,10 +1,10 @@
 # AI Architecture Copilot
 
-面向研发团队与前端架构场景的开源 MVP：把 AI 引入研发流程和产品体验，展示 Skill Runtime、Tool Calling、RAG、Context Engineering、Human-in-the-loop 和 Agent Trace 如何落到一个真实可运行的前端工作台。
+面向 AI 产品研发流程与前端工程场景的开源 MVP：把 AI 引入需求分析、页面原型、接口协议、研发任务拆解和人工确认流程，展示 Skill Runtime、Tool Calling、RAG、Context Engineering、Human-in-the-loop 和 Agent Trace 如何落到一个真实可运行的前端工作台。
 
 这个项目不是“大而全 AI 平台”，也不是普通 Chatbot。它聚焦一个清晰场景：
 
-> 帮助研发团队完成需求分析、架构评审、代码审查、研发提效方案和上下文工程设计，并让 AI 执行过程可解释、可审计、可人工确认。
+> 帮助研发团队把业务需求转成 PRD 摘要、页面结构、接口协议、研发任务和风险确认点，并让 AI 执行过程可解释、可审计、可人工确认。
 
 它适合用于：
 
@@ -17,7 +17,7 @@
 
 | 能力模块 | 项目对应实现 |
 |---|---|
-| AI 进入研发流程 | `研发提效 Skill` 支持代码草案、测试策略、文档草稿、PR 质量门禁 Artifact |
+| AI 进入研发流程 | `AI 产品工作流 Skill` 和 `研发提效 Skill` 支持 PRD、页面原型、接口协议、任务拆解、代码草案、测试策略和文档草稿 Artifact |
 | AI 产品落地 | 多会话智能助手 + RAG 知识库 + Agent Trace + 人工确认 |
 | Agent / Prompt / Context Engineering | SkillDefinition、allowedTools、knowledgeScopes、Context Pack、Prompt Contract |
 | AI 产品交互 | SSE 流式输出、停止生成、重新生成、引用来源、Trace 时间线、审批节点 |
@@ -26,10 +26,12 @@
 
 ## 版本迭代
 
-### 当前迭代：Competitive Workbench
+### 当前迭代：AI Product Workflow Workbench
 
 这一版把页面从说明型展示收敛成真实产品工作区：
 
+- 新增 `AI 产品工作流 Skill`，支持“业务需求输入 -> 需求摘要 -> 页面原型 -> 接口协议 -> 研发任务拆解 -> 人工确认”的端到端流程。
+- 新增 `generateProductWorkflowArtifacts` 工具，输出 PRD Summary、UI Flow、API Contract、Task Breakdown 四类 Artifact。
 - 主流程只保留任务输入、Skill 约束、RAG Context、Artifact、Agent Trace 和人工确认。
 - 大版本路线从主视觉移到紧凑 Release Plan，避免像 PPT 展示页。
 - RAG 不再只是上传列表，支持按当前 Skill 的 `knowledgeScopes` 展示知识域、导入模板包、检索预览、chunk score 和引用来源。

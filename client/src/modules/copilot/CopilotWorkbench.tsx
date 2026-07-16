@@ -90,7 +90,7 @@ type ModelPreset = {
 
 type Artifact = {
   id: string;
-  type: 'code' | 'test' | 'document' | 'context';
+  type: 'code' | 'test' | 'document' | 'context' | 'prd' | 'flow' | 'api' | 'task';
   title: string;
   language?: string;
   content: string | Record<string, unknown>;
@@ -156,6 +156,20 @@ type TaskMode = {
 
 const taskModes: TaskMode[] = [
   {
+    id: 'product-workflow',
+    label: '产品工作流',
+    skillId: 'product-workflow',
+    goal: '需求分析、页面原型、接口协议和任务拆解',
+    prompt: '请把下面业务需求转成 AI 产品前端交付方案，输出需求摘要、用户流程、页面原型、接口协议、状态流转、研发任务拆解、风险和待确认问题。',
+    deliverables: ['PRD 摘要', '页面原型', '接口协议', '任务拆解', '人工确认'],
+    fields: [
+      { key: 'businessRequirement', label: '业务需求', placeholder: '例：建设一个面向研发团队的 AI 工作流产品，支持需求输入、RAG 上下文、流式生成、Artifact 和人工确认' },
+      { key: 'targetUsers', label: '目标用户', placeholder: '例：产品经理、前端工程师、后端工程师、算法工程师、技术负责人' },
+      { key: 'deliveryGoal', label: '交付目标', placeholder: '例：一周内完成可演示 MVP，支持需求分析、页面结构、接口协议和研发任务拆解' },
+      { key: 'constraints', label: '约束条件', placeholder: '例：React + TypeScript + Node BFF + SSE；高风险动作需要人工确认；输出必须可追踪引用来源' }
+    ]
+  },
+  {
     id: 'engineering-productivity',
     label: '研发提效',
     skillId: 'engineering-productivity',
@@ -220,6 +234,16 @@ const taskModes: TaskMode[] = [
 ];
 
 const demoScenarios = [
+  {
+    title: 'AI 产品工作流',
+    modeId: 'product-workflow',
+    form: {
+      businessRequirement: '建设一个面向研发团队的 AI 工作流产品，支持需求输入、RAG 上下文、SSE 流式生成、Artifact 产物和人工确认。',
+      targetUsers: '产品经理、前端工程师、后端工程师、算法工程师、技术负责人',
+      deliveryGoal: '一周内完成可演示 MVP，覆盖需求分析、页面原型、接口协议和研发任务拆解。',
+      constraints: 'React + TypeScript + Node BFF + SSE；高风险动作需要人工确认；输出必须可追踪引用来源。'
+    }
+  },
   {
     title: 'AI 研发提效落地',
     modeId: 'engineering-productivity',
@@ -302,13 +326,14 @@ export default function CopilotWorkbench() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [active, setActive] = useState<Session | null>(null);
-  const [skillId, setSkillId] = useState('engineering-productivity');
-  const [prompt, setPrompt] = useState('请为前端团队设计一套 AI 研发提效工作流，要求覆盖代码生成、测试辅助、文档生成、PR 检查和人工确认。');
-  const [taskModeId, setTaskModeId] = useState('engineering-productivity');
+  const [skillId, setSkillId] = useState('product-workflow');
+  const [prompt, setPrompt] = useState('请把下面业务需求转成 AI 产品前端交付方案，输出需求摘要、用户流程、页面原型、接口协议、状态流转、研发任务拆解、风险和待确认问题。');
+  const [taskModeId, setTaskModeId] = useState('product-workflow');
   const [form, setForm] = useState<Record<string, string>>({
-    workflowGoal: '把组件开发、单测补全、PR Review 和技术文档生成接入 AI 工作流',
-    targetStack: 'React / TypeScript / Vite / Node BFF / MongoDB / SSE',
-    qualityGate: 'typecheck、lint、unit test、review checklist、人工确认'
+    businessRequirement: '建设一个面向研发团队的 AI 工作流产品，支持需求输入、RAG 上下文、SSE 流式生成、Artifact 产物和人工确认。',
+    targetUsers: '产品经理、前端工程师、后端工程师、算法工程师、技术负责人',
+    deliveryGoal: '一周内完成可演示 MVP，覆盖需求分析、页面原型、接口协议和研发任务拆解。',
+    constraints: 'React + TypeScript + Node BFF + SSE；高风险动作需要人工确认；输出必须可追踪引用来源。'
   });
   const [trace, setTrace] = useState<TraceStep[]>([]);
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
@@ -333,7 +358,7 @@ export default function CopilotWorkbench() {
   const chatStreamRef = useRef<HTMLDivElement | null>(null);
 
   const activeSkill = useMemo(() => skills.find((skill) => skill.id === skillId), [skills, skillId]);
-  const activeMode = useMemo(() => taskModes.find((mode) => mode.id === taskModeId) || taskModes[1], [taskModeId]);
+  const activeMode = useMemo(() => taskModes.find((mode) => mode.id === taskModeId) || taskModes[0], [taskModeId]);
   const messages = useMemo(() => active?.messages || [], [active?.messages]);
   const visibleMessages = useMemo(
     () => messages.filter((message) => message.role === 'assistant' && message.content.trim()),
@@ -374,16 +399,16 @@ export default function CopilotWorkbench() {
     });
     setModelPresets(modelResult.models || []);
     setSelectedModelId((current) => current || modelResult.models?.find((item: ModelPreset) => item.active || item.configured)?.id || modelResult.models?.[0]?.id || '');
-    const productivitySession = sessionResult.sessions.find((session: Session) => session.activeSkillId === 'engineering-productivity');
-    if (!sessionResult.sessions.length || !productivitySession) {
-      const created = await request('/api/copilot/sessions', { method: 'POST', body: JSON.stringify({ title: 'AI 研发提效演示会话', skillId: 'engineering-productivity' }) });
+    const productSession = sessionResult.sessions.find((session: Session) => session.activeSkillId === 'product-workflow');
+    if (!sessionResult.sessions.length || !productSession) {
+      const created = await request('/api/copilot/sessions', { method: 'POST', body: JSON.stringify({ title: 'AI 产品工作流演示会话', skillId: 'product-workflow' }) });
       setSessions([created.session, ...sessionResult.sessions]);
       setActive(created.session);
       return;
     }
     setSessions(sessionResult.sessions);
-    setActive((current) => current || productivitySession);
-    setSkillId('engineering-productivity');
+    setActive((current) => current || productSession);
+    setSkillId('product-workflow');
   }, []);
 
   useEffect(() => {
@@ -646,7 +671,7 @@ export default function CopilotWorkbench() {
     <section>
       <Header
         title="AI Architecture Copilot"
-        desc="一个面向研发场景的 AI Copilot 工作台：输入任务，流式生成，查看引用、Trace、Artifact，并在高风险节点人工确认。"
+        desc="一个面向 AI 产品研发流程的 Copilot Workbench：从业务需求输入，到页面原型、接口协议、任务拆解、流式生成、Trace 和人工确认。"
         action={<Status status={running ? 'streaming' : 'mvp'} />}
       />
 
@@ -654,7 +679,7 @@ export default function CopilotWorkbench() {
         <div>
           <span>Live Copilot Workbench</span>
           <strong>{selectedModel ? `${selectedModel.provider} · ${selectedModel.model}` : runtime?.llm.mode === 'live' ? `${runtime.llm.provider} · ${runtime.llm.model}` : 'Local fallback runtime'}</strong>
-          <p>中间区域是输入和输出；右侧展示 Agent 执行过程、RAG 引用和人工确认。</p>
+          <p>主流程围绕 AI 产品交付组织：需求输入、Skill 约束、RAG 上下文、Artifact、Trace 和人工确认。</p>
         </div>
         <div className="command-metrics">
           <span><strong>{skills.length || 5}</strong> Skills</span>
@@ -958,9 +983,10 @@ export default function CopilotWorkbench() {
               </div>
             ) : (
               <div className="artifact-empty">
-                <article><FileCode2 size={16} /><strong>Code Draft</strong><span>组件、Hook、Mock 草案</span></article>
-                <article><FileText size={16} /><strong>Test Plan</strong><span>单测、契约测试、回归点</span></article>
-                <article><FileText size={16} /><strong>Context Pack</strong><span>Prompt、RAG、工具状态分层</span></article>
+                <article><FileText size={16} /><strong>PRD Summary</strong><span>目标、范围、验收标准</span></article>
+                <article><FileText size={16} /><strong>UI Flow</strong><span>页面结构、状态流转</span></article>
+                <article><FileCode2 size={16} /><strong>API Contract</strong><span>接口协议、数据结构</span></article>
+                <article><FileText size={16} /><strong>Task Breakdown</strong><span>研发任务、风险、确认点</span></article>
               </div>
             )}
           </section>
