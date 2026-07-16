@@ -249,8 +249,10 @@ input:focus, textarea:focus { border-color: #0f766e; box-shadow: 0 0 0 3px rgba(
   border-radius: 8px;
 }
 .panel {
+  min-width: 0;
   padding: 20px;
   margin-bottom: 18px;
+  overflow: hidden;
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
 }
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
@@ -1021,16 +1023,20 @@ kbd {
 
 .copilot-layout {
   display: grid;
-  grid-template-columns: 270px minmax(680px, 1fr) 360px;
+  grid-template-columns: 270px minmax(0, 1fr) minmax(320px, 360px);
   gap: 14px;
   align-items: stretch;
   min-height: calc(100vh - 236px);
+  overflow: hidden;
 }
 
 .copilot-sidebar,
 .trace-panel {
+  min-width: 0;
   display: grid;
   gap: 18px;
+  align-content: start;
+  overflow: hidden;
 }
 
 .trace-panel {
@@ -1045,6 +1051,7 @@ kbd {
 .knowledge-template-list,
 .knowledge-mini-list,
 .trace-list {
+  min-width: 0;
   display: grid;
   gap: 8px;
 }
@@ -1062,6 +1069,7 @@ kbd {
 }
 
 .runtime-board span {
+  min-width: 0;
   min-height: 30px;
   display: flex;
   align-items: center;
@@ -1073,9 +1081,13 @@ kbd {
   background: #f8fafc;
   font-size: 12px;
   font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .runtime-board strong {
+  flex: 0 0 auto;
   color: #0f766e;
 }
 
@@ -1159,6 +1171,9 @@ kbd {
 .session-list button,
 .skill-list button,
 .knowledge-template-list button {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   display: grid;
   gap: 5px;
   border: 1px solid #dce5ee;
@@ -1167,6 +1182,7 @@ kbd {
   color: #172026;
   background: #fff;
   text-align: left;
+  overflow: hidden;
   transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
 }
 
@@ -1199,6 +1215,16 @@ kbd {
   min-height: auto;
 }
 
+.skill-list button strong,
+.knowledge-template-list button strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .session-list button.active,
 .skill-list button.active,
 .session-list button:hover,
@@ -1212,8 +1238,15 @@ kbd {
 .session-list span,
 .skill-list span,
 .knowledge-template-list span {
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
   color: #667789;
   font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .schema-card {
