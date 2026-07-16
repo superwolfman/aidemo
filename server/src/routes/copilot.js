@@ -239,6 +239,45 @@ const knowledgeTemplates = seedKnowledge.map((item, index) => ({
   content: item.content
 }));
 
+const evalCases = [
+  {
+    id: 'eval-product-workflow',
+    title: 'AI 产品工作流',
+    modeId: 'product-workflow',
+    expected: ['PRD 摘要完整', 'API Contract 合理', 'Trace 可复盘', '引用来源可追溯'],
+    form: {
+      businessRequirement: '建设一个面向研发团队的 AI 工作流产品，支持业务需求输入、RAG 上下文检索、SSE 流式分析、Artifact 产物和人工确认。',
+      targetUsers: '产品经理、前端工程师、后端工程师、技术负责人',
+      deliveryGoal: '一周内完成可演示 MVP，输出 PRD、页面结构、接口协议、任务拆解和风险确认点。',
+      constraints: '必须展示引用来源、chunk score、Agent Trace、Provider fallback 和 Human-in-the-loop。'
+    }
+  },
+  {
+    id: 'eval-customer-kb',
+    title: '智能客服知识库',
+    modeId: 'product-workflow',
+    expected: ['知识库范围清楚', '页面原型覆盖会话与引用', 'API 包含检索和反馈', '风险包含幻觉治理'],
+    form: {
+      businessRequirement: '为企业内部客服团队建设智能问答知识库，支持文档上传、问题检索、答案引用、会话历史、人工纠错和知识命中质量评估。',
+      targetUsers: '客服运营、质检人员、知识库管理员、客服主管',
+      deliveryGoal: '两周内完成可用版本，覆盖问答面板、知识库管理、引用来源、质检反馈和运营指标。',
+      constraints: '回答必须展示引用来源；低置信度进入人工确认；支持知识库灰度、命中率和未解决问题统计。'
+    }
+  },
+  {
+    id: 'eval-research-report',
+    title: '投研报告生成工作台',
+    modeId: 'product-workflow',
+    expected: ['业务边界明确', '页面结构覆盖资料/生成/审阅', '接口协议有审计字段', 'Trace 支持合规复核'],
+    form: {
+      businessRequirement: '建设投研报告生成工作台，支持上传研报资料、检索公司与行业知识、生成报告大纲、输出章节草稿、展示引用来源并进入人工复核。',
+      targetUsers: '投研分析师、研究助理、合规审核、业务负责人',
+      deliveryGoal: '完成一个端到端 Demo，覆盖资料导入、RAG 检索、章节生成、引用校验、合规审核和导出。',
+      constraints: '不得无引用生成关键结论；所有投资建议类内容必须标记风险并进入人工确认；Trace 需要保留模型、检索和审批记录。'
+    }
+  }
+];
+
 const projectKnowledgeFiles = [
   {
     title: '真实项目 README 架构文档',
@@ -828,6 +867,10 @@ export function copilotRouter(store) {
       active: getProviderStatus(),
       models: getModelPresets()
     });
+  });
+
+  router.get('/eval-cases', (req, res) => {
+    res.json({ cases: evalCases });
   });
 
   router.get('/knowledge/templates', (req, res) => {

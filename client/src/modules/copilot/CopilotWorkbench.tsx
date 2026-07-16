@@ -137,6 +137,14 @@ type KnowledgeTemplate = {
   tags: string[];
 };
 
+type EvalCase = {
+  id: string;
+  title: string;
+  modeId: string;
+  expected: string[];
+  form: Record<string, string>;
+};
+
 type KnowledgeDocument = {
   _id: string;
   title: string;
@@ -450,6 +458,7 @@ export default function CopilotWorkbench() {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [knowledgeStats, setKnowledgeStats] = useState<KnowledgeStats | null>(null);
   const [knowledgeTemplates, setKnowledgeTemplates] = useState<KnowledgeTemplate[]>([]);
+  const [evalCases, setEvalCases] = useState<EvalCase[]>([]);
   const [ragQuery, setRagQuery] = useState('');
   const [ragPreview, setRagPreview] = useState<RagSource[]>([]);
   const [ragDiagnostics, setRagDiagnostics] = useState<RagDiagnostics | null>(null);
@@ -486,21 +495,29 @@ export default function CopilotWorkbench() {
   );
   const diagnosticSources = ragDiagnostics?.sources?.length ? ragDiagnostics.sources : ragPreview;
   const currentRunIndex = runLifecycle.findIndex((item) => item.status === runState.status);
+  const evalChecks = useMemo(() => ({
+    citations: sources.length > 0,
+    prd: artifacts.some((artifact) => artifact.type === 'prd'),
+    api: artifacts.some((artifact) => artifact.type === 'api'),
+    trace: trace.length >= 6
+  }), [artifacts, sources.length, trace.length]);
 
   const load = useCallback(async () => {
-    const [skillResult, sessionResult, knowledgeResult, templateResult, runtimeResult, modelResult] = await Promise.all([
+    const [skillResult, sessionResult, knowledgeResult, templateResult, runtimeResult, modelResult, evalResult] = await Promise.all([
       request('/api/copilot/skills'),
       request('/api/copilot/sessions'),
       request('/api/copilot/knowledge'),
       request('/api/copilot/knowledge/templates'),
       request('/api/copilot/runtime'),
-      request('/api/copilot/models')
+      request('/api/copilot/models'),
+      request('/api/copilot/eval-cases')
     ]);
     setSkills(skillResult.skills);
     setDocuments(knowledgeResult.documents);
     setKnowledgeStats(knowledgeResult.stats || null);
     setKnowledgeTemplates(templateResult.templates || []);
     setRuntime(runtimeResult);
+    setEvalCases(evalResult.cases || []);
     setVectorHealth(null);
     setRagDiagnostics((current) => current || {
       rag: runtimeResult.rag,
@@ -756,6 +773,21 @@ export default function CopilotWorkbench() {
     setRunState({ status: 'idle', label: '等待输入' });
     setSources([]);
     setApproval(null);
+    setRagPreview([]);
+    setRagDiagnostics(runtime ? { rag: runtime.rag, query: '', scopes: [], sources: [], source: 'runtime' } : null);
+  }
+
+  function applyEvalCase(item: EvalCase) {
+    const mode = taskModes.find((task) => task.id === item.modeId) || taskModes[0];
+    setTaskModeId(mode.id);
+    setSkillId(mode.skillId);
+    setPrompt(mode.prompt);
+    setForm(item.form);
+    setArtifacts([]);
+    setTrace([]);
+    setSources([]);
+    setApproval(null);
+    setRunState({ status: 'idle', label: `已加载 Eval Case：${item.title}` });
     setRagPreview([]);
     setRagDiagnostics(runtime ? { rag: runtime.rag, query: '', scopes: [], sources: [], source: 'runtime' } : null);
   }
@@ -1212,6 +1244,36 @@ export default function CopilotWorkbench() {
                   </article>
                 );
               })}
+            </div>
+          </section>
+
+          <section className="eval-case-panel">
+            <div className="workflow-chain-head">
+              <div>
+                <strong>Eval Cases</strong>
+                <span>用真实产品场景验证引用命中、PRD 完整度、API 合理性和 Trace 可复盘。</span>
+              </div>
+              <em>{Object.values(evalChecks).filter(Boolean).length} / 4 passed</em>
+            </div>
+            <div className="eval-case-grid">
+              {evalCases.map((item) => (
+                <article key={item.id}>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <button type="button" onClick={() => applyEvalCase(item)}>加载案例</button>
+                  </div>
+                  <p>{item.form.businessRequirement}</p>
+                  <div className="eval-tags">
+                    {item.expected.map((expected) => <span key={expected}>{expected}</span>)}
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="eval-scoreboard">
+              <span className={evalChecks.citations ? 'pass' : ''}>命中知识来源：{sources.length} chunks</span>
+              <span className={evalChecks.prd ? 'pass' : ''}>PRD 完整度：{evalChecks.prd ? '已生成' : '待生成'}</span>
+              <span className={evalChecks.api ? 'pass' : ''}>API Contract：{evalChecks.api ? '已生成' : '待生成'}</span>
+              <span className={evalChecks.trace ? 'pass' : ''}>Trace 可复盘：{trace.length} steps</span>
             </div>
           </section>
 
