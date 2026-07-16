@@ -393,7 +393,7 @@ export default function CopilotWorkbench() {
     constraints: 'React + TypeScript + Node BFF + SSE；RAG 必须显示引用来源和 score；LLM 输出必须受 Skill schema 约束；高风险动作进入人工确认；结果可复制、可修改、可重新生成。'
   });
   const [trace, setTrace] = useState<TraceStep[]>([]);
-  const [activeTraceId, setActiveTraceId] = useState('');
+  const [openTraceIds, setOpenTraceIds] = useState<string[]>([]);
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
   const [sources, setSources] = useState<any[]>([]);
   const [approval, setApproval] = useState<Approval | null>(null);
@@ -426,7 +426,6 @@ export default function CopilotWorkbench() {
   );
   const replayTrace = replayIndex === null ? trace : trace.slice(0, replayIndex + 1);
   const visibleTrace = replayTrace.length ? replayTrace : trace;
-  const activeTrace = visibleTrace.find((item) => item.id === activeTraceId);
   const activeScopes = activeSkill?.knowledgeScopes || ['architecture', 'standards'];
   const indexedChunks = documents.reduce((sum, doc) => sum + (doc.chunkCount || 0), 0);
   const activeTemplatePacks = knowledgeTemplates
@@ -485,14 +484,8 @@ export default function CopilotWorkbench() {
   }, [messages, running]);
 
   useEffect(() => {
-    if (!visibleTrace.length) {
-      if (activeTraceId) setActiveTraceId('');
-      return;
-    }
-    if (!visibleTrace.some((item) => item.id === activeTraceId)) {
-      setActiveTraceId('');
-    }
-  }, [visibleTrace, activeTraceId]);
+    setOpenTraceIds((ids) => ids.filter((id) => visibleTrace.some((item) => item.id === id)));
+  }, [visibleTrace]);
 
   async function createSession() {
     const result = await request('/api/copilot/sessions', { method: 'POST', body: JSON.stringify({ title: `${activeMode.label}会话`, skillId }) });
@@ -792,14 +785,16 @@ export default function CopilotWorkbench() {
     const traceFromMessage = [...messages].reverse().find((message) => message.trace?.length)?.trace || trace;
     setTrace(traceFromMessage);
     setReplayIndex(traceFromMessage.length ? 0 : null);
-    setActiveTraceId(traceFromMessage[0]?.id || '');
+    setOpenTraceIds(traceFromMessage[0]?.id ? [traceFromMessage[0].id] : []);
   }
 
   function nextReplayStep() {
     if (replayIndex === null) return;
     setReplayIndex((index) => {
       const next = Math.min((index || 0) + 1, trace.length - 1);
-      setActiveTraceId(trace[next]?.id || '');
+      if (trace[next]?.id) {
+        setOpenTraceIds((ids) => ids.includes(trace[next].id) ? ids : [...ids, trace[next].id]);
+      }
       return Number.isFinite(next) ? next : null;
     });
   }
@@ -1234,12 +1229,18 @@ export default function CopilotWorkbench() {
               </div>
             </div>
             <div className="trace-path">
-              {visibleTrace.map((item, index) => (
-                <div className="trace-step-row" key={item.id}>
-                  <button type="button" className={item.id === activeTrace?.id ? 'active' : ''} onClick={() => setActiveTraceId((current) => current === item.id ? '' : item.id)}>
-                    {index + 1}. {item.name}
-                  </button>
-                  {item.id === activeTrace?.id ? (
+              {visibleTrace.map((item, index) => {
+                const expanded = openTraceIds.includes(item.id);
+                return (
+                  <div className="trace-step-row" key={item.id}>
+                    <button
+                      type="button"
+                      className={expanded ? 'active' : ''}
+                      onClick={() => setOpenTraceIds((ids) => ids.includes(item.id) ? ids.filter((id) => id !== item.id) : [...ids, item.id])}
+                    >
+                      {index + 1}. {item.name}
+                    </button>
+                    {expanded ? (
                     <div className="trace-inline-detail">
                       <div>
                         <span className={`trace-dot ${item.status}`} />
@@ -1248,15 +1249,10 @@ export default function CopilotWorkbench() {
                       </div>
                       <pre>{JSON.stringify({ tool: item.tool, input: item.input, output: item.output, error: item.error, humanRequired: item.humanRequired }, null, 2)}</pre>
                     </div>
-                  ) : null}
-                </div>
-              ))}
-              {visibleTrace.length && !activeTrace ? (
-                <div className="trace-empty">
-                  <strong>选择一个 Trace 节点查看详情</strong>
-                  <span>默认只展示全局执行路径。点击任一步骤后，详情会直接展开在该步骤下方。</span>
-                </div>
-              ) : null}
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
             <div className="trace-timeline">
               {visibleTrace.map((item) => (
