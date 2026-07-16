@@ -6,7 +6,8 @@ import { generateLlmAnswer, getModelPresets, getProviderStatus, streamLlmAnswer 
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
 import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
 
-const PROJECT_ROOT = process.cwd();
+const CWD = process.cwd();
+const PROJECT_ROOT = path.basename(CWD) === 'server' ? path.resolve(CWD, '..') : CWD;
 
 const skills = [
   {
