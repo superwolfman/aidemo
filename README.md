@@ -102,6 +102,12 @@ npm run dev
 - 后端：http://127.0.0.1:4000
 - 健康检查：http://127.0.0.1:4000/health
 
+演示前自检：
+
+```bash
+npm run verify
+```
+
 登录账号：
 
 ```text
@@ -660,13 +666,13 @@ client/src
 - MVP 只保留 `modules/copilot` 主模块。
 - 平台能力放在 `platform`。
 - API 和 SSE 统一通过 `api/client.ts`。
-- 运行前执行：
+- 运行前执行项目级质量门禁：
 
 ```bash
-npm run typecheck --workspace client
-npm run lint --workspace client
-npm run build --workspace client
+npm run verify
 ```
+
+`npm run verify` 会依次执行前端 ESLint、TypeScript typecheck、Vite build，以及后端 Copilot/RAG/LLM 关键模块语法检查。
 
 ## 数据集合
 
