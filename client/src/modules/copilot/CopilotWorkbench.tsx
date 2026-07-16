@@ -1246,16 +1246,16 @@ export default function CopilotWorkbench() {
               ))}
             </div>
             <div className="trace-list">
-              {visibleTrace.map((item) => (
-                <details key={item.id} open={item.id === activeTrace?.id} className={item.id === activeTrace?.id ? 'active' : ''}>
+              {activeTrace ? (
+                <details key={activeTrace.id} open className="active">
                   <summary>
-                    <span className={`trace-dot ${item.status}`} />
-                    <strong>{item.name}</strong>
-                    <em>{item.durationMs || 0}ms · {item.tokenUsage || 0} tokens</em>
+                    <span className={`trace-dot ${activeTrace.status}`} />
+                    <strong>{activeTrace.name}</strong>
+                    <em>{activeTrace.durationMs || 0}ms · {activeTrace.tokenUsage || 0} tokens</em>
                   </summary>
-                  <pre>{JSON.stringify({ tool: item.tool, input: item.input, output: item.output, error: item.error, humanRequired: item.humanRequired }, null, 2)}</pre>
+                  <pre>{JSON.stringify({ tool: activeTrace.tool, input: activeTrace.input, output: activeTrace.output, error: activeTrace.error, humanRequired: activeTrace.humanRequired }, null, 2)}</pre>
                 </details>
-              ))}
+              ) : null}
               {!visibleTrace.length ? (
                 <div className="trace-empty">
                   <strong>等待执行链路</strong>

@@ -1436,7 +1436,7 @@ kbd {
   gap: 10px;
   padding: 12px;
   background: #f8fafc;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .workflow-column {
@@ -1451,6 +1451,18 @@ kbd {
   padding: 12px;
   background: #fff;
   overflow: hidden;
+}
+
+.workflow-input-panel {
+  position: relative;
+  z-index: 8;
+  overflow: visible;
+}
+
+.workflow-stream-panel,
+.workflow-artifacts-panel {
+  position: relative;
+  z-index: 1;
 }
 
 .workflow-column * {
@@ -1569,6 +1581,8 @@ kbd {
   height: auto !important;
   min-height: 220px !important;
   max-height: 300px !important;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid #edf1f5;
   border-radius: 8px;
 }
@@ -2222,12 +2236,24 @@ kbd {
   border-radius: 8px;
   padding: 14px 16px;
   background: #fff;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.markdown-body p,
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3 {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .chat-message-body {
   min-width: 0;
+  max-width: 100%;
   display: grid;
   gap: 6px;
+  overflow: hidden;
 }
 
 .message-actions {
@@ -2693,11 +2719,11 @@ kbd {
   position: absolute;
   right: 0;
   left: auto;
-  top: calc(100% + 8px);
-  bottom: auto;
+  top: auto;
+  bottom: calc(100% + 8px);
   z-index: 30;
   width: 360px;
-  max-height: 236px;
+  max-height: 220px;
   overflow: auto;
   display: grid;
   gap: 3px;
@@ -2917,24 +2943,34 @@ kbd {
 }
 
 .trace-path {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
+  max-height: 168px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-bottom: 10px;
+  padding-right: 2px;
 }
 
 .trace-path button {
-  min-height: 26px;
+  min-width: 0;
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   border: 0;
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 0 10px;
   color: #506575;
   background: #eef4f8;
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .trace-path button.active {
@@ -2978,7 +3014,7 @@ kbd {
 
 .trace-list pre {
   max-width: 100%;
-  max-height: 280px;
+  max-height: 220px;
   overflow: auto;
   margin: 0;
   border-top: 1px solid #edf1f5;
