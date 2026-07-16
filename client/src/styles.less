@@ -1116,7 +1116,7 @@ kbd {
 
 .copilot-layout {
   display: grid;
-  grid-template-columns: 270px minmax(0, 1fr) minmax(320px, 360px);
+  grid-template-columns: 270px minmax(0, 1fr) minmax(380px, 440px);
   gap: 14px;
   align-items: stretch;
   min-height: calc(100vh - 236px);
@@ -1138,6 +1138,7 @@ kbd {
   max-height: calc(100vh - 36px);
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding-right: 2px;
 }
 
 .session-list,
@@ -1248,6 +1249,139 @@ kbd {
   margin-right: 4px;
   color: #0f766e;
   font-size: 14px;
+}
+
+.vector-store-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  margin: 10px 0;
+  padding: 12px;
+  background: #fbfdff;
+}
+
+.vector-store-card.live {
+  border-color: #9bd8cb;
+  background: linear-gradient(180deg, #f4fffb, #ffffff);
+}
+
+.vector-store-card.fallback {
+  border-color: #ead7a6;
+  background: linear-gradient(180deg, #fffaf0, #ffffff);
+}
+
+.vector-store-card > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  align-items: center;
+}
+
+.vector-store-card > div span {
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+
+.vector-store-card > div strong {
+  overflow: hidden;
+  color: #172026;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vector-store-card > div em {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: #0f766e;
+  background: #e7f3f1;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.vector-store-card.fallback > div em {
+  color: #9a6700;
+  background: #fff2cf;
+}
+
+.vector-store-card dl {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 6px 8px;
+  margin: 0;
+}
+
+.vector-store-card dt {
+  color: #7a8b9c;
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.vector-store-card dd {
+  min-width: 0;
+  overflow: hidden;
+  margin: 0;
+  color: #315262;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vector-store-card p {
+  margin: 0;
+  border-radius: 7px;
+  padding: 8px;
+  color: #7a5200;
+  background: #fff7df;
+  font-size: 11px;
+  line-height: 1.55;
+  font-weight: 800;
+}
+
+.vector-check-button {
+  width: 100%;
+  justify-content: center;
+}
+
+.vector-health-detail {
+  overflow: hidden;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.vector-health-detail summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  color: #315262;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.45;
+}
+
+.vector-health-detail pre {
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  border-top: 1px solid #edf1f5;
+  padding: 9px;
+  color: #33495a;
+  background: #f8fafc;
+  font-size: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .knowledge-actions {
@@ -2946,8 +3080,10 @@ kbd {
 
 .trace-card {
   display: grid;
-  gap: 10px;
+  gap: 12px;
+  align-content: start;
   padding: 16px;
+  overflow: visible;
 }
 
 .trace-card .section-head {
@@ -2983,8 +3119,9 @@ kbd {
 .trace-path {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 7px;
+  gap: 6px;
   margin: 0;
+  overflow: visible;
 }
 
 .trace-step-row {
@@ -2994,15 +3131,17 @@ kbd {
 
 .trace-path button {
   min-width: 0;
-  min-height: 31px;
-  display: inline-flex;
+  width: 100%;
+  min-height: 36px;
+  display: flex;
   align-items: center;
   justify-content: flex-start;
-  border: 0;
-  border-radius: 7px;
-  padding: 0 11px;
+  gap: 8px;
+  border: 1px solid #e3ebf2;
+  border-radius: 8px;
+  padding: 0 12px;
   color: #33495a;
-  background: #eef4f8;
+  background: #fff;
   font-size: 12px;
   font-weight: 900;
   cursor: pointer;
@@ -3012,17 +3151,44 @@ kbd {
   white-space: nowrap;
 }
 
+.trace-path button::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #0f766e;
+}
+
+.trace-path button.running::before {
+  background: #2563eb;
+}
+
+.trace-path button.failed::before {
+  background: #dc2626;
+}
+
+.trace-path button.pending::before {
+  background: #d08a00;
+}
+
 .trace-path button.active {
+  border-color: #0f766e;
   color: #fff;
   background: #0f766e;
 }
 
+.trace-path button.active::before {
+  background: #fff;
+}
+
 .trace-inline-detail {
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid #cfe0e8;
   border-radius: 8px;
   background: #fff;
   box-shadow: none;
+  margin: 0 0 4px;
 }
 
 .trace-inline-detail > div {
@@ -3049,8 +3215,6 @@ kbd {
 }
 
 .trace-inline-detail pre {
-  max-height: 190px;
-  overflow: auto;
   margin: 0;
   border-top: 1px solid #edf1f5;
   padding: 11px;
@@ -3060,6 +3224,7 @@ kbd {
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow: visible;
 }
 
 .trace-timeline {
@@ -3179,7 +3344,7 @@ kbd {
 
 @media (max-width: 1500px) {
   .copilot-layout {
-    grid-template-columns: 250px minmax(0, 1fr) 310px;
+    grid-template-columns: 250px minmax(0, 1fr) minmax(330px, 360px);
     gap: 12px;
   }
 

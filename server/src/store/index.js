@@ -6,11 +6,13 @@ export async function createStore() {
   const mongo = new MongoStore(config.mongodbUri);
   try {
     await mongo.init();
-    console.log(`[store] MongoDB connected: ${config.mongodbUri}`);
+    console.log(`[store] MongoDB connected: ${config.redactedMongoUri}`);
     return mongo;
   } catch (error) {
     console.warn(`[store] MongoDB unavailable, using local file demo store. Reason: ${error.message}`);
     const file = new FileStore();
+    file.connectionError = error.message;
+    file.requestedStore = 'mongo';
     await file.init();
     return file;
   }

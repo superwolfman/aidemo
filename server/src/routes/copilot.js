@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import express from 'express';
+import { config } from '../config.js';
 import { generateLlmAnswer, getModelPresets, getProviderStatus, streamLlmAnswer } from '../services/llmProvider.js';
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
 import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
@@ -329,6 +330,68 @@ function uniqueByTitle(documents) {
   });
 }
 
+async function inspectVectorStore(store) {
+  const checks = {
+    requestedBackend: config.ragBackend,
+    expectedVectorStore: getRagStatus({ storeKind: store.kind }).vectorStore,
+    storeKind: store.kind,
+    mongoConnected: store.kind === 'mongo',
+    chunks: typeof store.countChunks === 'function' ? await store.countChunks() : undefined,
+    index: config.ragBackend === 'mongodb-atlas' ? config.ragVectorIndex : undefined,
+    vectorPath: config.ragBackend === 'mongodb-atlas' ? config.ragVectorPath : undefined,
+    dimensions: config.ragVectorDimensions
+  };
+
+  if (config.ragBackend !== 'mongodb-atlas') {
+    return {
+      ok: false,
+      live: false,
+      status: getRagStatus({ storeKind: store.kind, error: 'RAG_BACKEND is not mongodb-atlas.' }),
+      checks,
+      message: '当前未启用 MongoDB Atlas Vector Search。请设置 RAG_BACKEND=mongodb-atlas，并配置 MONGODB_ATLAS_URI 或 Atlas 版 MONGODB_URI。'
+    };
+  }
+
+  if (!config.mongodbAtlasConfigured) {
+    return {
+      ok: false,
+      live: false,
+      status: getRagStatus({ storeKind: store.kind, vectorSearchReady: false, error: 'Missing MongoDB Atlas mongodb+srv URI.' }),
+      checks: { ...checks, connectionError: 'MONGODB_ATLAS_URI is empty or MONGODB_URI is not mongodb+srv://.' },
+      message: '已启用 mongodb-atlas，但没有配置 MongoDB Atlas 连接串。请填写 MONGODB_ATLAS_URI=mongodb+srv://...'
+    };
+  }
+
+  if (store.kind !== 'mongo') {
+    return {
+      ok: false,
+      live: false,
+      status: getRagStatus({ storeKind: store.kind, vectorSearchReady: false, error: store.connectionError || 'MongoDB store is unavailable.' }),
+      checks: { ...checks, connectionError: store.connectionError },
+      message: '已配置 mongodb-atlas，但后端没有连接到 MongoDB Atlas。请检查 MONGODB_ATLAS_URI、网络和 Atlas IP 白名单。'
+    };
+  }
+
+  try {
+    const vectorSearch = await store.checkVectorSearch();
+    return {
+      ok: true,
+      live: true,
+      status: getRagStatus({ storeKind: store.kind, mode: 'live', vectorSearchReady: true }),
+      checks: { ...checks, vectorSearch },
+      message: 'MongoDB Atlas Vector Search 已连接，$vectorSearch 可执行。'
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      live: false,
+      status: getRagStatus({ storeKind: store.kind, mode: 'fallback', vectorSearchReady: false, error: error.message }),
+      checks: { ...checks, vectorSearch: { ok: false, error: error.message } },
+      message: 'MongoDB 已连接，但 Atlas Vector Search 不可用。请检查 Search Index、RAG_VECTOR_INDEX、RAG_VECTOR_PATH 和 Atlas 集群类型。'
+    };
+  }
+}
+
 async function readProjectKnowledgeFiles() {
   const documents = [];
   for (const item of projectKnowledgeFiles) {
@@ -443,27 +506,72 @@ function generateEngineeringArtifacts({ prompt, skill, sources, repoAnalysis }) 
   ];
 }
 
+function readPromptField(prompt, label, fallback = '') {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = prompt.match(new RegExp(`${escaped}[：:]\\s*([^\\n]+)`, 'i'));
+  return (match?.[1] || fallback).trim();
+}
+
+function parseProductWorkflowInput(prompt) {
+  return {
+    businessRequirement: readPromptField(prompt, '业务需求', prompt.slice(0, 220)),
+    targetUsers: readPromptField(prompt, '目标用户', '产品经理、前端工程师、后端工程师、算法工程师、技术负责人'),
+    deliveryGoal: readPromptField(prompt, '交付目标', '完成一个可演示、可评审、可拆分研发任务的 AI 产品工作流 MVP'),
+    constraints: readPromptField(prompt, '约束条件', 'React + TypeScript + Node BFF + SSE；高风险动作需要人工确认；输出必须可追踪引用来源')
+  };
+}
+
+function splitList(value) {
+  return value
+    .split(/[、,，/；;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
 function generateProductWorkflowArtifacts({ prompt, skill, sources }) {
+  const input = parseProductWorkflowInput(prompt);
   const citations = sources.map((source, index) => `[${index + 1}] ${source.documentTitle}`).join('、') || '暂无引用';
+  const sourceEvidence = sources.slice(0, 5).map((source, index) => `- [${index + 1}] ${source.documentTitle} / ${source.scope || 'unknown'} / score ${Number(source.score || 0).toFixed(4)}`).join('\n') || '- 当前未命中知识库引用，需补充项目规范或业务文档。';
+  const targetUsers = splitList(input.targetUsers);
+  const constraints = splitList(input.constraints);
   return [
     {
       id: 'artifact-prd-summary',
       type: 'prd',
-      title: 'PRD 摘要',
+      title: 'PRD 文档规范',
       content: [
-        '# PRD 摘要',
+        '# PRD 文档规范',
         '',
-        `业务输入：${prompt.slice(0, 420)}`,
+        '## 1. 背景与问题',
+        `${input.businessRequirement}`,
         '',
-        '## 目标',
-        '- 把模糊需求转成可评审、可拆分、可交付的产品方案。',
-        '- 让前端、后端、算法、产品能围绕同一份 Artifact 对齐。',
-        '- 在高风险动作前保留人工确认，避免 AI 直接替代决策。',
+        '## 2. 产品目标',
+        `- ${input.deliveryGoal}`,
+        '- 将非结构化需求转成可评审的产品规格、页面方案、接口协议和研发任务。',
+        '- 让 AI 生成过程可追踪、可解释、可人工确认，而不是只输出一段聊天文本。',
         '',
-        '## 验收标准',
+        '## 3. 目标用户',
+        ...(targetUsers.length ? targetUsers.map((user) => `- ${user}`) : ['- 产品经理', '- 前端工程师', '- 后端工程师', '- 算法工程师']),
+        '',
+        '## 4. 功能范围',
+        '- 需求输入：业务目标、用户角色、交付目标、约束条件、参考资料。',
+        '- AI 分析：按 Skill Definition 校验输入，按 knowledgeScopes 组织上下文。',
+        '- RAG 引用：展示命中的 chunk、score、来源和引用摘要。',
+        '- Artifact 生成：PRD、页面结构、API Contract、状态流转、任务拆解和风险清单。',
+        '- 人工确认：对高风险输出支持确认、修改后确认、拒绝和审计留痕。',
+        '',
+        '## 5. 约束与规则',
+        ...(constraints.length ? constraints.map((rule) => `- ${rule}`) : ['- 需要前后端分离，接口协议清晰。', '- 需要支持 SSE 流式反馈。', '- 高风险动作必须进入人工确认。']),
+        '',
+        '## 6. 验收标准',
         '- 页面结构、接口协议、状态流转和任务拆解同时输出。',
         '- 每个关键结论可以追溯到 RAG 引用或用户输入。',
-        '- 生成结果可编辑、可确认、可拒绝。'
+        '- 生成结果可编辑、可确认、可拒绝。',
+        '- Trace 至少覆盖用户请求、Skill 选择、Provider 检查、RAG 检索、Tool 调用、LLM 输出、结构化结果和人工确认。',
+        '',
+        '## 7. 引用依据',
+        sourceEvidence
       ].join('\n')
     },
     {
@@ -471,14 +579,22 @@ function generateProductWorkflowArtifacts({ prompt, skill, sources }) {
       type: 'flow',
       title: '页面流程与原型结构',
       content: {
-        entry: '需求输入页',
+        productGoal: input.deliveryGoal,
+        entry: 'AI 产品工作流工作台',
         pages: [
-          { name: '需求输入', modules: ['业务目标', '用户角色', '约束条件', '参考资料'] },
-          { name: 'AI 分析过程', modules: ['流式输出', 'RAG 引用', 'Trace 状态', '异常提示'] },
-          { name: 'Artifact 工作台', modules: ['PRD 摘要', '页面模块', 'API Contract', '任务列表'] },
-          { name: '人工确认', modules: ['确认', '修改后执行', '拒绝', '审批历史'] }
+          { name: '需求输入区', modules: ['业务需求', '目标用户', '交付目标', '约束条件', 'Prompt Contract', '模型选择'] },
+          { name: 'AI 流式分析区', modules: ['需求摘要', '用户角色拆解', '业务流程', '页面模块', '失败降级提示'] },
+          { name: 'Artifact 工作台', modules: ['PRD 文档规范', '页面流程与原型结构', '接口协议草案', '研发任务拆解', '风险和待确认问题'] },
+          { name: '右侧审计栏', modules: ['Agent Trace', 'RAG 引用来源', '人工确认节点', '审批历史'] }
         ],
-        stateFlow: ['idle', 'validating', 'retrieving', 'tool_running', 'streaming', 'waiting_approval', 'completed']
+        interactionRules: [
+          '输入区只负责收集结构化需求和约束，不直接生成最终结论。',
+          '中间流式区展示 AI 推理过程和降级信息，避免用户误以为系统卡死。',
+          '右侧审计栏展示每一步输入输出，支持节点展开，满足可解释和复盘。',
+          'Artifact 产物用于跨角色评审，确认后再进入研发任务。'
+        ],
+        stateFlow: ['idle', 'validating', 'retrieving', 'tool_running', 'streaming', 'waiting_approval', 'completed'],
+        mobileAdaptation: ['核心输入字段堆叠展示', 'Trace 收起为底部抽屉', 'Artifact 卡片单列展示']
       }
     },
     {
@@ -493,13 +609,18 @@ function generateProductWorkflowArtifacts({ prompt, skill, sources }) {
             targetUsers: 'string',
             deliveryGoal: 'string',
             constraints: 'string',
-            skillId: skill.id
+            skillId: skill.id,
+            model: { provider: 'deepseek | openai-compatible | dashscope', model: 'string' }
           },
           response: {
             traceId: 'string',
             artifacts: ['prd', 'flow', 'api', 'task', 'risk'],
             approvalId: 'string',
-            citations: sources.map((source) => source.documentTitle)
+            citations: sources.map((source) => ({
+              title: source.documentTitle,
+              scope: source.scope,
+              score: source.score
+            }))
           }
         },
         'GET /api/copilot/trace/:traceId': {
@@ -512,11 +633,26 @@ function generateProductWorkflowArtifacts({ prompt, skill, sources }) {
       type: 'task',
       title: '研发任务拆解',
       content: [
-        '1. 前端：实现需求输入、模型选择、流式输出、Artifact 面板、引用来源和人工确认交互。',
-        '2. BFF：实现会话、SSE、RAG 检索、工具调用、审批状态和错误恢复。',
-        '3. 算法/模型：定义 Prompt Contract、输出 Schema、引用约束和 fallback 策略。',
-        '4. 测试：覆盖停止生成、重新生成、Provider 失败、引用为空、审批拒绝和重新执行。',
-        '5. 可观测：记录 traceId、latency、token、tool input/output 和用户确认动作。',
+        '# 研发任务拆解',
+        '',
+        '## Frontend',
+        '- 实现结构化需求输入、模型选择、流式输出、Artifact 面板、引用来源和人工确认交互。',
+        '- Agent Trace 支持节点展开、路径还原、失败态和多节点审计详情。',
+        '- Artifact 支持 PRD、页面结构、API、任务、风险多类型展示与复制。',
+        '',
+        '## Node BFF',
+        '- 实现会话、SSE、RAG 检索、工具调用、审批状态和错误恢复。',
+        '- 统一 LLM Provider Adapter，支持 DeepSeek / OpenAI-compatible / fallback。',
+        '- 记录 traceId、latency、token、tool input/output 和 human action。',
+        '',
+        '## AI / Prompt / Context',
+        '- 定义 SkillDefinition：inputSchema、outputSchema、allowedTools、knowledgeScopes。',
+        '- 构建 Context Pack：用户需求、RAG 引用、工具状态、人工确认策略。',
+        '- 对 Provider 失败、引用不足、输出不满足 Schema 做降级和提示。',
+        '',
+        '## QA',
+        '- 覆盖停止生成、重新生成、Provider 失败、引用为空、审批拒绝和重新执行。',
+        '- 准备 10 条 Eval 问题，检查引用命中率、Artifact 完整度和输出稳定性。',
         '',
         `引用来源：${citations}`
       ].join('\n')
@@ -668,19 +804,23 @@ export function copilotRouter(store) {
   });
 
   router.get('/skills', (req, res) => {
-    res.json({ skills, provider: getProviderStatus(), rag: getRagStatus() });
+    res.json({ skills, provider: getProviderStatus(), rag: getRagStatus({ storeKind: store.kind, error: store.connectionError }) });
   });
 
   router.get('/runtime', (req, res) => {
     res.json({
       llm: getProviderStatus(),
-      rag: getRagStatus(),
+      rag: getRagStatus({ storeKind: store.kind, error: store.connectionError }),
       mcp: {
         enabled: true,
         transport: 'stdio-jsonrpc',
         command: 'node server/src/mcp/architectureMcpServer.js'
       }
     });
+  });
+
+  router.get('/vector-store/health', async (req, res) => {
+    res.json(await inspectVectorStore(store));
   });
 
   router.get('/models', (req, res) => {

@@ -31,8 +31,8 @@
 这一版把页面从说明型展示收敛成真实产品工作区：
 
 - 新增 `AI 产品工作流 Skill`，支持“业务需求输入 -> 需求摘要 -> 页面原型 -> 接口协议 -> 研发任务拆解 -> 人工确认”的端到端流程。
-- 新增 `generateProductWorkflowArtifacts` 工具，输出 PRD Summary、UI Flow、API Contract、Task Breakdown 四类 Artifact。
-- 新增一键准备 Product Workflow Demo：自动切换产品工作流 Skill、同步真实项目知识、执行 RAG 预检索，并在页面展示“需求 -> RAG -> 流式生成 -> Artifact -> 人工确认”的可演示链路。
+- 新增 `generateProductWorkflowArtifacts` 工具，按用户输入的业务需求、目标用户、交付目标和约束条件生成 PRD 文档规范、页面流程、API Contract、Task Breakdown 和风险确认点。
+- 项目资料同步入口收敛到 Knowledge Context 模块，主流程不再依赖“一键准备 Demo”，而是通过真实的输入、RAG 检索、Tool Calling、LLM 流式输出和 Artifact 生成串起链路。
 - 增强 AI 产品交互细节：流式光标、复制回答、复制代码块、历史回答编辑回输入框、停止生成和重新生成。
 - 新增 AI Run Lifecycle 状态机：`validating -> retrieving -> tool_running -> streaming -> waiting_approval -> completed`，失败和用户中断分别进入 `failed`、`cancelled`。
 - 主流程只保留任务输入、Skill 约束、RAG Context、Artifact、Agent Trace 和人工确认。
@@ -40,6 +40,27 @@
 - RAG 不再只是上传列表，支持按当前 Skill 的 `knowledgeScopes` 展示知识域、导入模板包、检索预览、chunk score 和引用来源。
 - 竞品对齐从“能力罗列”改成 Product Benchmarks，用来解释产品原则，而不是占用主流程。
 - Agent 输出从聊天文本升级为可审计 Artifact：代码草案、测试策略、文档草稿、Context Pack。
+
+### 产品理念与真实链路
+
+AI Architecture Copilot 的产品理念是：**AI 不直接替人做最终决策，而是把模糊需求转成可评审、可追踪、可确认的研发交付物。**
+
+完整链路如下：
+
+```text
+业务需求 / 目标用户 / 交付目标 / 约束条件
+  -> SkillDefinition 校验输入与权限
+  -> 按 knowledgeScopes 检索知识库
+  -> searchKnowledge 返回 chunks、score、citation
+  -> generateProductWorkflowArtifacts 生成 PRD / 页面结构 / API / 任务 / 风险
+  -> LLM Provider 流式生成解释性结论
+  -> Agent Trace 记录每一步输入输出、耗时、token、错误
+  -> Human-in-the-loop 对高风险结果确认、修改或拒绝
+```
+
+产品 Owner 可以这样介绍：
+
+> 这是一个面向 AI 产品研发团队的 Copilot Workbench。它解决的问题不是“让 AI 聊天”，而是让 AI 进入真实研发流程：把业务需求转成 PRD 文档规范、页面原型结构、接口协议、研发任务和风险确认点。每一步都有引用来源和 Trace，可解释、可审计，并且在高风险节点保留人工确认。
 
 ### 竞品对齐点
 
@@ -237,7 +258,7 @@ MongoDB Atlas Vector Search：
 
 ```bash
 RAG_BACKEND=mongodb-atlas
-MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>/<db>
+MONGODB_ATLAS_URI=mongodb+srv://<user>:<password>@<cluster>/<db>?retryWrites=true&w=majority
 RAG_VECTOR_INDEX=chunks_vector_index
 RAG_VECTOR_PATH=embedding
 RAG_VECTOR_DIMENSIONS=96
@@ -246,10 +267,23 @@ RAG_CREATE_VECTOR_INDEX=false
 
 说明：
 
+- 前端 `Knowledge Context -> Vector Store -> 检测真实向量库` 会请求 `/api/copilot/vector-store/health`，后端会真实检查 MongoDB 是否连接、Atlas `$vectorSearch` 是否可执行、索引名和向量字段是否匹配。
+- 只有健康检查返回 `live: true` 时，界面才会显示 `live vector db`；否则会显示具体失败原因，不会把 local fallback 包装成真实向量库。
 - 文档上传或模板导入后，chunk 会写入 `chunks` collection，并带上 `embedding` 数组字段。
 - `RAG_BACKEND=mongodb-atlas` 时，检索会调用 MongoDB Atlas `$vectorSearch`。
 - 如果 Atlas 索引未创建、当前 MongoDB 不是 Atlas、或 `$vectorSearch` 不可用，服务会自动降级为 local-hash，并在 RAG status / Trace 中标出 `mode: fallback` 与错误原因。
 - `RAG_CREATE_VECTOR_INDEX=true` 时，服务会尝试通过 MongoDB driver 请求创建 Search Index；生产环境更建议在 Atlas 控制台或 IaC 中显式管理索引。
+
+真实向量库展示步骤：
+
+1. 在 MongoDB Atlas 创建 M10+ 或支持 Atlas Vector Search 的集群。
+2. 在 `chunks` collection 创建 Vector Search Index，索引名与 `RAG_VECTOR_INDEX` 一致。
+3. 将 `.env` 改为 `RAG_BACKEND=mongodb-atlas`，并填写 Atlas `MONGODB_ATLAS_URI`。
+4. 执行 `npm run vector:health -- --seed`，脚本会写入一个 health chunk 并真实执行 `$vectorSearch`。
+5. 如果 Atlas Index 尚未创建，可先执行 `npm run vector:health -- --seed --create-index` 请求创建索引；生产环境建议在 Atlas 控制台显式创建。
+6. 重启后端，登录系统，在 `Knowledge Context` 点击“同步项目资料”写入项目 chunks。
+7. 点击“检测真实向量库”，看到 `live vector db` 后再执行“检索预览”或“生成工作流”。
+8. 检索结果的 `retrievalBackend` 应显示为 `mongodb-atlas-vector-search`。
 
 Atlas Vector Search index 示例：
 

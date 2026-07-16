@@ -210,6 +210,36 @@ export class MongoStore {
     }));
   }
 
+  async countChunks() {
+    return this.db.collection('chunks').countDocuments();
+  }
+
+  async checkVectorSearch() {
+    const result = await this.db.collection('chunks').aggregate([
+      {
+        $vectorSearch: {
+          index: config.ragVectorIndex,
+          path: config.ragVectorPath,
+          queryVector: embedText('vector store health check'),
+          numCandidates: 16,
+          limit: 1
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          vectorScore: { $meta: 'vectorSearchScore' }
+        }
+      }
+    ]).toArray();
+
+    return {
+      ok: true,
+      sampleCount: result.length,
+      sampleScore: result[0]?.vectorScore
+    };
+  }
+
   async createTask(task) {
     const result = await this.db.collection('tasks').insertOne({ ...task, createdAt: now(), updatedAt: now() });
     return serialize(await this.db.collection('tasks').findOne({ _id: result.insertedId }));

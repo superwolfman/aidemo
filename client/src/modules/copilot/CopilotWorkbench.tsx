@@ -90,6 +90,11 @@ type RuntimeStatus = {
     index?: string;
     vectorPath?: string;
     dimensions?: number;
+    connection?: string;
+    embeddingProvider?: string;
+    storeKind?: string;
+    connected?: boolean;
+    vectorSearchReady?: boolean;
     error?: string;
   };
   mcp: {
@@ -163,6 +168,14 @@ type KnowledgeStats = {
   uploads: number;
   templates: number;
   chunks: number;
+};
+
+type VectorStoreHealth = {
+  ok: boolean;
+  live: boolean;
+  message: string;
+  status: RuntimeStatus['rag'];
+  checks: Record<string, any>;
 };
 
 type TaskMode = {
@@ -408,9 +421,10 @@ export default function CopilotWorkbench() {
   const [ragDiagnostics, setRagDiagnostics] = useState<RagDiagnostics | null>(null);
   const [ragSearching, setRagSearching] = useState(false);
   const [projectSyncing, setProjectSyncing] = useState(false);
-  const [demoPreparing, setDemoPreparing] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
+  const [vectorHealth, setVectorHealth] = useState<VectorStoreHealth | null>(null);
+  const [checkingVectorStore, setCheckingVectorStore] = useState(false);
   const [modelPresets, setModelPresets] = useState<ModelPreset[]>([]);
   const [selectedModelId, setSelectedModelId] = useState('');
   const [running, setRunning] = useState(false);
@@ -452,6 +466,7 @@ export default function CopilotWorkbench() {
     setKnowledgeStats(knowledgeResult.stats || null);
     setKnowledgeTemplates(templateResult.templates || []);
     setRuntime(runtimeResult);
+    setVectorHealth(null);
     setRagDiagnostics((current) => current || {
       rag: runtimeResult.rag,
       query: '',
@@ -695,6 +710,24 @@ export default function CopilotWorkbench() {
     }
   }
 
+  async function checkVectorStore() {
+    setCheckingVectorStore(true);
+    try {
+      const result = await request('/api/copilot/vector-store/health');
+      setVectorHealth(result);
+      setRuntime((current) => current ? { ...current, rag: result.status } : current);
+      setRagDiagnostics((current) => ({
+        rag: result.status,
+        query: current?.query || '',
+        scopes: current?.scopes || activeScopes,
+        sources: current?.sources || [],
+        source: current?.source || 'runtime'
+      }));
+    } finally {
+      setCheckingVectorStore(false);
+    }
+  }
+
   async function searchKnowledgePreview() {
     setRagSearching(true);
     const nextQuery = ragQuery || buildPromptFromMode();
@@ -719,54 +752,6 @@ export default function CopilotWorkbench() {
       });
     } finally {
       setRagSearching(false);
-    }
-  }
-
-  async function prepareProductWorkflowDemo() {
-    const scenario = demoScenarios[0];
-    const mode = taskModes[0];
-    setDemoPreparing(true);
-    setTaskModeId(mode.id);
-    setSkillId(mode.skillId);
-    setPrompt(mode.prompt);
-    setForm(scenario.form);
-    setTrace([]);
-    setReplayIndex(null);
-    setSources([]);
-    setArtifacts([]);
-    setApproval(null);
-    setRunState({ status: 'validating', label: '准备产品工作流演示上下文' });
-    try {
-      await request('/api/copilot/knowledge/project/import', {
-        method: 'POST',
-        body: JSON.stringify({})
-      });
-      const knowledgeResult = await request('/api/copilot/knowledge');
-      setDocuments(knowledgeResult.documents);
-      setKnowledgeStats(knowledgeResult.stats || null);
-      const query = 'AI 产品工作流 需求分析 页面原型 接口协议 任务拆解 SSE RAG Agent Trace Human in the loop AI Native 前端交互规范';
-      const searchResult = await request('/api/copilot/knowledge/search', {
-        method: 'POST',
-        body: JSON.stringify({
-          query,
-          scopes: mode.skillId === 'product-workflow' ? ['architecture', 'standards', 'ai-native', 'frontend'] : activeScopes,
-          limit: 4
-        })
-      });
-      const nextSources = searchResult.sources || [];
-      setRagQuery(query);
-      setRagPreview(nextSources);
-      setRagDiagnostics({
-        rag: searchResult.rag || runtime?.rag,
-        query: searchResult.query || query,
-        scopes: searchResult.scopes || ['architecture', 'standards', 'ai-native', 'frontend'],
-        latencyMs: searchResult.latencyMs,
-        sources: nextSources,
-        source: 'preview'
-      });
-      setRunState({ status: 'idle', label: `Demo 已准备：已同步 ${knowledgeResult.stats?.projectFiles || 0} 个项目文件，预检索命中 ${nextSources.length} 个 chunk` });
-    } finally {
-      setDemoPreparing(false);
     }
   }
 
@@ -814,9 +799,6 @@ export default function CopilotWorkbench() {
           <p>主流程围绕 AI 产品交付组织：需求输入、Skill 约束、RAG 上下文、Artifact、Trace 和人工确认。</p>
         </div>
         <div className="command-side">
-          <button className="primary-button demo-run-button" disabled={demoPreparing || running} onClick={prepareProductWorkflowDemo}>
-            <Play size={16} />{demoPreparing ? '准备中' : '导入资料并准备 Demo'}
-          </button>
           <div className="command-metrics">
             <span><strong>{skills.length || 5}</strong> Skills</span>
             <span><strong>{knowledgeStats?.projectFiles || 0}</strong> Project files</span>
@@ -910,9 +892,46 @@ export default function CopilotWorkbench() {
             </div>
             <div className="knowledge-source-stats">
               <span><strong>{knowledgeStats?.projectFiles || 0}</strong> 真实项目文件</span>
-              <span><strong>{knowledgeStats?.uploads || 0}</strong> 上传文档</span>
+            <span><strong>{knowledgeStats?.uploads || 0}</strong> 上传文档</span>
               <span><strong>{knowledgeStats?.templates || 0}</strong> 模板</span>
             </div>
+            {runtime ? (
+              <div className={`vector-store-card ${runtime.rag.productionReady ? 'live' : 'fallback'}`}>
+                <div>
+                  <span>Vector Store</span>
+                  <strong>{runtime.rag.vectorStore}</strong>
+                  <em>{runtime.rag.productionReady ? 'live vector db' : 'local fallback'}</em>
+                </div>
+                <dl>
+                  <dt>backend</dt>
+                  <dd>{runtime.rag.backend}</dd>
+                  <dt>mode</dt>
+                  <dd>{runtime.rag.mode || '-'}</dd>
+                  <dt>index</dt>
+                  <dd>{runtime.rag.index || 'not configured'}</dd>
+                  <dt>path</dt>
+                  <dd>{runtime.rag.vectorPath || 'embedding'}</dd>
+                  <dt>dims</dt>
+                  <dd>{runtime.rag.dimensions || 96}</dd>
+                  <dt>embedding</dt>
+                  <dd>{runtime.rag.embeddingProvider || 'local-deterministic-embedding'}</dd>
+                  <dt>connection</dt>
+                  <dd>{runtime.rag.connection || 'in-process'}</dd>
+                </dl>
+                <button className="secondary-button vector-check-button" disabled={checkingVectorStore} onClick={checkVectorStore}>
+                  {checkingVectorStore ? '检测中' : '检测真实向量库'}
+                </button>
+                {vectorHealth ? (
+                  <details className="vector-health-detail" open>
+                    <summary>{vectorHealth.live ? '已连接真实向量库' : '未连接真实向量库'} · {vectorHealth.message}</summary>
+                    <pre>{JSON.stringify(vectorHealth.checks, null, 2)}</pre>
+                  </details>
+                ) : null}
+                {!runtime.rag.productionReady && !vectorHealth ? (
+                  <p>当前没有连接真实向量库。配置 `RAG_BACKEND=mongodb-atlas`、`MONGODB_ATLAS_URI` 和 Atlas Vector Search Index 后，点击检测会执行 `$vectorSearch`，并在检索结果中展示 `mongodb-atlas-vector-search`。</p>
+                ) : null}
+              </div>
+            ) : null}
             <div className="scope-row">
               {activeScopes.map((scope) => <span key={scope}>{scope}</span>)}
             </div>
@@ -1220,7 +1239,7 @@ export default function CopilotWorkbench() {
         </main>
 
         <aside className="trace-panel">
-          <section className="panel">
+          <section className="panel trace-card">
             <div className="section-head">
               <h2>Agent Trace</h2>
               <div className="trace-actions">
@@ -1235,7 +1254,7 @@ export default function CopilotWorkbench() {
                   <div className="trace-step-row" key={item.id}>
                     <button
                       type="button"
-                      className={expanded ? 'active' : ''}
+                      className={`trace-step-toggle ${item.status}${expanded ? ' active' : ''}`}
                       onClick={() => setOpenTraceIds((ids) => ids.includes(item.id) ? ids.filter((id) => id !== item.id) : [...ids, item.id])}
                     >
                       {index + 1}. {item.name}

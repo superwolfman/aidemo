@@ -52,4 +52,7 @@ const server = http.createServer(app);
 
 server.listen(config.port, config.host, () => {
   console.log(`[server] http://${config.host}:${config.port}`);
+  console.log(
+    `[server] RAG backend=${config.ragBackend}, atlasConfigured=${config.mongodbAtlasConfigured}, mongo=${config.redactedMongoUri}`
+  );
 });
