@@ -11,22 +11,22 @@ const DB_FILE = path.join(DATA_DIR, 'demo-db.json');
 
 const seedDocs = [
   {
-    title: '会员增长活动方法论',
-    tags: ['growth', 'campaign'],
+    title: 'AI 产品工作流落地说明',
+    tags: ['copilot', 'ai-native', 'frontend', 'standards'],
     content:
-      '会员增长活动应围绕目标人群、权益刺激、渠道触达、转化路径和复购承接设计。高价值用户适合会员日和专属券，新用户适合首单礼和限时补贴，沉睡用户适合召回券和内容种草。核心指标包括曝光、点击、领取、核销、GMV、ROI 和次日留存。'
+      'AI 产品工作流需要把业务需求输入、上下文检索、流式生成、Artifact 输出、Agent Trace 和人工确认串成一条可恢复、可审计的链路。前端需要显式展示运行状态、失败原因、引用来源、模型配置和人工确认入口。'
   },
   {
-    title: '投放素材生产规范',
-    tags: ['creative', 'ads'],
+    title: 'RAG 引用与检索质量规范',
+    tags: ['copilot', 'architecture', 'standards'],
     content:
-      '投放素材需要明确人群痛点、利益点、行动指令和可信背书。短视频首 3 秒突出场景冲突，信息流图片控制在一个主卖点。A/B 测试至少覆盖标题、利益点、视觉风格和 CTA。素材复盘关注 CTR、CVR、CPA、ROI 和疲劳衰减。'
+      'RAG 检索结果必须展示 query、knowledgeScopes、chunk、score、sourcePath 和 retrievalBackend。回答中应保留 citation，避免把未命中的资料当成事实。生产环境可替换为 MongoDB Atlas Vector Search、pgvector 或 Milvus。'
   },
   {
-    title: '运营 Agent 工具边界',
-    tags: ['agent', 'workflow'],
+    title: 'Agent 工具调用与人工确认规范',
+    tags: ['copilot', 'agent', 'architecture'],
     content:
-      '运营 Agent 可以自动生成方案、查询知识库、生成素材、读取归因数据、创建优惠券草稿和 Push 草稿。涉及真实预算消耗、用户触达、广告发布、券生效等动作必须进入人工确认。所有工具调用需要记录输入、输出、状态和回滚策略。'
+      'Agent 可以自动执行检索、仓库分析、Artifact 生成和 Context Pack 组装。涉及写文件、发布配置、触达用户、调用真实外部系统等高风险动作必须进入 Human-in-the-loop。Trace 必须记录工具输入、输出、耗时、token 和审批状态。'
   }
 ];
 
@@ -53,6 +53,36 @@ function publicUser(user) {
   return safeUser;
 }
 
+function createDemoAdmin() {
+  return {
+    _id: crypto.randomUUID(),
+    name: 'AI Copilot 管理员',
+    email: 'removed-default-admin@example.invalid',
+    role: 'ai_copilot_admin',
+    department: 'AI 产品研发',
+    passwordHash: hashPassword('removed-public-password'),
+    createdAt: now()
+  };
+}
+
+async function ensureDemoAdmin(db) {
+  db.users = Array.isArray(db.users) ? db.users : [];
+  const existing = db.users.find((user) => user.email === 'removed-default-admin@example.invalid');
+  if (existing) {
+    const next = {
+      name: 'AI Copilot 管理员',
+      role: 'ai_copilot_admin',
+      department: 'AI 产品研发',
+      passwordHash: hashPassword('removed-public-password')
+    };
+    const changed = Object.entries(next).some(([key, value]) => existing[key] !== value);
+    Object.assign(existing, next);
+    return changed;
+  }
+  db.users.push(createDemoAdmin());
+  return true;
+}
+
 export class FileStore {
   constructor() {
     this.kind = 'file';
@@ -62,18 +92,7 @@ export class FileStore {
     const db = await readDb();
     let changed = false;
 
-    if (!db.users.some((user) => user.email === 'removed-default-admin@example.invalid')) {
-      db.users.push({
-        _id: crypto.randomUUID(),
-        name: '增长平台管理员',
-        email: 'removed-default-admin@example.invalid',
-        role: 'growth_admin',
-        department: '用户增长',
-        passwordHash: hashPassword('removed-public-password'),
-        createdAt: now()
-      });
-      changed = true;
-    }
+    changed = await ensureDemoAdmin(db) || changed;
 
     if (!db.documents.length) {
       for (const doc of seedDocs) {
@@ -121,11 +140,13 @@ export class FileStore {
 
   async findUserByEmail(email) {
     const db = await readDb();
+    if (await ensureDemoAdmin(db)) await writeDb(db);
     return db.users.find((user) => user.email === email) || null;
   }
 
   async findUserById(id) {
     const db = await readDb();
+    if (await ensureDemoAdmin(db)) await writeDb(db);
     return publicUser(db.users.find((user) => user._id === id));
   }
 
