@@ -590,33 +590,122 @@ function splitList(value) {
     .slice(0, 8);
 }
 
+function inferProductScenario(input) {
+  const text = [input.businessRequirement, input.targetUsers, input.deliveryGoal, input.constraints].join(' ');
+  if (/客服|知识库|问答|质检|未解决|人工纠错/.test(text)) {
+    return {
+      id: 'customer-kb',
+      name: '智能客服知识库',
+      entry: '客服知识库问答工作台',
+      problem: '客服团队知识分散、答案不可追溯、人工纠错和质检反馈链路不闭环。',
+      pages: [
+        { name: '问答接待台', modules: ['客户问题输入', '答案流式生成', '引用来源', '低置信度提示', '转人工入口'] },
+        { name: '知识库管理', modules: ['文档上传', '分组标签', '向量索引状态', '失效知识提醒', '灰度发布'] },
+        { name: '质检反馈台', modules: ['答案采纳', '人工纠错', '未解决问题池', '命中率统计', '知识缺口分析'] },
+        { name: '运营看板', modules: ['知识命中率', '未解决率', '人工接管率', '高频问题', '质检通过率'] }
+      ],
+      apiBase: '/api/copilot/customer-kb',
+      apiFields: {
+        question: 'string',
+        sessionId: 'string',
+        knowledgeScopes: ['faq', 'policy', 'operation'],
+        requireCitation: true,
+        confidenceThreshold: 0.72
+      },
+      tasks: {
+        frontend: ['问答会话面板、引用来源抽屉、低置信度提示和人工纠错表单。', '知识库上传、索引状态、命中质量看板和未解决问题列表。'],
+        bff: ['封装 question/retrieve/feedback API，记录答案、引用、置信度和人工纠错。', '接入知识库文档、chunk、向量检索和质检反馈闭环。'],
+        qa: ['准备 FAQ、政策类、边界类问题，验证引用准确性和低置信度转人工。']
+      },
+      risks: ['知识库过期导致错误回答，需要失效提醒和版本灰度。', '低分 chunk 被模型误用，需要引用阈值和答案置信度。', '人工纠错不回流会导致同类问题重复失败。']
+    };
+  }
+  if (/投研|研报|报告|合规|章节|投资|行业|公司/.test(text)) {
+    return {
+      id: 'research-report',
+      name: '投研报告生成工作台',
+      entry: '投研报告生成与复核工作台',
+      problem: '研报资料来源多、章节协同成本高、引用和合规复核需要完整留痕。',
+      pages: [
+        { name: '资料导入区', modules: ['研报上传', '公司/行业标签', '资料解析状态', '引用质量检查'] },
+        { name: '报告生成区', modules: ['大纲生成', '章节草稿', '引用定位', '风险提示', '模型选择'] },
+        { name: '合规复核区', modules: ['投资建议标记', '敏感表述检查', '引用缺失检查', '人工审批'] },
+        { name: '报告导出区', modules: ['Markdown 导出', 'PDF 导出', '审计记录', '版本对比'] }
+      ],
+      apiBase: '/api/copilot/research-report',
+      apiFields: {
+        reportTopic: 'string',
+        companyCodes: ['string'],
+        sourceDocumentIds: ['string'],
+        requireCitation: true,
+        complianceReview: true
+      },
+      tasks: {
+        frontend: ['资料上传与解析状态、章节编辑器、引用定位和合规复核面板。', '报告 Artifact 支持章节预览、版本对比、导出和审批流。'],
+        bff: ['封装资料解析、RAG 检索、章节生成、合规规则和审计 Trace API。', '所有投资建议类段落必须关联引用来源和人工确认记录。'],
+        qa: ['准备公司事实、行业趋势、风险提示三类 Eval，检查引用缺失和合规标记。']
+      },
+      risks: ['无引用生成投资结论会形成合规风险。', '行业知识和公司资料时效性强，需要来源时间和版本标记。', '模型生成内容需要人工复核后才能导出。']
+    };
+  }
+  return {
+    id: 'ai-product-workflow',
+    name: 'AI 产品工作流',
+    entry: 'AI 产品工作流工作台',
+    problem: '业务需求、页面设计、接口协同、研发拆解和人工确认分散在不同工具中，缺少可追踪闭环。',
+    pages: [
+      { name: '需求输入区', modules: ['业务需求', '目标用户', '交付目标', '约束条件', 'Prompt Contract', '模型选择'] },
+      { name: 'AI 流式分析区', modules: ['需求摘要', '用户角色拆解', '业务流程', '页面模块', '失败降级提示'] },
+      { name: 'Artifact 工作台', modules: ['PRD 文档规范', '页面流程与原型结构', '接口协议草案', '研发任务拆解', '风险和待确认问题'] },
+      { name: '右侧审计栏', modules: ['Agent Trace', 'RAG 引用来源', '人工确认节点', '审批历史'] }
+    ],
+    apiBase: '/api/copilot/product-workflow',
+    apiFields: {
+      businessRequirement: 'string',
+      targetUsers: 'string',
+      deliveryGoal: 'string',
+      constraints: 'string',
+      requireCitation: true
+    },
+    tasks: {
+      frontend: ['实现结构化需求输入、模型选择、流式输出、Artifact 面板、引用来源和人工确认交互。', 'Agent Trace 支持节点展开、路径还原、失败态和多节点审计详情。'],
+      bff: ['实现会话、SSE、RAG 检索、工具调用、审批状态和错误恢复。', '统一 LLM Provider Adapter，支持 DeepSeek / OpenAI-compatible / fallback。'],
+      qa: ['覆盖停止生成、重新生成、Provider 失败、引用为空、审批拒绝和重新执行。']
+    },
+    risks: ['LLM Provider 余额、限流或网络异常会影响流式生成，需要 fallback 和错误提示。', 'RAG 检索质量依赖知识库覆盖度，需要展示 score、sourcePath 和引用片段。', '高风险动作必须进入人工确认。']
+  };
+}
+
 function generateProductWorkflowArtifacts({ prompt, skill, sources }) {
   const input = parseProductWorkflowInput(prompt);
+  const scenario = inferProductScenario(input);
   const citations = sources.map((source, index) => `[${index + 1}] ${source.documentTitle}`).join('、') || '暂无引用';
   const sourceEvidence = sources.slice(0, 5).map((source, index) => `- [${index + 1}] ${source.documentTitle} / ${source.scope || 'unknown'} / score ${Number(source.score || 0).toFixed(4)}`).join('\n') || '- 当前未命中知识库引用，需补充项目规范或业务文档。';
   const targetUsers = splitList(input.targetUsers);
   const constraints = splitList(input.constraints);
   return [
     {
-      id: 'artifact-prd-summary',
+      id: `artifact-${scenario.id}-prd-summary`,
       type: 'prd',
-      title: 'PRD 文档规范',
+      title: `${scenario.name} PRD`,
       content: [
-        '# PRD 文档规范',
+        `# ${scenario.name} PRD`,
         '',
         '## 1. 背景与问题',
         `${input.businessRequirement}`,
         '',
+        `业务痛点：${scenario.problem}`,
+        '',
         '## 2. 产品目标',
         `- ${input.deliveryGoal}`,
-        '- 将非结构化需求转成可评审的产品规格、页面方案、接口协议和研发任务。',
+        `- 建设 ${scenario.entry}，将业务输入转成可评审的产品规格、页面方案、接口协议和研发任务。`,
         '- 让 AI 生成过程可追踪、可解释、可人工确认，而不是只输出一段聊天文本。',
         '',
         '## 3. 目标用户',
         ...(targetUsers.length ? targetUsers.map((user) => `- ${user}`) : ['- 产品经理', '- 前端工程师', '- 后端工程师', '- 算法工程师']),
         '',
         '## 4. 功能范围',
-        '- 需求输入：业务目标、用户角色、交付目标、约束条件、参考资料。',
+        ...scenario.pages.map((page) => `- ${page.name}：${page.modules.join('、')}。`),
         '- AI 分析：按 Skill Definition 校验输入，按 knowledgeScopes 组织上下文。',
         '- RAG 引用：展示命中的 chunk、score、来源和引用摘要。',
         '- Artifact 生成：PRD、页面结构、API Contract、状态流转、任务拆解和风险清单。',
@@ -636,18 +725,13 @@ function generateProductWorkflowArtifacts({ prompt, skill, sources }) {
       ].join('\n')
     },
     {
-      id: 'artifact-ui-flow',
+      id: `artifact-${scenario.id}-ui-flow`,
       type: 'flow',
-      title: '页面流程与原型结构',
+      title: `${scenario.name} 页面结构`,
       content: {
         productGoal: input.deliveryGoal,
-        entry: 'AI 产品工作流工作台',
-        pages: [
-          { name: '需求输入区', modules: ['业务需求', '目标用户', '交付目标', '约束条件', 'Prompt Contract', '模型选择'] },
-          { name: 'AI 流式分析区', modules: ['需求摘要', '用户角色拆解', '业务流程', '页面模块', '失败降级提示'] },
-          { name: 'Artifact 工作台', modules: ['PRD 文档规范', '页面流程与原型结构', '接口协议草案', '研发任务拆解', '风险和待确认问题'] },
-          { name: '右侧审计栏', modules: ['Agent Trace', 'RAG 引用来源', '人工确认节点', '审批历史'] }
-        ],
+        entry: scenario.entry,
+        pages: scenario.pages,
         interactionRules: [
           '输入区只负责收集结构化需求和约束，不直接生成最终结论。',
           '中间流式区展示 AI 推理过程和降级信息，避免用户误以为系统卡死。',
@@ -659,17 +743,14 @@ function generateProductWorkflowArtifacts({ prompt, skill, sources }) {
       }
     },
     {
-      id: 'artifact-api-contract',
+      id: `artifact-${scenario.id}-api-contract`,
       type: 'api',
-      title: '接口协议草案',
+      title: `${scenario.name} 接口协议`,
       language: 'json',
       content: {
-        'POST /api/copilot/product-workflow/run': {
+        [`POST ${scenario.apiBase}/run`]: {
           request: {
-            businessRequirement: 'string',
-            targetUsers: 'string',
-            deliveryGoal: 'string',
-            constraints: 'string',
+            ...scenario.apiFields,
             skillId: skill.id,
             model: { provider: 'deepseek | openai-compatible | dashscope', model: 'string' }
           },
@@ -684,27 +765,23 @@ function generateProductWorkflowArtifacts({ prompt, skill, sources }) {
             }))
           }
         },
-        'GET /api/copilot/trace/:traceId': {
+        [`GET ${scenario.apiBase}/trace/:traceId`]: {
           response: ['request', 'retrieval', 'tool_running', 'streaming', 'waiting_approval']
         }
       }
     },
     {
-      id: 'artifact-task-breakdown',
+      id: `artifact-${scenario.id}-task-breakdown`,
       type: 'task',
-      title: '研发任务拆解',
+      title: `${scenario.name} 研发任务`,
       content: [
         '# 研发任务拆解',
         '',
         '## Frontend',
-        '- 实现结构化需求输入、模型选择、流式输出、Artifact 面板、引用来源和人工确认交互。',
-        '- Agent Trace 支持节点展开、路径还原、失败态和多节点审计详情。',
-        '- Artifact 支持 PRD、页面结构、API、任务、风险多类型展示与复制。',
+        ...scenario.tasks.frontend.map((task) => `- ${task}`),
         '',
         '## Node BFF',
-        '- 实现会话、SSE、RAG 检索、工具调用、审批状态和错误恢复。',
-        '- 统一 LLM Provider Adapter，支持 DeepSeek / OpenAI-compatible / fallback。',
-        '- 记录 traceId、latency、token、tool input/output 和 human action。',
+        ...scenario.tasks.bff.map((task) => `- ${task}`),
         '',
         '## AI / Prompt / Context',
         '- 定义 SkillDefinition：inputSchema、outputSchema、allowedTools、knowledgeScopes。',
@@ -712,29 +789,26 @@ function generateProductWorkflowArtifacts({ prompt, skill, sources }) {
         '- 对 Provider 失败、引用不足、输出不满足 Schema 做降级和提示。',
         '',
         '## QA',
-        '- 覆盖停止生成、重新生成、Provider 失败、引用为空、审批拒绝和重新执行。',
-        '- 准备 10 条 Eval 问题，检查引用命中率、Artifact 完整度和输出稳定性。',
+        ...scenario.tasks.qa.map((task) => `- ${task}`),
+        '- 检查引用命中率、Artifact 完整度、Trace 可复盘和人工确认闭环。',
         '',
         `引用来源：${citations}`
       ].join('\n')
     },
     {
-      id: 'artifact-risk-open-questions',
+      id: `artifact-${scenario.id}-risk-open-questions`,
       type: 'risk',
-      title: '风险和待确认问题',
+      title: `${scenario.name} 风险与确认`,
       content: [
         '# 风险和待确认问题',
         '',
         '## 主要风险',
-        '- LLM Provider 余额、限流或网络异常会影响流式生成，需要 fallback 和错误提示。',
-        '- RAG 检索质量依赖知识库覆盖度，需要展示 score、sourcePath 和引用片段，避免幻觉。',
-        '- Artifact 可能被误认为最终决策，高风险动作必须进入人工确认。',
-        '- 页面原型、接口协议和任务拆解需要保留人工编辑入口，不能只依赖一次性生成。',
+        ...scenario.risks.map((risk) => `- ${risk}`),
         '',
         '## 待确认问题',
-        '- 目标用户优先服务产品经理、前端工程师还是技术负责人？',
-        '- 生成的接口协议是否需要直接写入 OpenAPI / Apifox / Swagger？',
-        '- 人工确认后是否需要触发任务系统、文档系统或代码仓库写入？',
+        `- ${scenario.name} 的首批用户和验收负责人是谁？`,
+        '- 是否需要将生成结果同步到文档系统、任务系统或代码仓库？',
+        '- 哪些输出属于高风险内容，必须进入人工确认？',
         '- Eval 指标优先看引用命中率、采纳率、生成稳定性还是任务节省时长？',
         '',
         `引用来源：${citations}`

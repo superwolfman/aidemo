@@ -685,6 +685,7 @@ export default function CopilotWorkbench() {
     setReplayIndex(null);
     setSources([]);
     setArtifacts([]);
+    setArtifactReviews({});
     setApproval(null);
     setRagPreview([]);
     setRagDiagnostics(runtime ? { rag: runtime.rag, query: '', scopes: [], sources: [], source: 'runtime' } : null);
@@ -706,6 +707,7 @@ export default function CopilotWorkbench() {
     setReplayIndex(null);
     setSources([]);
     setArtifacts([]);
+    setArtifactReviews({});
     setApproval(null);
     const assistant: Message = { id: `assistant-local-${Date.now()}`, role: 'assistant', content: '' };
     const optimistic: Session = {
@@ -855,6 +857,7 @@ export default function CopilotWorkbench() {
     setReplayIndex(null);
     setSources([]);
     setArtifacts([]);
+    setArtifactReviews({});
     setApproval(null);
     setRagPreview([]);
     setRagDiagnostics(runtime ? { rag: runtime.rag, query: '', scopes: [], sources: [], source: 'runtime' } : null);
@@ -874,6 +877,7 @@ export default function CopilotWorkbench() {
     setPrompt(mode.prompt);
     setForm(scenario.form);
     setArtifacts([]);
+    setArtifactReviews({});
     setTrace([]);
     setRunState({ status: 'idle', label: '等待输入' });
     setSources([]);
@@ -889,6 +893,7 @@ export default function CopilotWorkbench() {
     setPrompt(mode.prompt);
     setForm(item.form);
     setArtifacts([]);
+    setArtifactReviews({});
     setTrace([]);
     setSources([]);
     setApproval(null);
