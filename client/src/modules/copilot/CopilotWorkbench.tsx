@@ -792,8 +792,8 @@ export default function CopilotWorkbench() {
           </button>
           <div className="command-metrics">
             <span><strong>{skills.length || 5}</strong> Skills</span>
-            <span><strong>{sources.length}</strong> Citations</span>
-            <span><strong>{artifacts.length}</strong> Artifacts</span>
+            <span><strong>{knowledgeStats?.projectFiles || 0}</strong> Project files</span>
+            <span><strong>{knowledgeStats?.chunks || indexedChunks || 0}</strong> Chunks</span>
             <span><strong>{trace.length}</strong> Trace steps</span>
           </div>
         </div>

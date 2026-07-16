@@ -8,6 +8,7 @@ import { hashPassword } from '../utils/password.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, '../../data');
 const DB_FILE = path.join(DATA_DIR, 'demo-db.json');
+const DEMO_ADMIN_PASSWORD_HASH = hashPassword('removed-public-password', 'aidemo-local-demo-admin');
 
 const seedDocs = [
   {
@@ -60,7 +61,7 @@ function createDemoAdmin() {
     email: 'removed-default-admin@example.invalid',
     role: 'ai_copilot_admin',
     department: 'AI 产品研发',
-    passwordHash: hashPassword('removed-public-password'),
+    passwordHash: DEMO_ADMIN_PASSWORD_HASH,
     createdAt: now()
   };
 }
@@ -73,7 +74,7 @@ async function ensureDemoAdmin(db) {
       name: 'AI Copilot 管理员',
       role: 'ai_copilot_admin',
       department: 'AI 产品研发',
-      passwordHash: hashPassword('removed-public-password')
+      passwordHash: DEMO_ADMIN_PASSWORD_HASH
     };
     const changed = Object.entries(next).some(([key, value]) => existing[key] !== value);
     Object.assign(existing, next);

@@ -12,7 +12,7 @@ export function requireAuth(store) {
 
     try {
       const payload = jwt.verify(token, config.jwtSecret);
-      const user = await store.findUserById(payload.sub);
+      const user = (await store.findUserById(payload.sub)) || (payload.email ? await store.findUserByEmail(payload.email) : null);
       if (!user) return res.status(401).json({ message: 'Invalid user' });
       req.user = user;
       return next();
