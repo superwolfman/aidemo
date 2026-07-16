@@ -32,6 +32,7 @@
 
 - 新增 `AI 产品工作流 Skill`，支持“业务需求输入 -> 需求摘要 -> 页面原型 -> 接口协议 -> 研发任务拆解 -> 人工确认”的端到端流程。
 - 新增 `generateProductWorkflowArtifacts` 工具，输出 PRD Summary、UI Flow、API Contract、Task Breakdown 四类 Artifact。
+- 增强 AI 产品交互细节：流式光标、复制回答、复制代码块、历史回答编辑回输入框、停止生成和重新生成。
 - 主流程只保留任务输入、Skill 约束、RAG Context、Artifact、Agent Trace 和人工确认。
 - 大版本路线从主视觉移到紧凑 Release Plan，避免像 PPT 展示页。
 - RAG 不再只是上传列表，支持按当前 Skill 的 `knowledgeScopes` 展示知识域、导入模板包、检索预览、chunk score 和引用来源。

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CheckCircle2, FileCode2, FileText, Pause, Play, RefreshCw, RotateCcw, Send, ShieldCheck, UploadCloud } from 'lucide-react';
+import { Bot, CheckCircle2, Copy, FileCode2, FileText, Pause, PencilLine, Play, RefreshCw, RotateCcw, Send, ShieldCheck, UploadCloud } from 'lucide-react';
 import { request, streamRequest } from '../../api/client';
 import { Header, Status } from '../../components/ui';
 
@@ -300,14 +300,23 @@ function sourceLabel(sourceType?: string) {
   return '知识库';
 }
 
-function MarkdownView({ content }: { content: string }) {
+async function copyToClipboard(text: string) {
+  await navigator.clipboard?.writeText(text);
+}
+
+function MarkdownView({ content, streaming = false }: { content: string; streaming?: boolean }) {
   const blocks = content.split(/```/g);
   return (
     <div className="markdown-body">
       {blocks.map((block, index) => {
         if (index % 2 === 1) {
           const code = block.replace(/^\w+\n/, '');
-          return <pre key={index}><code dangerouslySetInnerHTML={{ __html: highlight(code) }} /></pre>;
+          return (
+            <div className="code-block" key={index}>
+              <button type="button" onClick={() => copyToClipboard(code)}><Copy size={13} />复制代码</button>
+              <pre><code dangerouslySetInnerHTML={{ __html: highlight(code) }} /></pre>
+            </div>
+          );
         }
         return block.split('\n').map((line, lineIndex) => {
           if (line.startsWith('### ')) return <h3 key={`${index}-${lineIndex}`}>{line.slice(4)}</h3>;
@@ -318,6 +327,7 @@ function MarkdownView({ content }: { content: string }) {
           return <p key={`${index}-${lineIndex}`}>{line}</p>;
         });
       })}
+      {streaming ? <i className="stream-cursor" /> : null}
     </div>
   );
 }
@@ -514,6 +524,13 @@ export default function CopilotWorkbench() {
   function regenerate() {
     const lastUser = [...messages].reverse().find((message) => message.role === 'user');
     sendPrompt(lastUser?.content || prompt);
+  }
+
+  function editAsPrompt(content: string) {
+    setPrompt(content);
+    requestAnimationFrame(() => {
+      document.querySelector('.chat-composer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
   }
 
   function changeMode(mode: TaskMode) {
@@ -871,7 +888,13 @@ export default function CopilotWorkbench() {
             {visibleMessages.map((message) => (
               <article key={message.id} className={`chat-message ${message.role}`}>
                 <div className="chat-role">{message.role === 'assistant' ? <Bot size={16} /> : 'U'}</div>
-                <MarkdownView content={message.content} />
+                <div className="chat-message-body">
+                  <MarkdownView content={message.content} streaming={running && message.id === visibleMessages[visibleMessages.length - 1]?.id} />
+                  <div className="message-actions">
+                    <button type="button" onClick={() => copyToClipboard(message.content)}><Copy size={13} />复制回答</button>
+                    <button type="button" onClick={() => editAsPrompt(message.content)}><PencilLine size={13} />编辑为输入</button>
+                  </div>
+                </div>
               </article>
             ))}
             {running ? (
