@@ -1914,119 +1914,302 @@ kbd {
 .workflow-chat-stream {
   flex: 1 1 auto;
   height: auto !important;
-  min-height: 220px !important;
-  max-height: 300px !important;
+  min-height: 400px !important;
+  max-height: 520px !important;
   overflow-y: auto;
   overflow-x: hidden;
   border: 1px solid #edf1f5;
   border-radius: 8px;
+  background: #fbfdff;
+  scroll-behavior: smooth;
 }
 
 .workflow-artifacts-panel {
   grid-column: 1 / -1;
 }
 
-.workflow-artifact-list {
+.artifact-workbench {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 12px;
+  min-height: 520px;
+}
+
+.artifact-rail {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 8px;
+  background: #f8fafc;
+}
+
+.artifact-rail button {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "icon title status"
+    "icon desc status";
+  gap: 2px 8px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 10px;
+  color: #243746;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.artifact-rail button:hover,
+.artifact-rail button.active {
+  border-color: #0f766e;
+  background: #f2fbf8;
+  box-shadow: 0 8px 22px rgba(15, 118, 110, 0.08);
+}
+
+.artifact-rail button.active::before {
+  content: "";
+  position: absolute;
+  inset: 9px auto 9px 0;
+  width: 3px;
+  border-radius: 999px;
+  background: #0f766e;
+}
+
+.artifact-rail button > span {
+  grid-area: icon;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: #0f766e;
+  background: #e7f3f1;
+}
+
+.artifact-rail strong {
+  grid-area: title;
+  overflow: hidden;
+  color: #172026;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-rail small {
+  grid-area: desc;
+  overflow: hidden;
+  color: #667789;
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-rail em {
+  grid-area: status;
+  align-self: center;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #667789;
+  background: #edf3f7;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.artifact-rail em.ready {
+  color: #0f766e;
+  background: #dff4ef;
+}
+
+.artifact-detail {
+  min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-  overflow: visible;
-  padding-right: 2px;
-}
-
-.workflow-artifact-list .artifact-card {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
   background: #fff;
+  overflow: hidden;
 }
 
-.workflow-artifact-list .artifact-card.pending {
-  border-style: dashed;
+.artifact-detail header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #edf1f5;
+  padding: 12px;
+  background: linear-gradient(180deg, #fff, #fbfdff);
+}
+
+.artifact-detail header > div {
+  min-width: 0;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.artifact-detail header span {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #0f766e;
+  background: #e7f3f1;
+}
+
+.artifact-detail h3 {
+  margin: 0;
+  color: #172026;
+  font-size: 15px;
+}
+
+.artifact-detail p {
+  margin: 4px 0 0;
+  color: #667789;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.artifact-detail header em {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #0f766e;
+  background: #dff4ef;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.artifact-detail-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid #edf1f5;
+  padding: 10px 12px;
   background: #fbfdff;
 }
 
-.workflow-artifact-list .artifact-card.ready {
-  border-color: #b8ded8;
-  background: #f8fffd;
-}
-
-.workflow-artifact-list .artifact-card p {
-  margin: 0;
-  padding: 12px;
-  color: #667789;
+.artifact-detail-toolbar button,
+.artifact-detail-editor button {
+  min-height: 32px;
+  border: 1px solid #cfe0e8;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #0f766e;
+  background: #fff;
   font-size: 12px;
-  line-height: 1.55;
+  font-weight: 900;
+  white-space: nowrap;
 }
 
-.workflow-artifact-list .artifact-card pre {
-  max-height: 148px;
-  overflow-y: auto;
+.artifact-detail-toolbar button:hover,
+.artifact-detail-editor button:hover {
+  border-color: #0f766e;
+  background: #e7f3f1;
+}
+
+.artifact-detail-preview {
+  min-height: 360px;
+  max-height: 560px;
+  overflow: auto;
+  margin: 0;
+  padding: 16px;
+  color: #243746;
+  background: #fff;
+  font-size: 13px;
+  line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.artifact-review-workspace {
+.artifact-detail-editor {
+  min-height: 360px;
   display: grid;
-  gap: 8px;
-  padding: 10px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 12px;
 }
 
-.artifact-toolbar {
-  display: flex !important;
-  min-height: 0 !important;
-  flex-wrap: wrap;
-  gap: 5px;
-  border: 0 !important;
-  padding: 0 !important;
-}
-
-.artifact-toolbar button,
-.artifact-editor button {
-  border: 1px solid #d3e4ec;
-  border-radius: 999px;
-  padding: 5px 8px;
-  color: #0f766e;
-  background: #f2fbf8;
-  font-size: 11px;
-  font-weight: 900;
-}
-
-.artifact-editor {
-  display: grid;
-  gap: 7px;
-}
-
-.artifact-editor textarea {
-  min-height: 140px;
-  max-height: 220px;
+.artifact-detail-editor textarea {
+  min-height: 340px;
+  max-height: 560px;
   resize: vertical;
+  overflow: auto;
   border: 1px solid #cfe0e8;
   border-radius: 8px;
-  padding: 9px;
+  padding: 12px;
   color: #243746;
-  background: #fff;
-  font: 12px/1.55 "SFMono-Regular", Consolas, monospace;
+  background: #fbfdff;
+  font: 13px/1.65 "SFMono-Regular", Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-.artifact-history {
+.artifact-detail-editor button {
+  justify-self: start;
+}
+
+.artifact-detail-history {
   border-top: 1px solid #e5edf4;
-  padding-top: 6px;
+  padding: 10px 12px;
+  background: #fbfdff;
 }
 
-.artifact-history summary {
+.artifact-detail-history summary {
   cursor: pointer;
-  color: #667789;
-  font-size: 11px;
+  color: #506575;
+  font-size: 12px;
   font-weight: 900;
 }
 
-.artifact-history span {
-  display: block;
-  overflow: hidden;
-  margin-top: 5px;
-  color: #667789;
+.artifact-detail-history span {
+  display: inline-flex;
+  margin: 8px 8px 0 0;
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: #506575;
+  background: #edf3f7;
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: 800;
+}
+
+.artifact-empty-detail {
+  min-height: 360px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 32px;
+  color: #667789;
+  text-align: center;
+}
+
+.artifact-empty-detail svg {
+  color: #0f766e;
+}
+
+.artifact-empty-detail strong {
+  color: #172026;
+  font-size: 15px;
+}
+
+.artifact-empty-detail span {
+  max-width: 420px;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .task-console,
@@ -3623,11 +3806,29 @@ kbd {
 .approval-box {
   display: grid;
   gap: 10px;
+  min-height: 0;
+}
+
+.trace-panel .panel {
+  overflow: visible;
 }
 
 .approval-box textarea {
+  width: 100%;
+  min-height: 260px;
+  max-height: 460px;
+  overflow-y: auto;
+  resize: vertical;
+  border: 1px solid #cfe0e8;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #243746;
+  background: #fbfdff;
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .approval-history {
@@ -3673,13 +3874,13 @@ kbd {
     grid-column: auto;
   }
 
-  .workflow-artifact-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .artifact-workbench {
+    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
   }
 
   .workflow-chat-stream {
-    min-height: 200px !important;
-    max-height: 260px !important;
+    min-height: 400px !important;
+    max-height: 520px !important;
   }
 }
 
@@ -3693,8 +3894,18 @@ kbd {
     max-height: none;
   }
 
-  .workflow-artifact-list {
+  .artifact-workbench {
     grid-template-columns: 1fr;
+  }
+
+  .artifact-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .artifact-detail-preview,
+  .artifact-detail-editor,
+  .artifact-detail-editor textarea {
+    min-height: 300px;
   }
 
   .workflow-chain-grid {

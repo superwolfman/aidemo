@@ -466,6 +466,7 @@ export default function CopilotWorkbench() {
   const [projectSyncing, setProjectSyncing] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [artifactReviews, setArtifactReviews] = useState<Record<string, ArtifactReviewState>>({});
+  const [selectedWorkflowArtifactType, setSelectedWorkflowArtifactType] = useState<Artifact['type']>('prd');
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [vectorHealth, setVectorHealth] = useState<VectorStoreHealth | null>(null);
   const [checkingVectorStore, setCheckingVectorStore] = useState(false);
@@ -478,6 +479,18 @@ export default function CopilotWorkbench() {
   const activeSkill = useMemo(() => skills.find((skill) => skill.id === skillId), [skills, skillId]);
   const activeMode = useMemo(() => taskModes.find((mode) => mode.id === taskModeId) || taskModes[0], [taskModeId]);
   const messages = useMemo(() => active?.messages || [], [active?.messages]);
+  const selectedWorkflowSlot = useMemo(
+    () => productWorkflowSlots.find((slot) => slot.type === selectedWorkflowArtifactType) || productWorkflowSlots[0],
+    [selectedWorkflowArtifactType]
+  );
+  const selectedWorkflowArtifact = useMemo(
+    () => artifacts.find((artifact) => artifact.type === selectedWorkflowSlot.type),
+    [artifacts, selectedWorkflowSlot.type]
+  );
+  const selectedWorkflowReview = selectedWorkflowArtifact ? artifactReviews[selectedWorkflowArtifact.id] : null;
+  const selectedWorkflowContent = selectedWorkflowArtifact
+    ? selectedWorkflowReview?.draft || artifactToText(selectedWorkflowArtifact)
+    : '';
   const visibleMessages = useMemo(
     () => messages.filter((message) => message.role === 'assistant' && message.content.trim()),
     [messages]
@@ -1413,47 +1426,78 @@ export default function CopilotWorkbench() {
                   <p>PRD、页面结构、接口协议、状态流转、风险和任务拆解。</p>
                 </div>
               </div>
-              <div className="workflow-artifact-list">
-                {productWorkflowSlots.map((slot) => {
-                  const artifact = artifacts.find((item) => item.type === slot.type);
-                  const review = artifact ? artifactReviews[artifact.id] : null;
-                  return (
-                    <article key={slot.type} className={`artifact-card ${slot.type} ${artifact ? 'ready' : 'pending'}`}>
-                      <div>
-                        {slot.type === 'api' ? <FileCode2 size={15} /> : <FileText size={15} />}
+              <div className="artifact-workbench">
+                <div className="artifact-rail" aria-label="Artifact 产物列表">
+                  {productWorkflowSlots.map((slot) => {
+                    const artifact = artifacts.find((item) => item.type === slot.type);
+                    const review = artifact ? artifactReviews[artifact.id] : null;
+                    const activeArtifact = selectedWorkflowSlot.type === slot.type;
+                    return (
+                      <button
+                        key={slot.type}
+                        type="button"
+                        className={activeArtifact ? 'active' : ''}
+                        onClick={() => setSelectedWorkflowArtifactType(slot.type)}
+                      >
+                        <span>{slot.type === 'api' ? <FileCode2 size={15} /> : <FileText size={15} />}</span>
                         <strong>{artifact?.title || slot.title}</strong>
-                        <em>{artifact ? `v${review?.version || 1} · ${review?.status || 'draft'}` : 'pending'}</em>
+                        <small>{slot.desc}</small>
+                        <em className={artifact ? 'ready' : 'pending'}>
+                          {artifact ? `v${review?.version || 1} · ${review?.status || 'draft'}` : '待生成'}
+                        </em>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <article className={`artifact-detail ${selectedWorkflowArtifact ? 'ready' : 'pending'}`}>
+                  <header>
+                    <div>
+                      <span>{selectedWorkflowSlot.type === 'api' ? <FileCode2 size={16} /> : <FileText size={16} />}</span>
+                      <div>
+                        <h3>{selectedWorkflowArtifact?.title || selectedWorkflowSlot.title}</h3>
+                        <p>{selectedWorkflowSlot.desc}</p>
                       </div>
-                      {artifact ? (
-                        <div className="artifact-review-workspace">
-                          <div className="artifact-toolbar">
-                            <button type="button" onClick={() => updateArtifactReview(artifact.id, { status: review?.status === 'editing' ? 'draft' : 'editing' })}>预览/编辑</button>
-                            <button type="button" onClick={() => copyToClipboard(review?.draft || artifactToText(artifact))}>复制</button>
-                            <button type="button" onClick={() => confirmArtifact(artifact)}>确认</button>
-                            <button type="button" onClick={() => exportArtifact(artifact, 'md')}>导出 MD</button>
-                            <button type="button" onClick={() => exportArtifact(artifact, 'json')}>导出 JSON</button>
-                          </div>
-                          {review?.status === 'editing' ? (
-                            <div className="artifact-editor">
-                              <textarea value={review.draft} onChange={(event) => updateArtifactReview(artifact.id, { draft: event.target.value })} />
-                              <button type="button" onClick={() => saveArtifactDraft(artifact)}>保存为 v{(review.version || 1) + 1}</button>
-                            </div>
-                          ) : (
-                            <pre>{review?.draft || artifactToText(artifact)}</pre>
-                          )}
-                          <details className="artifact-history">
-                            <summary>版本记录</summary>
-                            {(review?.history || []).map((item) => (
-                              <span key={`${artifact.id}-${item.version}-${item.at}`}>v{item.version} · {item.status} · {new Date(item.at).toLocaleTimeString()}</span>
-                            ))}
-                          </details>
+                    </div>
+                    <em>{selectedWorkflowArtifact ? `v${selectedWorkflowReview?.version || 1} · ${selectedWorkflowReview?.status || 'draft'}` : '等待生成'}</em>
+                  </header>
+
+                  {selectedWorkflowArtifact ? (
+                    <>
+                      <div className="artifact-detail-toolbar">
+                        <button type="button" onClick={() => updateArtifactReview(selectedWorkflowArtifact.id, { status: selectedWorkflowReview?.status === 'editing' ? 'draft' : 'editing' })}>
+                          {selectedWorkflowReview?.status === 'editing' ? '切换预览' : '编辑'}
+                        </button>
+                        <button type="button" onClick={() => copyToClipboard(selectedWorkflowContent)}>复制</button>
+                        <button type="button" onClick={() => confirmArtifact(selectedWorkflowArtifact)}>确认</button>
+                        <button type="button" onClick={() => exportArtifact(selectedWorkflowArtifact, 'md')}>导出 Markdown</button>
+                        <button type="button" onClick={() => exportArtifact(selectedWorkflowArtifact, 'json')}>导出 JSON</button>
+                      </div>
+
+                      {selectedWorkflowReview?.status === 'editing' ? (
+                        <div className="artifact-detail-editor">
+                          <textarea value={selectedWorkflowReview.draft} onChange={(event) => updateArtifactReview(selectedWorkflowArtifact.id, { draft: event.target.value })} />
+                          <button type="button" onClick={() => saveArtifactDraft(selectedWorkflowArtifact)}>保存为 v{(selectedWorkflowReview.version || 1) + 1}</button>
                         </div>
                       ) : (
-                        <p>{slot.desc}</p>
+                        <pre className="artifact-detail-preview">{selectedWorkflowContent}</pre>
                       )}
-                    </article>
-                  );
-                })}
+
+                      <details className="artifact-detail-history">
+                        <summary>版本记录</summary>
+                        {(selectedWorkflowReview?.history || []).map((item) => (
+                          <span key={`${selectedWorkflowArtifact.id}-${item.version}-${item.at}`}>v{item.version} · {item.status} · {new Date(item.at).toLocaleTimeString()}</span>
+                        ))}
+                      </details>
+                    </>
+                  ) : (
+                    <div className="artifact-empty-detail">
+                      <FileText size={26} />
+                      <strong>{selectedWorkflowSlot.title} 尚未生成</strong>
+                      <span>点击“生成工作流”后，这里会展示可预览、可编辑、可确认和可导出的结构化产物。</span>
+                    </div>
+                  )}
+                </article>
               </div>
             </div>
           </section>
