@@ -3298,6 +3298,33 @@ kbd {
   font-weight: 950;
 }
 
+.trace-actions .secondary-button.compact {
+  min-width: 54px;
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.trace-audit-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.trace-audit-summary span {
+  overflow: hidden;
+  border: 1px solid #e3ebf2;
+  border-radius: 8px;
+  padding: 7px 8px;
+  color: #315262;
+  background: #f8fafc;
+  font-size: 11px;
+  font-weight: 900;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .trace-path {
   display: grid;
   grid-template-columns: 1fr;
@@ -3333,6 +3360,21 @@ kbd {
   white-space: nowrap;
 }
 
+.trace-path button span {
+  flex: 0 0 auto;
+  overflow: hidden;
+  max-width: 128px;
+  margin-left: auto;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #667789;
+  background: #eef4f8;
+  font-size: 10px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .trace-path button::before {
   content: "";
   width: 8px;
@@ -3358,6 +3400,11 @@ kbd {
   border-color: #0f766e;
   color: #fff;
   background: #0f766e;
+}
+
+.trace-path button.active span {
+  color: #0f766e;
+  background: #fff;
 }
 
 .trace-path button.active::before {

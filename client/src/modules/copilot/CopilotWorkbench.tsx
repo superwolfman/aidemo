@@ -1404,8 +1404,18 @@ export default function CopilotWorkbench() {
               <div className="trace-actions">
                 <button className="secondary-button" onClick={restoreTracePath}><RotateCcw size={15} />路径还原</button>
                 <button className="secondary-button" disabled={replayIndex === null || replayIndex >= trace.length - 1} onClick={nextReplayStep}><Play size={15} />下一步</button>
+                <button className="secondary-button compact" disabled={!visibleTrace.length} onClick={() => setOpenTraceIds(visibleTrace.map((item) => item.id))}>展开</button>
+                <button className="secondary-button compact" disabled={!openTraceIds.length} onClick={() => setOpenTraceIds([])}>收起</button>
               </div>
             </div>
+            {visibleTrace.length ? (
+              <div className="trace-audit-summary">
+                <span>{visibleTrace.length} steps</span>
+                <span>{visibleTrace.filter((item) => item.status === 'failed').length} failed</span>
+                <span>{visibleTrace.filter((item) => item.humanRequired).length} human</span>
+                <span>{visibleTrace.reduce((sum, item) => sum + (item.durationMs || 0), 0)}ms</span>
+              </div>
+            ) : null}
             <div className="trace-path">
               {visibleTrace.map((item, index) => {
                 const expanded = openTraceIds.includes(item.id);
@@ -1417,6 +1427,7 @@ export default function CopilotWorkbench() {
                       onClick={() => setOpenTraceIds((ids) => ids.includes(item.id) ? ids.filter((id) => id !== item.id) : [...ids, item.id])}
                     >
                       {index + 1}. {item.name}
+                      <span>{item.tool || item.status}</span>
                     </button>
                     {expanded ? (
                       <div className="trace-inline-detail">
