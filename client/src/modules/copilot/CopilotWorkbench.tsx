@@ -390,6 +390,7 @@ export default function CopilotWorkbench() {
   const [ragDiagnostics, setRagDiagnostics] = useState<RagDiagnostics | null>(null);
   const [ragSearching, setRagSearching] = useState(false);
   const [projectSyncing, setProjectSyncing] = useState(false);
+  const [demoPreparing, setDemoPreparing] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [modelPresets, setModelPresets] = useState<ModelPreset[]>([]);
@@ -698,6 +699,54 @@ export default function CopilotWorkbench() {
     }
   }
 
+  async function prepareProductWorkflowDemo() {
+    const scenario = demoScenarios[0];
+    const mode = taskModes[0];
+    setDemoPreparing(true);
+    setTaskModeId(mode.id);
+    setSkillId(mode.skillId);
+    setPrompt(mode.prompt);
+    setForm(scenario.form);
+    setTrace([]);
+    setReplayIndex(null);
+    setSources([]);
+    setArtifacts([]);
+    setApproval(null);
+    setRunState({ status: 'validating', label: '准备产品工作流演示上下文' });
+    try {
+      await request('/api/copilot/knowledge/project/import', {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      const knowledgeResult = await request('/api/copilot/knowledge');
+      setDocuments(knowledgeResult.documents);
+      setKnowledgeStats(knowledgeResult.stats || null);
+      const query = 'AI 产品工作流 需求分析 页面原型 接口协议 任务拆解 SSE RAG Agent Trace Human in the loop';
+      const searchResult = await request('/api/copilot/knowledge/search', {
+        method: 'POST',
+        body: JSON.stringify({
+          query,
+          scopes: mode.skillId === 'product-workflow' ? ['architecture', 'standards', 'ai-native', 'frontend'] : activeScopes,
+          limit: 4
+        })
+      });
+      const nextSources = searchResult.sources || [];
+      setRagQuery(query);
+      setRagPreview(nextSources);
+      setRagDiagnostics({
+        rag: searchResult.rag || runtime?.rag,
+        query: searchResult.query || query,
+        scopes: searchResult.scopes || ['architecture', 'standards', 'ai-native', 'frontend'],
+        latencyMs: searchResult.latencyMs,
+        sources: nextSources,
+        source: 'preview'
+      });
+      setRunState({ status: 'idle', label: '产品工作流 Demo 已准备好，可以点击生成' });
+    } finally {
+      setDemoPreparing(false);
+    }
+  }
+
   async function review(action: 'confirm' | 'revise' | 'reject') {
     if (!approval) return;
     const result = await request(`/api/copilot/approvals/${approval._id}/${action}`, {
@@ -737,12 +786,45 @@ export default function CopilotWorkbench() {
           <strong>{selectedModel ? `${selectedModel.provider} · ${selectedModel.model}` : runtime?.llm.mode === 'live' ? `${runtime.llm.provider} · ${runtime.llm.model}` : 'Local fallback runtime'}</strong>
           <p>主流程围绕 AI 产品交付组织：需求输入、Skill 约束、RAG 上下文、Artifact、Trace 和人工确认。</p>
         </div>
-        <div className="command-metrics">
-          <span><strong>{skills.length || 5}</strong> Skills</span>
-          <span><strong>{sources.length}</strong> Citations</span>
-          <span><strong>{artifacts.length}</strong> Artifacts</span>
-          <span><strong>{trace.length}</strong> Trace steps</span>
+        <div className="command-side">
+          <button className="primary-button demo-run-button" disabled={demoPreparing || running} onClick={prepareProductWorkflowDemo}>
+            <Play size={16} />{demoPreparing ? '准备中' : '准备产品工作流 Demo'}
+          </button>
+          <div className="command-metrics">
+            <span><strong>{skills.length || 5}</strong> Skills</span>
+            <span><strong>{sources.length}</strong> Citations</span>
+            <span><strong>{artifacts.length}</strong> Artifacts</span>
+            <span><strong>{trace.length}</strong> Trace steps</span>
+          </div>
         </div>
+      </section>
+
+      <section className="workflow-blueprint">
+        <article>
+          <span>01</span>
+          <strong>需求输入</strong>
+          <p>业务需求、用户角色、交付目标和约束条件。</p>
+        </article>
+        <article>
+          <span>02</span>
+          <strong>RAG 上下文</strong>
+          <p>按 Skill scope 检索真实项目文档并展示引用。</p>
+        </article>
+        <article>
+          <span>03</span>
+          <strong>流式生成</strong>
+          <p>SSE 输出 Markdown、代码块和结构化结论。</p>
+        </article>
+        <article>
+          <span>04</span>
+          <strong>Artifact</strong>
+          <p>输出 PRD、页面原型、接口协议和任务拆解。</p>
+        </article>
+        <article>
+          <span>05</span>
+          <strong>人工确认</strong>
+          <p>高风险结果进入审批，支持确认、修改或拒绝。</p>
+        </article>
       </section>
 
       <div className="copilot-layout">
