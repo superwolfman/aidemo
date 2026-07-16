@@ -123,6 +123,13 @@ type Artifact = {
   content: string | Record<string, unknown>;
 };
 
+type ArtifactReviewState = {
+  status: 'draft' | 'editing' | 'confirmed';
+  version: number;
+  draft: string;
+  history: Array<{ version: number; status: string; at: string }>;
+};
+
 type KnowledgeTemplate = {
   id: string;
   title: string;
@@ -372,6 +379,25 @@ async function copyToClipboard(text: string) {
   await navigator.clipboard?.writeText(text);
 }
 
+function artifactToText(artifact: Artifact) {
+  return typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content, null, 2);
+}
+
+function artifactToMarkdown(artifact: Artifact, content = artifactToText(artifact)) {
+  const language = artifact.language || (typeof artifact.content === 'string' ? 'md' : 'json');
+  return [`# ${artifact.title}`, '', '```' + language, content, '```'].join('\n');
+}
+
+function downloadText(filename: string, text: string, type = 'text/plain;charset=utf-8') {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function MarkdownView({ content, streaming = false }: { content: string; streaming?: boolean }) {
   const blocks = content.split(/```/g);
   return (
@@ -430,6 +456,7 @@ export default function CopilotWorkbench() {
   const [ragSearching, setRagSearching] = useState(false);
   const [projectSyncing, setProjectSyncing] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [artifactReviews, setArtifactReviews] = useState<Record<string, ArtifactReviewState>>({});
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [vectorHealth, setVectorHealth] = useState<VectorStoreHealth | null>(null);
   const [checkingVectorStore, setCheckingVectorStore] = useState(false);
@@ -505,6 +532,23 @@ export default function CopilotWorkbench() {
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [messages, running]);
+
+  useEffect(() => {
+    setArtifactReviews((current) => {
+      const next = { ...current };
+      for (const artifact of artifacts) {
+        if (!next[artifact.id]) {
+          next[artifact.id] = {
+            status: 'draft',
+            version: 1,
+            draft: artifactToText(artifact),
+            history: [{ version: 1, status: 'created', at: new Date().toISOString() }]
+          };
+        }
+      }
+      return next;
+    });
+  }, [artifacts]);
 
   useEffect(() => {
     setOpenTraceIds((ids) => ids.filter((id) => visibleTrace.some((item) => item.id === id)));
@@ -615,6 +659,55 @@ export default function CopilotWorkbench() {
     requestAnimationFrame(() => {
       document.querySelector('.chat-composer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
+  }
+
+  function updateArtifactReview(id: string, patch: Partial<ArtifactReviewState>) {
+    setArtifactReviews((current) => {
+      const base = current[id] || {
+        status: 'draft',
+        version: 1,
+        draft: '',
+        history: [{ version: 1, status: 'created', at: new Date().toISOString() }]
+      };
+      return { ...current, [id]: { ...base, ...patch } };
+    });
+  }
+
+  function saveArtifactDraft(artifact: Artifact) {
+    const current = artifactReviews[artifact.id];
+    if (!current) return;
+    const version = current.version + 1;
+    updateArtifactReview(artifact.id, {
+      status: 'draft',
+      version,
+      history: [{ version, status: 'edited', at: new Date().toISOString() }, ...current.history].slice(0, 6)
+    });
+  }
+
+  function confirmArtifact(artifact: Artifact) {
+    const current = artifactReviews[artifact.id];
+    const version = current?.version || 1;
+    updateArtifactReview(artifact.id, {
+      status: 'confirmed',
+      history: [{ version, status: 'confirmed', at: new Date().toISOString() }, ...(current?.history || [])].slice(0, 6)
+    });
+  }
+
+  function exportArtifact(artifact: Artifact, format: 'md' | 'json') {
+    const review = artifactReviews[artifact.id];
+    const content = review?.draft || artifactToText(artifact);
+    if (format === 'json') {
+      downloadText(`${artifact.type}-${artifact.id}.json`, JSON.stringify({
+        id: artifact.id,
+        type: artifact.type,
+        title: artifact.title,
+        version: review?.version || 1,
+        status: review?.status || 'draft',
+        content
+      }, null, 2), 'application/json;charset=utf-8');
+      return;
+    }
+    downloadText(`${artifact.type}-${artifact.id}.md`, artifactToMarkdown(artifact, content), 'text/markdown;charset=utf-8');
   }
 
   function changeMode(mode: TaskMode) {
@@ -1234,15 +1327,38 @@ export default function CopilotWorkbench() {
               <div className="workflow-artifact-list">
                 {productWorkflowSlots.map((slot) => {
                   const artifact = artifacts.find((item) => item.type === slot.type);
+                  const review = artifact ? artifactReviews[artifact.id] : null;
                   return (
                     <article key={slot.type} className={`artifact-card ${slot.type} ${artifact ? 'ready' : 'pending'}`}>
                       <div>
                         {slot.type === 'api' ? <FileCode2 size={15} /> : <FileText size={15} />}
                         <strong>{artifact?.title || slot.title}</strong>
-                        <em>{artifact ? 'ready' : 'pending'}</em>
+                        <em>{artifact ? `v${review?.version || 1} · ${review?.status || 'draft'}` : 'pending'}</em>
                       </div>
                       {artifact ? (
-                        <pre>{typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content, null, 2)}</pre>
+                        <div className="artifact-review-workspace">
+                          <div className="artifact-toolbar">
+                            <button type="button" onClick={() => updateArtifactReview(artifact.id, { status: review?.status === 'editing' ? 'draft' : 'editing' })}>预览/编辑</button>
+                            <button type="button" onClick={() => copyToClipboard(review?.draft || artifactToText(artifact))}>复制</button>
+                            <button type="button" onClick={() => confirmArtifact(artifact)}>确认</button>
+                            <button type="button" onClick={() => exportArtifact(artifact, 'md')}>导出 MD</button>
+                            <button type="button" onClick={() => exportArtifact(artifact, 'json')}>导出 JSON</button>
+                          </div>
+                          {review?.status === 'editing' ? (
+                            <div className="artifact-editor">
+                              <textarea value={review.draft} onChange={(event) => updateArtifactReview(artifact.id, { draft: event.target.value })} />
+                              <button type="button" onClick={() => saveArtifactDraft(artifact)}>保存为 v{(review.version || 1) + 1}</button>
+                            </div>
+                          ) : (
+                            <pre>{review?.draft || artifactToText(artifact)}</pre>
+                          )}
+                          <details className="artifact-history">
+                            <summary>版本记录</summary>
+                            {(review?.history || []).map((item) => (
+                              <span key={`${artifact.id}-${item.version}-${item.at}`}>v{item.version} · {item.status} · {new Date(item.at).toLocaleTimeString()}</span>
+                            ))}
+                          </details>
+                        </div>
                       ) : (
                         <p>{slot.desc}</p>
                       )}
