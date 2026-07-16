@@ -1188,6 +1188,33 @@ export default function CopilotWorkbench() {
             </div>
           </section>
 
+          <section className="deliverable-overview">
+            <div className="workflow-chain-head">
+              <div>
+                <strong>交付物总览</strong>
+                <span>把 AI 输出收敛成可评审的产品资产，而不是散落在对话里的文本。</span>
+              </div>
+              <em>{artifacts.length} / {productWorkflowSlots.length} ready</em>
+            </div>
+            <div className="deliverable-card-grid">
+              {productWorkflowSlots.map((slot) => {
+                const artifact = artifacts.find((item) => item.type === slot.type);
+                const review = artifact ? artifactReviews[artifact.id] : null;
+                return (
+                  <article key={slot.type} className={artifact ? 'ready' : 'pending'}>
+                    <div>
+                      <span>{slot.type.toUpperCase()}</span>
+                      <em>{artifact ? review?.status || 'draft' : 'pending'}</em>
+                    </div>
+                    <strong>{artifact?.title || slot.title}</strong>
+                    <p>{artifact ? (review?.draft || artifactToText(artifact)).slice(0, 130) : slot.desc}</p>
+                    <small>{artifact ? `v${review?.version || 1} · 可编辑 / 可导出 / 可确认` : '生成后进入评审'}</small>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+
           <section className="product-workflow-board">
             <div className="workflow-column workflow-input-panel">
               <div className="column-head">

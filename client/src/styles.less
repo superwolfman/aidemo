@@ -1159,6 +1159,78 @@ kbd {
   -webkit-box-orient: vertical;
 }
 
+.deliverable-overview {
+  display: grid;
+  gap: 10px;
+  border-bottom: 1px solid #dce5ee;
+  padding: 10px 14px;
+  background: #fff;
+}
+
+.deliverable-card-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.deliverable-card-grid article {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfdff;
+}
+
+.deliverable-card-grid article.ready {
+  border-color: #b8ded8;
+  background: #f6fffc;
+}
+
+.deliverable-card-grid article > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.deliverable-card-grid span,
+.deliverable-card-grid em,
+.deliverable-card-grid small {
+  color: #667789;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.deliverable-card-grid em {
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #0f766e;
+  background: #e7f3f1;
+}
+
+.deliverable-card-grid strong {
+  overflow: hidden;
+  color: #172026;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deliverable-card-grid p {
+  display: -webkit-box;
+  min-height: 48px;
+  overflow: hidden;
+  margin: 0;
+  color: #475b6b;
+  font-size: 11px;
+  line-height: 1.45;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
 .copilot-layout {
   display: grid;
   grid-template-columns: 270px minmax(0, 1fr) minmax(380px, 440px);
