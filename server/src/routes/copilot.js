@@ -310,6 +310,15 @@ function step(id, name, status, extra = {}) {
   };
 }
 
+function runStatus(status, label, extra = {}) {
+  return {
+    status,
+    label,
+    at: now(),
+    ...extra
+  };
+}
+
 function uniqueByTitle(documents) {
   const seen = new Set();
   return documents.filter((doc) => {
@@ -804,12 +813,17 @@ export function copilotRouter(store) {
       sendEvent(res, 'trace', payload);
       await sleep(120);
     };
+    const emitRunStatus = (status, label, extra = {}) => {
+      sendEvent(res, 'run_status', runStatus(status, label, extra));
+    };
 
+    emitRunStatus('validating', '校验输入与选择 Skill');
     await emitStep(step('request', '用户请求', 'success', { input: { prompt }, tokenUsage: tokenCount(prompt) }));
     await emitStep(step('skill', '选择 Skill', 'success', { output: { id: skill.id, version: skill.version } }));
     await emitStep(step('runtime', '检查运行时 Provider', 'success', {
       output: { llm: providerStatus, rag: getRagStatus() }
     }));
+    emitRunStatus('retrieving', '检索 RAG 上下文', { scopes: skill.knowledgeScopes });
     await emitStep(step('context', '加载上下文', 'running', { output: { knowledgeScopes: skill.knowledgeScopes } }));
     const knowledgeStartedAt = Date.now();
     const knowledgeResult = await searchKnowledgeWithStatus(store, prompt, skill.knowledgeScopes);
@@ -838,6 +852,7 @@ export function copilotRouter(store) {
     });
 
     let repoAnalysis = null;
+    emitRunStatus('tool_running', '执行工具与生成 Artifact');
     if (skill.allowedTools.includes('analyzeRepository')) {
       repoAnalysis = await analyzeRepository({ skillId: skill.id, mode });
       await emitStep(step('repo', '调用工具 analyzeRepository', 'success', {
@@ -907,6 +922,10 @@ export function copilotRouter(store) {
     let answer = fallbackAnswer;
     let streamedByProvider = false;
     try {
+      emitRunStatus('streaming', '调用 LLM 并流式输出', {
+        provider: providerStatus.provider,
+        model: providerStatus.requestedModel || providerStatus.model
+      });
       await emitStep(step('llm', '调用真实 LLM Provider', 'running', {
         input: { provider: providerStatus.provider, model: providerStatus.requestedModel || providerStatus.model }
       }));
@@ -940,6 +959,7 @@ export function copilotRouter(store) {
         tokenUsage: tokenCount(answer)
       }));
     } catch (error) {
+      emitRunStatus('failed', 'LLM Provider 失败，执行 fallback', { error: error.message });
       await emitStep(step('llm', '调用真实 LLM Provider', 'failed', {
         input: providerStatus,
         error: error.message
@@ -948,6 +968,7 @@ export function copilotRouter(store) {
     }
     const approvalDraft = documentDraft || `# ${skill.name} 人工确认草稿\n\n${answer}`;
     await emitStep(step('structured', '生成结构化结果', 'success', { tokenUsage: tokenCount(answer) }));
+    emitRunStatus('waiting_approval', '等待人工确认');
     await emitStep(step('human', '等待人工确认', 'waiting', { humanRequired: true }));
 
     if (!streamedByProvider) {
@@ -984,6 +1005,7 @@ export function copilotRouter(store) {
       activeSkillId: skill.id
     });
 
+    emitRunStatus('completed', '生成完成，等待用户处理审批');
     sendEvent(res, 'final', { message: assistantMessage, traceId });
     closeSse(res);
   });

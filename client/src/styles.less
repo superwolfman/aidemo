@@ -1377,6 +1377,72 @@ kbd {
   font-style: normal;
 }
 
+.run-lifecycle {
+  display: grid;
+  grid-template-columns: auto repeat(6, minmax(56px, auto)) minmax(140px, 1fr);
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: #fff;
+}
+
+.run-lifecycle strong {
+  color: #172026;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.run-lifecycle span {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dce5ee;
+  border-radius: 999px;
+  padding: 0 9px;
+  color: #667789;
+  background: #f8fafc;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.run-lifecycle span.done {
+  color: #0f766e;
+  border-color: #b8ded8;
+  background: #e7f3f1;
+}
+
+.run-lifecycle span.active {
+  color: #fff;
+  border-color: #0f766e;
+  background: #0f766e;
+}
+
+.run-lifecycle.failed span.active,
+.run-lifecycle span.failed.active {
+  border-color: #dc2626;
+  background: #dc2626;
+}
+
+.run-lifecycle.cancelled span.active,
+.run-lifecycle span.cancelled.active {
+  border-color: #d97706;
+  background: #d97706;
+}
+
+.run-lifecycle em {
+  min-width: 0;
+  overflow: hidden;
+  color: #506575;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .generation-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

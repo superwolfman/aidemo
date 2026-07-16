@@ -44,6 +44,27 @@ type TraceStep = {
   error?: string;
 };
 
+type RunStatus =
+  | 'idle'
+  | 'validating'
+  | 'retrieving'
+  | 'tool_running'
+  | 'streaming'
+  | 'waiting_approval'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+type RunState = {
+  status: RunStatus;
+  label: string;
+  at?: string;
+  scopes?: string[];
+  provider?: string;
+  model?: string;
+  error?: string;
+};
+
 type Approval = {
   _id: string;
   status: 'pending' | 'confirmed' | 'revised' | 'rejected';
@@ -272,6 +293,15 @@ const demoScenarios = [
   }
 ];
 
+const runLifecycle: Array<{ status: RunStatus; label: string }> = [
+  { status: 'validating', label: '校验' },
+  { status: 'retrieving', label: '检索' },
+  { status: 'tool_running', label: '工具' },
+  { status: 'streaming', label: '流式' },
+  { status: 'waiting_approval', label: '确认' },
+  { status: 'completed', label: '完成' }
+];
+
 function escapeHtml(value: string) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -351,6 +381,7 @@ export default function CopilotWorkbench() {
   const [approval, setApproval] = useState<Approval | null>(null);
   const [approvalHistory, setApprovalHistory] = useState<Approval[]>([]);
   const [draftRevision, setDraftRevision] = useState('');
+  const [runState, setRunState] = useState<RunState>({ status: 'idle', label: '等待输入' });
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [knowledgeStats, setKnowledgeStats] = useState<KnowledgeStats | null>(null);
   const [knowledgeTemplates, setKnowledgeTemplates] = useState<KnowledgeTemplate[]>([]);
@@ -385,6 +416,7 @@ export default function CopilotWorkbench() {
     [modelPresets, selectedModelId]
   );
   const diagnosticSources = ragDiagnostics?.sources?.length ? ragDiagnostics.sources : ragPreview;
+  const currentRunIndex = runLifecycle.findIndex((item) => item.status === runState.status);
 
   const load = useCallback(async () => {
     const [skillResult, sessionResult, knowledgeResult, templateResult, runtimeResult, modelResult] = await Promise.all([
@@ -436,6 +468,7 @@ export default function CopilotWorkbench() {
     setSessions((items) => [result.session, ...items]);
     setActive(result.session);
     setTrace([]);
+    setRunState({ status: 'idle', label: '等待输入' });
     setReplayIndex(null);
     setSources([]);
     setArtifacts([]);
@@ -455,6 +488,7 @@ export default function CopilotWorkbench() {
     const controller = new AbortController();
     abortRef.current = controller;
     setRunning(true);
+    setRunState({ status: 'validating', label: '校验输入与选择 Skill' });
     setTrace([]);
     setReplayIndex(null);
     setSources([]);
@@ -478,6 +512,7 @@ export default function CopilotWorkbench() {
           model: selectedModel.model
         } : undefined
       }, {
+        run_status: (payload) => setRunState(payload),
         trace: (step) => setTrace((items) => [...items.filter((item) => item.id !== step.id), step]),
         sources: (payload) => {
           const nextSources = payload.sources || [];
@@ -508,6 +543,7 @@ export default function CopilotWorkbench() {
       }, controller.signal);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
+        setRunState({ status: 'failed', label: '客户端错误', error: (error as Error).message });
         setTrace((items) => [...items, { id: 'client-error', name: '客户端错误', status: 'failed', error: (error as Error).message }]);
       }
     } finally {
@@ -519,6 +555,7 @@ export default function CopilotWorkbench() {
   function stop() {
     abortRef.current?.abort();
     setRunning(false);
+    setRunState({ status: 'cancelled', label: '用户已停止生成' });
   }
 
   function regenerate() {
@@ -552,6 +589,7 @@ export default function CopilotWorkbench() {
   function selectSession(session: Session) {
     setActive(session);
     setTrace([]);
+    setRunState({ status: 'idle', label: '等待输入' });
     setReplayIndex(null);
     setSources([]);
     setArtifacts([]);
@@ -575,6 +613,7 @@ export default function CopilotWorkbench() {
     setForm(scenario.form);
     setArtifacts([]);
     setTrace([]);
+    setRunState({ status: 'idle', label: '等待输入' });
     setSources([]);
     setApproval(null);
     setRagPreview([]);
@@ -873,6 +912,23 @@ export default function CopilotWorkbench() {
                 <span key={item}><CheckCircle2 size={14} />{item}</span>
               ))}
               <em>Skill: {activeSkill?.name || activeMode.skillId} · Tools: {activeSkill?.allowedTools.join(' / ') || '-'}</em>
+            </div>
+            <div className={`run-lifecycle ${runState.status}`}>
+              <strong>AI Run Lifecycle</strong>
+              {runLifecycle.map((item, index) => (
+                <span
+                  key={item.status}
+                  className={[
+                    index < currentRunIndex || runState.status === 'completed' ? 'done' : '',
+                    index === currentRunIndex ? 'active' : '',
+                    runState.status === 'failed' ? 'failed' : '',
+                    runState.status === 'cancelled' ? 'cancelled' : ''
+                  ].filter(Boolean).join(' ')}
+                >
+                  {item.label}
+                </span>
+              ))}
+              <em>{runState.label}</em>
             </div>
           </section>
 
