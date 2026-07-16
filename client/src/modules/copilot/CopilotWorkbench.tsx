@@ -856,7 +856,7 @@ export default function CopilotWorkbench() {
 
       <div className="copilot-layout">
         <aside className="copilot-sidebar">
-          <section className="panel">
+          <section className="panel trace-card">
             <div className="section-head">
               <h2>会话历史</h2>
               <button className="secondary-button" onClick={createSession}>新会话</button>
@@ -1241,25 +1241,18 @@ export default function CopilotWorkbench() {
                       {index + 1}. {item.name}
                     </button>
                     {expanded ? (
-                    <div className="trace-inline-detail">
-                      <div>
-                        <span className={`trace-dot ${item.status}`} />
-                        <strong>{item.name}</strong>
-                        <em>{item.durationMs || 0}ms · {item.tokenUsage || 0} tokens</em>
+                      <div className="trace-inline-detail">
+                        <div>
+                          <span className={`trace-dot ${item.status}`} />
+                          <strong>{item.name}</strong>
+                          <em>{item.durationMs || 0}ms · {item.tokenUsage || 0} tokens</em>
+                        </div>
+                        <pre>{JSON.stringify({ tool: item.tool, input: item.input, output: item.output, error: item.error, humanRequired: item.humanRequired }, null, 2)}</pre>
                       </div>
-                      <pre>{JSON.stringify({ tool: item.tool, input: item.input, output: item.output, error: item.error, humanRequired: item.humanRequired }, null, 2)}</pre>
-                    </div>
                     ) : null}
                   </div>
                 );
               })}
-            </div>
-            <div className="trace-timeline">
-              {visibleTrace.map((item) => (
-                <i key={item.id} className={item.status} title={`${item.name} · ${item.durationMs || 0}ms`} />
-              ))}
-            </div>
-            <div className="trace-list">
               {!visibleTrace.length ? (
                 <div className="trace-empty">
                   <strong>等待执行链路</strong>

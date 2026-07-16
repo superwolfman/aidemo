@@ -2944,35 +2944,67 @@ kbd {
   gap: 8px;
 }
 
+.trace-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.trace-card .section-head {
+  align-items: flex-start;
+  min-height: auto;
+  padding: 0;
+  background: transparent;
+}
+
+.trace-card .section-head h2 {
+  max-width: 96px;
+  margin: 0;
+  color: #172026;
+  font-size: 18px;
+  line-height: 1.05;
+}
+
+.trace-card .trace-actions {
+  margin-left: auto;
+}
+
 .trace-actions .secondary-button {
-  min-height: 32px;
+  min-width: 110px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  color: #0f766e;
+  background: #e7f3f1;
+  font-size: 16px;
+  font-weight: 950;
 }
 
 .trace-path {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 6px;
-  margin-bottom: 10px;
+  gap: 7px;
+  margin: 0;
 }
 
 .trace-step-row {
   display: grid;
-  gap: 6px;
+  gap: 7px;
 }
 
 .trace-path button {
   min-width: 0;
-  min-height: 28px;
+  min-height: 31px;
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
   border: 0;
-  border-radius: 8px;
-  padding: 0 10px;
-  color: #506575;
+  border-radius: 7px;
+  padding: 0 11px;
+  color: #33495a;
   background: #eef4f8;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 900;
   cursor: pointer;
   text-align: left;
   overflow: hidden;
@@ -2987,19 +3019,19 @@ kbd {
 
 .trace-inline-detail {
   overflow: hidden;
-  border: 1px solid #b8ded8;
+  border: 1px solid #cfe0e8;
   border-radius: 8px;
   background: #fff;
-  box-shadow: 0 10px 24px rgba(15, 118, 110, 0.08);
+  box-shadow: none;
 }
 
 .trace-inline-detail > div {
-  min-height: 40px;
+  min-height: 43px;
   display: grid;
   grid-template-columns: 12px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
-  padding: 0 10px;
+  padding: 0 11px;
 }
 
 .trace-inline-detail strong {
@@ -3017,11 +3049,11 @@ kbd {
 }
 
 .trace-inline-detail pre {
-  max-height: 180px;
+  max-height: 190px;
   overflow: auto;
   margin: 0;
   border-top: 1px solid #edf1f5;
-  padding: 10px;
+  padding: 11px;
   color: #33495a;
   background: #f8fafc;
   font-size: 11px;
@@ -3031,7 +3063,7 @@ kbd {
 }
 
 .trace-timeline {
-  display: grid;
+  display: none;
   grid-template-columns: repeat(auto-fit, minmax(20px, 1fr));
   gap: 6px;
   margin: 0 0 12px;
