@@ -958,6 +958,51 @@ kbd {
   gap: 10px;
 }
 
+.atlas-readiness {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.atlas-readiness span,
+.atlas-readiness strong,
+.atlas-readiness em {
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.atlas-readiness span {
+  margin: 0;
+  color: #667789;
+  background: #edf3f7;
+}
+
+.atlas-readiness strong {
+  margin: 0;
+  color: #0f766e;
+  background: #dff4ef;
+}
+
+.atlas-readiness.live strong {
+  color: #075985;
+  background: #dbeafe;
+}
+
+.atlas-readiness em {
+  max-width: 520px;
+  overflow: hidden;
+  color: #9a6700;
+  background: #fff2cf;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .demo-run-button {
   min-width: 190px;
 }

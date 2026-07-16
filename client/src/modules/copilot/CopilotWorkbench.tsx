@@ -86,6 +86,7 @@ type RuntimeStatus = {
     backend: string;
     mode?: string;
     vectorStore: string;
+    retrievalBackend?: string;
     productionReady: boolean;
     index?: string;
     vectorPath?: string;
@@ -349,6 +350,13 @@ function sourceLabel(sourceType?: string) {
   if (sourceType === 'upload') return '用户上传';
   if (sourceType === 'template') return '模板';
   return '知识库';
+}
+
+function vectorReadinessLabel(rag?: RagStatus | null) {
+  if (!rag) return 'runtime loading';
+  if (rag.retrievalBackend === 'mongodb-atlas-vector-search' && rag.vectorSearchReady) return 'mongodb-atlas-vector-search';
+  if (rag.backend === 'mongodb-atlas') return 'atlas configured · fallback until health passes';
+  return 'local-hash fallback';
 }
 
 const workflowArchitectureNodes = [
@@ -797,6 +805,11 @@ export default function CopilotWorkbench() {
           <span>Live Copilot Workbench</span>
           <strong>{selectedModel ? `${selectedModel.provider} · ${selectedModel.model}` : runtime?.llm.mode === 'live' ? `${runtime.llm.provider} · ${runtime.llm.model}` : 'Local fallback runtime'}</strong>
           <p>主流程围绕 AI 产品交付组织：需求输入、Skill 约束、RAG 上下文、Artifact、Trace 和人工确认。</p>
+          <div className={`atlas-readiness ${runtime?.rag.retrievalBackend === 'mongodb-atlas-vector-search' ? 'live' : 'fallback'}`}>
+            <span>Retrieval Backend</span>
+            <strong>{vectorReadinessLabel(runtime?.rag)}</strong>
+            {runtime?.rag.error ? <em>{runtime.rag.error}</em> : null}
+          </div>
         </div>
         <div className="command-side">
           <div className="command-metrics">
@@ -900,11 +913,13 @@ export default function CopilotWorkbench() {
                 <div>
                   <span>Vector Store</span>
                   <strong>{runtime.rag.vectorStore}</strong>
-                  <em>{runtime.rag.productionReady ? 'live vector db' : 'local fallback'}</em>
+                  <em>{runtime.rag.retrievalBackend === 'mongodb-atlas-vector-search' ? 'live vector db' : 'local fallback'}</em>
                 </div>
                 <dl>
                   <dt>backend</dt>
                   <dd>{runtime.rag.backend}</dd>
+                  <dt>retrieval</dt>
+                  <dd>{runtime.rag.retrievalBackend || 'local-hash-fallback'}</dd>
                   <dt>mode</dt>
                   <dd>{runtime.rag.mode || '-'}</dd>
                   <dt>index</dt>
@@ -965,8 +980,9 @@ export default function CopilotWorkbench() {
                 </div>
                 <em>{ragDiagnostics?.rag?.mode || runtime?.rag.mode || 'local'}</em>
               </div>
-              <div className="rag-quality-metrics">
+            <div className="rag-quality-metrics">
                 <span><b>{ragDiagnostics?.rag?.backend || runtime?.rag.backend || '-'}</b> backend</span>
+                <span><b>{ragDiagnostics?.rag?.retrievalBackend || runtime?.rag.retrievalBackend || '-'}</b> retrieval</span>
                 <span><b>{ragDiagnostics?.latencyMs ?? '-'}</b> ms</span>
                 <span><b>{diagnosticSources.length}</b> chunks</span>
               </div>
@@ -1285,6 +1301,7 @@ export default function CopilotWorkbench() {
             <h2>引用来源</h2>
             <div className="citation-runtime">
               <span>{ragDiagnostics?.rag?.backend || runtime?.rag.backend || 'local-hash'}</span>
+              <span>{ragDiagnostics?.rag?.retrievalBackend || runtime?.rag.retrievalBackend || 'local-hash'}</span>
               <span>{ragDiagnostics?.rag?.mode || runtime?.rag.mode || 'fallback'}</span>
               {typeof ragDiagnostics?.latencyMs === 'number' ? <span>{ragDiagnostics.latencyMs}ms</span> : null}
             </div>

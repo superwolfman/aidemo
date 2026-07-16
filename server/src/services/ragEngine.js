@@ -28,6 +28,12 @@ export function getRagStatus(extra = {}) {
     backend,
     mode,
     productionReady: requestedRealVector && realStoreConnected && mode !== 'fallback' && vectorSearchReady !== false,
+    retrievalBackend:
+      isAtlas && vectorSearchReady
+        ? 'mongodb-atlas-vector-search'
+        : backend === 'local-hash'
+          ? 'local-hash'
+          : 'local-hash-fallback',
     vectorStore:
       isAtlas
         ? 'MongoDB Atlas Vector Search'
