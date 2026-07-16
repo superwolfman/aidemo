@@ -426,7 +426,7 @@ export default function CopilotWorkbench() {
   );
   const replayTrace = replayIndex === null ? trace : trace.slice(0, replayIndex + 1);
   const visibleTrace = replayTrace.length ? replayTrace : trace;
-  const activeTrace = visibleTrace.find((item) => item.id === activeTraceId) || visibleTrace[0];
+  const activeTrace = visibleTrace.find((item) => item.id === activeTraceId);
   const activeScopes = activeSkill?.knowledgeScopes || ['architecture', 'standards'];
   const indexedChunks = documents.reduce((sum, doc) => sum + (doc.chunkCount || 0), 0);
   const activeTemplatePacks = knowledgeTemplates
@@ -490,7 +490,7 @@ export default function CopilotWorkbench() {
       return;
     }
     if (!visibleTrace.some((item) => item.id === activeTraceId)) {
-      setActiveTraceId(visibleTrace[0].id);
+      setActiveTraceId('');
     }
   }, [visibleTrace, activeTraceId]);
 
@@ -1235,7 +1235,7 @@ export default function CopilotWorkbench() {
             </div>
             <div className="trace-path">
               {visibleTrace.map((item, index) => (
-                <button type="button" key={item.id} className={item.id === activeTrace?.id ? 'active' : ''} onClick={() => setActiveTraceId(item.id)}>
+                <button type="button" key={item.id} className={item.id === activeTrace?.id ? 'active' : ''} onClick={() => setActiveTraceId((current) => current === item.id ? '' : item.id)}>
                   {index + 1}. {item.name}
                 </button>
               ))}
@@ -1255,6 +1255,12 @@ export default function CopilotWorkbench() {
                   </summary>
                   <pre>{JSON.stringify({ tool: activeTrace.tool, input: activeTrace.input, output: activeTrace.output, error: activeTrace.error, humanRequired: activeTrace.humanRequired }, null, 2)}</pre>
                 </details>
+              ) : null}
+              {visibleTrace.length && !activeTrace ? (
+                <div className="trace-empty">
+                  <strong>选择一个 Trace 节点查看详情</strong>
+                  <span>默认只展示全局执行路径。点击上方任一步骤后，会展开该步骤的输入、输出、耗时、token 和错误信息。</span>
+                </div>
               ) : null}
               {!visibleTrace.length ? (
                 <div className="trace-empty">

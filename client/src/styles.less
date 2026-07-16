@@ -2657,9 +2657,8 @@ kbd {
   grid-column: 2 / 3;
   grid-row: 1 / 2;
   justify-self: end;
-  position: relative;
-  width: 320px;
-  max-width: 320px;
+  width: min(100%, 360px);
+  max-width: 360px;
 }
 
 .model-select summary {
@@ -2676,7 +2675,14 @@ kbd {
   background: #f8fafc;
   cursor: pointer;
   list-style: none;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+  box-shadow: none;
+}
+
+.model-select[open] summary {
+  border-color: #b8ded8;
+  border-bottom-right-radius: 8px;
+  border-bottom-left-radius: 8px;
+  background: #fff;
 }
 
 .model-select summary::-webkit-details-marker {
@@ -2716,22 +2722,18 @@ kbd {
 }
 
 .model-menu {
-  position: absolute;
-  right: 0;
-  left: auto;
-  top: auto;
-  bottom: calc(100% + 8px);
-  z-index: 30;
-  width: 360px;
-  max-height: 220px;
+  position: static;
+  width: 100%;
+  max-height: 260px;
   overflow: auto;
   display: grid;
-  gap: 3px;
+  gap: 6px;
   border: 1px solid #e1e9f0;
   border-radius: 12px;
+  margin-top: 8px;
   padding: 8px;
   background: #fff;
-  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.16);
+  box-shadow: none;
 }
 
 .model-menu > strong {
@@ -2768,21 +2770,25 @@ kbd {
 .model-menu button {
   display: grid;
   gap: 2px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 10px;
   padding: 8px 10px;
   color: #172026;
   background: #fff;
   text-align: left;
+  cursor: pointer;
 }
 
 .model-menu button:hover,
 .model-menu button.active {
-  background: #eef6ff;
+  border-color: #cfe0e8;
+  background: #f8fafc;
 }
 
 .model-menu button.active {
-  box-shadow: inset 3px 0 0 #2563eb;
+  border-color: #b8ded8;
+  background: #f0fdfa;
+  box-shadow: inset 3px 0 0 #0f766e;
 }
 
 .model-menu span {
