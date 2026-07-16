@@ -2949,14 +2949,15 @@ kbd {
 }
 
 .trace-path {
-  max-height: 168px;
   display: grid;
   grid-template-columns: 1fr;
   gap: 6px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   margin-bottom: 10px;
-  padding-right: 2px;
+}
+
+.trace-step-row {
+  display: grid;
+  gap: 6px;
 }
 
 .trace-path button {
@@ -2982,6 +2983,51 @@ kbd {
 .trace-path button.active {
   color: #fff;
   background: #0f766e;
+}
+
+.trace-inline-detail {
+  overflow: hidden;
+  border: 1px solid #b8ded8;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(15, 118, 110, 0.08);
+}
+
+.trace-inline-detail > div {
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 0 10px;
+}
+
+.trace-inline-detail strong {
+  overflow: hidden;
+  color: #172026;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-inline-detail em {
+  color: #7a8b9c;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.trace-inline-detail pre {
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  border-top: 1px solid #edf1f5;
+  padding: 10px;
+  color: #33495a;
+  background: #f8fafc;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .trace-timeline {

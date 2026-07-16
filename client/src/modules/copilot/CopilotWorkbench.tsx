@@ -1235,10 +1235,28 @@ export default function CopilotWorkbench() {
             </div>
             <div className="trace-path">
               {visibleTrace.map((item, index) => (
-                <button type="button" key={item.id} className={item.id === activeTrace?.id ? 'active' : ''} onClick={() => setActiveTraceId((current) => current === item.id ? '' : item.id)}>
-                  {index + 1}. {item.name}
-                </button>
+                <div className="trace-step-row" key={item.id}>
+                  <button type="button" className={item.id === activeTrace?.id ? 'active' : ''} onClick={() => setActiveTraceId((current) => current === item.id ? '' : item.id)}>
+                    {index + 1}. {item.name}
+                  </button>
+                  {item.id === activeTrace?.id ? (
+                    <div className="trace-inline-detail">
+                      <div>
+                        <span className={`trace-dot ${item.status}`} />
+                        <strong>{item.name}</strong>
+                        <em>{item.durationMs || 0}ms · {item.tokenUsage || 0} tokens</em>
+                      </div>
+                      <pre>{JSON.stringify({ tool: item.tool, input: item.input, output: item.output, error: item.error, humanRequired: item.humanRequired }, null, 2)}</pre>
+                    </div>
+                  ) : null}
+                </div>
               ))}
+              {visibleTrace.length && !activeTrace ? (
+                <div className="trace-empty">
+                  <strong>选择一个 Trace 节点查看详情</strong>
+                  <span>默认只展示全局执行路径。点击任一步骤后，详情会直接展开在该步骤下方。</span>
+                </div>
+              ) : null}
             </div>
             <div className="trace-timeline">
               {visibleTrace.map((item) => (
@@ -1246,22 +1264,6 @@ export default function CopilotWorkbench() {
               ))}
             </div>
             <div className="trace-list">
-              {activeTrace ? (
-                <details key={activeTrace.id} open className="active">
-                  <summary>
-                    <span className={`trace-dot ${activeTrace.status}`} />
-                    <strong>{activeTrace.name}</strong>
-                    <em>{activeTrace.durationMs || 0}ms · {activeTrace.tokenUsage || 0} tokens</em>
-                  </summary>
-                  <pre>{JSON.stringify({ tool: activeTrace.tool, input: activeTrace.input, output: activeTrace.output, error: activeTrace.error, humanRequired: activeTrace.humanRequired }, null, 2)}</pre>
-                </details>
-              ) : null}
-              {visibleTrace.length && !activeTrace ? (
-                <div className="trace-empty">
-                  <strong>选择一个 Trace 节点查看详情</strong>
-                  <span>默认只展示全局执行路径。点击上方任一步骤后，会展开该步骤的输入、输出、耗时、token 和错误信息。</span>
-                </div>
-              ) : null}
               {!visibleTrace.length ? (
                 <div className="trace-empty">
                   <strong>等待执行链路</strong>
