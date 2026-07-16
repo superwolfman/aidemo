@@ -278,6 +278,28 @@ const evalCases = [
   }
 ];
 
+function normalizeSession(session) {
+  if (!session) return session;
+  const seen = new Set();
+  const messages = Array.isArray(session.messages)
+    ? session.messages
+        .filter((message) => message?.role && String(message.content || '').trim())
+        .filter((message) => {
+          const key = [message.id || '', message.role, String(message.content || '').trim()].join('::');
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+    : [];
+  return { ...session, messages };
+}
+
+function normalizeSessions(sessions) {
+  return sessions
+    .map(normalizeSession)
+    .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+}
+
 const projectKnowledgeFiles = [
   {
     title: '真实项目 README 架构文档',
@@ -879,7 +901,7 @@ export function copilotRouter(store) {
 
   router.get('/sessions', async (req, res) => {
     const sessions = await store.listRecords('copilot_sessions', 50);
-    res.json({ sessions });
+    res.json({ sessions: normalizeSessions(sessions) });
   });
 
   router.post('/sessions', async (req, res) => {
@@ -889,12 +911,12 @@ export function copilotRouter(store) {
       createdBy: req.user._id,
       activeSkillId: req.body.skillId || 'architecture-review'
     });
-    res.json({ session });
+    res.json({ session: normalizeSession(session) });
   });
 
   router.get('/sessions/:id', async (req, res) => {
     const session = await store.getRecord('copilot_sessions', req.params.id);
-    res.json({ session });
+    res.json({ session: normalizeSession(session) });
   });
 
   router.post('/knowledge/upload', async (req, res) => {

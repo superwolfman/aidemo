@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Bot, CheckCircle2, Copy, FileCode2, FileText, Pause, PencilLine, Play, RefreshCw, RotateCcw, Send, ShieldCheck, UploadCloud } from 'lucide-react';
 import { request, streamRequest } from '../../api/client';
 import { Header, Status } from '../../components/ui';
@@ -22,6 +22,7 @@ type Message = {
   sources?: any[];
   trace?: TraceStep[];
   approvalId?: string;
+  createdAt?: string;
 };
 
 type Session = {
@@ -406,32 +407,126 @@ function downloadText(filename: string, text: string, type = 'text/plain;charset
   URL.revokeObjectURL(url);
 }
 
-function MarkdownView({ content, streaming = false }: { content: string; streaming?: boolean }) {
+function renderWorkflowLines(lines: string[], keyPrefix: string) {
+  const nodes: ReactNode[] = [];
+  let listItems: string[] = [];
+
+  const flushList = () => {
+    if (!listItems.length) return;
+    const items = listItems;
+    nodes.push(
+      <ul className="workflow-card-list" key={`${keyPrefix}-list-${nodes.length}`}>
+        {items.map((item, index) => <li key={`${keyPrefix}-item-${index}`}>{item}</li>)}
+      </ul>
+    );
+    listItems = [];
+  };
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushList();
+      return;
+    }
+    const listMatch = trimmed.match(/^[-*•]\s+(.+)$/);
+    if (listMatch) {
+      listItems.push(listMatch[1]);
+      return;
+    }
+    flushList();
+    const fieldMatch = trimmed.match(/^([\u4e00-\u9fa5A-Za-z0-9_\s/]+)[：:]\s*(.+)$/);
+    if (fieldMatch && fieldMatch[1].length <= 18) {
+      nodes.push(
+        <div className="workflow-field-row" key={`${keyPrefix}-field-${index}`}>
+          <span>{fieldMatch[1].trim()}</span>
+          <strong>{fieldMatch[2].trim()}</strong>
+        </div>
+      );
+      return;
+    }
+    nodes.push(<p key={`${keyPrefix}-p-${index}`}>{trimmed}</p>);
+  });
+  flushList();
+  return nodes;
+}
+
+function WorkflowMessageContent({ content, streaming = false }: { content: string; streaming?: boolean }) {
   const blocks = content.split(/```/g);
+
   return (
-    <div className="markdown-body">
+    <div className="workflow-message-content">
       {blocks.map((block, index) => {
         if (index % 2 === 1) {
           const code = block.replace(/^\w+\n/, '');
           return (
-            <div className="code-block" key={index}>
-              <button type="button" onClick={() => copyToClipboard(code)}><Copy size={13} />复制代码</button>
+            <section className="workflow-content-card workflow-code-card" key={`code-${index}`}>
+              <div className="workflow-content-card-head">
+                <strong>代码片段</strong>
+                <button type="button" onClick={() => copyToClipboard(code)}><Copy size={13} />复制代码</button>
+              </div>
               <pre><code dangerouslySetInnerHTML={{ __html: highlight(code) }} /></pre>
-            </div>
+            </section>
           );
         }
-        return block.split('\n').map((line, lineIndex) => {
-          if (line.startsWith('### ')) return <h3 key={`${index}-${lineIndex}`}>{line.slice(4)}</h3>;
-          if (line.startsWith('## ')) return <h2 key={`${index}-${lineIndex}`}>{line.slice(3)}</h2>;
-          if (line.startsWith('# ')) return <h1 key={`${index}-${lineIndex}`}>{line.slice(2)}</h1>;
-          if (line.startsWith('- ')) return <p className="md-list" key={`${index}-${lineIndex}`}>{line}</p>;
-          if (!line.trim()) return null;
-          return <p key={`${index}-${lineIndex}`}>{line}</p>;
+
+        const text = block.trim();
+        if (!text) return null;
+
+        const isJson = text.startsWith('{') || text.startsWith('[');
+        if (isJson) {
+          return (
+            <section className="workflow-content-card workflow-json-card" key={`json-${index}`}>
+              <div className="workflow-content-card-head"><strong>结构化数据</strong></div>
+              <pre>{text}</pre>
+            </section>
+          );
+        }
+
+        const isProviderError = /Provider 降级|LLM provider stream failed|Insufficient Balance|调用失败/i.test(text);
+        const sections: Array<{ title: string; level: number; lines: string[] }> = [];
+        let current: { title: string; level: number; lines: string[] } = { title: isProviderError ? 'Provider 降级' : '消息内容', level: 3, lines: [] };
+
+        text.split('\n').forEach((line) => {
+          const heading = line.trim().match(/^(#{1,3})\s+(.+)$/);
+          if (heading) {
+            if (current.lines.length || current.title !== '消息内容') sections.push(current);
+            current = { title: heading[2], level: heading[1].length, lines: [] };
+            return;
+          }
+          current.lines.push(line);
         });
+        if (current.lines.length || !sections.length) sections.push(current);
+
+        return sections.map((section, sectionIndex) => (
+          <section
+            className={`workflow-content-card ${isProviderError ? 'workflow-alert-card' : ''}`}
+            key={`section-${index}-${sectionIndex}`}
+          >
+            <div className="workflow-content-card-head">
+              <strong>{section.title}</strong>
+              {section.level < 3 ? <span>section</span> : null}
+            </div>
+            <div className="workflow-content-card-body">
+              {renderWorkflowLines(section.lines, `${index}-${sectionIndex}`)}
+            </div>
+          </section>
+        ));
       })}
       {streaming ? <i className="stream-cursor" /> : null}
     </div>
   );
+}
+
+function getVisibleConversation(messages: Message[]) {
+  const normalized = messages
+    .filter((message) => message.content?.trim())
+    .filter((message, index, list) => {
+      const key = `${message.role}:${message.id || ''}:${message.content.trim()}`;
+      return list.findIndex((item) => `${item.role}:${item.id || ''}:${item.content.trim()}` === key) === index;
+    });
+  const lastUserIndex = normalized.map((message) => message.role).lastIndexOf('user');
+  if (lastUserIndex >= 0) return normalized.slice(lastUserIndex, lastUserIndex + 2);
+  return normalized.slice(-1);
 }
 
 export default function CopilotWorkbench() {
@@ -491,10 +586,7 @@ export default function CopilotWorkbench() {
   const selectedWorkflowContent = selectedWorkflowArtifact
     ? selectedWorkflowReview?.draft || artifactToText(selectedWorkflowArtifact)
     : '';
-  const visibleMessages = useMemo(
-    () => messages.filter((message) => message.role === 'assistant' && message.content.trim()),
-    [messages]
-  );
+  const visibleMessages = useMemo(() => getVisibleConversation(messages), [messages]);
   const replayTrace = replayIndex === null ? trace : trace.slice(0, replayIndex + 1);
   const visibleTrace = replayTrace.length ? replayTrace : trace;
   const activeScopes = activeSkill?.knowledgeScopes || ['architecture', 'standards'];
@@ -1387,34 +1479,57 @@ export default function CopilotWorkbench() {
                 ))}
                 <em>{runState.label}</em>
               </div>
-              <div className="chat-stream workflow-chat-stream" ref={chatStreamRef}>
-                {visibleMessages.map((message) => (
-                  <article key={message.id} className={`chat-message ${message.role}`}>
-                    <div className="chat-role">{message.role === 'assistant' ? <Bot size={16} /> : 'U'}</div>
-                    <div className="chat-message-body">
-                      <MarkdownView content={message.content} streaming={running && message.id === visibleMessages[visibleMessages.length - 1]?.id} />
-                      <div className="message-actions">
-                        <button type="button" onClick={() => copyToClipboard(message.content)}><Copy size={13} />复制回答</button>
-                        <button type="button" onClick={() => editAsPrompt(message.content)}><PencilLine size={13} />编辑为输入</button>
+              <div className="workflow-im-panel">
+                <div className="workflow-im-header">
+                  <div>
+                    <strong>Copilot IM</strong>
+                    <span>围绕当前需求实时生成、可复制、可回填 Prompt。</span>
+                  </div>
+                  <div className="workflow-im-meta">
+                    <span>{visibleMessages.length} messages</span>
+                    <span>{sources.length} citations</span>
+                    <span>{runState.status}</span>
+                  </div>
+                </div>
+                <div className="chat-stream workflow-chat-stream" ref={chatStreamRef}>
+                  {visibleMessages.map((message) => (
+                    <article key={message.id} className={`chat-message ${message.role}`}>
+                      <div className="chat-role">{message.role === 'assistant' ? <Bot size={16} /> : 'U'}</div>
+                      <div className="chat-message-body">
+                        <div className="message-meta">
+                          <strong>{message.role === 'assistant' ? 'AI Copilot' : 'User Request'}</strong>
+                          <span>{message.role === 'assistant' ? `${message.sources?.length || sources.length} citations` : activeSkill?.name || 'Selected Skill'}</span>
+                        </div>
+                        <WorkflowMessageContent content={message.content} streaming={running && message.id === visibleMessages[visibleMessages.length - 1]?.id} />
+                        <div className="message-actions">
+                          <button type="button" onClick={() => copyToClipboard(message.content)}><Copy size={13} />复制回答</button>
+                          <button type="button" onClick={() => editAsPrompt(message.content)}><PencilLine size={13} />编辑为输入</button>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                  {running ? (
+                    <div className="stream-skeleton workflow-streaming-card">
+                      <strong>AI 正在分析需求并生成 Artifact...</strong>
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                  ) : null}
+                  {!visibleMessages.length ? (
+                    <div className="chat-empty-state workflow-im-empty">
+                      <Bot size={26} />
+                      <strong>等待生成 AI Product Workflow</strong>
+                      <span>点击左侧“生成工作流”后，这里会展示用户请求、AI 流式分析、引用上下文和可操作回答。</span>
+                      <div>
+                        <em>需求摘要</em>
+                        <em>页面模块</em>
+                        <em>接口协议</em>
+                        <em>任务拆解</em>
                       </div>
                     </div>
-                  </article>
-                ))}
-                {running ? (
-                  <div className="stream-skeleton">
-                    <strong>正在流式生成...</strong>
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                ) : null}
-                {!visibleMessages.length ? (
-                  <div className="chat-empty-state">
-                    <Bot size={26} />
-                    <strong>等待生成 AI Product Workflow</strong>
-                    <span>点击左侧“生成工作流”后，这里会展示流式分析过程。</span>
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
               </div>
             </div>
 
