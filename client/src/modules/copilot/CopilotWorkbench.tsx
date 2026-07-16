@@ -259,10 +259,10 @@ const demoScenarios = [
     title: 'AI 产品工作流',
     modeId: 'product-workflow',
     form: {
-      businessRequirement: '建设一个面向研发团队的 AI 工作流产品，支持需求输入、RAG 上下文、SSE 流式生成、Artifact 产物和人工确认。',
+      businessRequirement: '为企业内部 AI 产品研发团队建设一个“需求到交付”Copilot 工作台。输入业务需求后，系统需要结合项目规范、AI Native 交互规范和接口约束，输出 PRD 摘要、页面原型、BFF 接口协议、状态流转、研发任务拆解和待确认风险。',
       targetUsers: '产品经理、前端工程师、后端工程师、算法工程师、技术负责人',
-      deliveryGoal: '一周内完成可演示 MVP，覆盖需求分析、页面原型、接口协议和研发任务拆解。',
-      constraints: 'React + TypeScript + Node BFF + SSE；高风险动作需要人工确认；输出必须可追踪引用来源。'
+      deliveryGoal: '3 个工作日内完成可演示 MVP：支持需求输入、RAG 引用、SSE 流式分析、Artifact 产物、Trace 可审计和人工确认。',
+      constraints: 'React + TypeScript + Node BFF + SSE；RAG 必须显示引用来源和 score；LLM 输出必须受 Skill schema 约束；高风险动作进入人工确认；结果可复制、可修改、可重新生成。'
     }
   },
   {
@@ -338,6 +338,15 @@ function sourceLabel(sourceType?: string) {
   return '知识库';
 }
 
+const workflowArchitectureNodes = [
+  { id: 'input', title: '业务需求输入', desc: '目标用户、交付目标、约束条件、Prompt Contract' },
+  { id: 'skill', title: 'Skill Runtime', desc: 'inputSchema / outputSchema / allowedTools / scopes' },
+  { id: 'rag', title: 'RAG Context', desc: '项目文档、模板包、chunk score、citation' },
+  { id: 'tool', title: 'Tool Calling', desc: '生成 PRD、页面原型、API、任务拆解' },
+  { id: 'stream', title: 'SSE Streaming', desc: '流式输出、停止、重生成、fallback' },
+  { id: 'artifact', title: 'Artifact Review', desc: '结构化产物、引用来源、审批历史' }
+];
+
 async function copyToClipboard(text: string) {
   await navigator.clipboard?.writeText(text);
 }
@@ -378,12 +387,13 @@ export default function CopilotWorkbench() {
   const [prompt, setPrompt] = useState('请把下面业务需求转成 AI 产品前端交付方案，输出需求摘要、用户流程、页面原型、接口协议、状态流转、研发任务拆解、风险和待确认问题。');
   const [taskModeId, setTaskModeId] = useState('product-workflow');
   const [form, setForm] = useState<Record<string, string>>({
-    businessRequirement: '建设一个面向研发团队的 AI 工作流产品，支持需求输入、RAG 上下文、SSE 流式生成、Artifact 产物和人工确认。',
+    businessRequirement: '为企业内部 AI 产品研发团队建设一个“需求到交付”Copilot 工作台。输入业务需求后，系统需要结合项目规范、AI Native 交互规范和接口约束，输出 PRD 摘要、页面原型、BFF 接口协议、状态流转、研发任务拆解和待确认风险。',
     targetUsers: '产品经理、前端工程师、后端工程师、算法工程师、技术负责人',
-    deliveryGoal: '一周内完成可演示 MVP，覆盖需求分析、页面原型、接口协议和研发任务拆解。',
-    constraints: 'React + TypeScript + Node BFF + SSE；高风险动作需要人工确认；输出必须可追踪引用来源。'
+    deliveryGoal: '3 个工作日内完成可演示 MVP：支持需求输入、RAG 引用、SSE 流式分析、Artifact 产物、Trace 可审计和人工确认。',
+    constraints: 'React + TypeScript + Node BFF + SSE；RAG 必须显示引用来源和 score；LLM 输出必须受 Skill schema 约束；高风险动作进入人工确认；结果可复制、可修改、可重新生成。'
   });
   const [trace, setTrace] = useState<TraceStep[]>([]);
+  const [activeTraceId, setActiveTraceId] = useState('');
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
   const [sources, setSources] = useState<any[]>([]);
   const [approval, setApproval] = useState<Approval | null>(null);
@@ -415,6 +425,8 @@ export default function CopilotWorkbench() {
     [messages]
   );
   const replayTrace = replayIndex === null ? trace : trace.slice(0, replayIndex + 1);
+  const visibleTrace = replayTrace.length ? replayTrace : trace;
+  const activeTrace = visibleTrace.find((item) => item.id === activeTraceId) || visibleTrace[0];
   const activeScopes = activeSkill?.knowledgeScopes || ['architecture', 'standards'];
   const indexedChunks = documents.reduce((sum, doc) => sum + (doc.chunkCount || 0), 0);
   const activeTemplatePacks = knowledgeTemplates
@@ -471,6 +483,16 @@ export default function CopilotWorkbench() {
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [messages, running]);
+
+  useEffect(() => {
+    if (!visibleTrace.length) {
+      if (activeTraceId) setActiveTraceId('');
+      return;
+    }
+    if (!visibleTrace.some((item) => item.id === activeTraceId)) {
+      setActiveTraceId(visibleTrace[0].id);
+    }
+  }, [visibleTrace, activeTraceId]);
 
   async function createSession() {
     const result = await request('/api/copilot/sessions', { method: 'POST', body: JSON.stringify({ title: `${activeMode.label}会话`, skillId }) });
@@ -729,7 +751,7 @@ export default function CopilotWorkbench() {
       const knowledgeResult = await request('/api/copilot/knowledge');
       setDocuments(knowledgeResult.documents);
       setKnowledgeStats(knowledgeResult.stats || null);
-      const query = 'AI 产品工作流 需求分析 页面原型 接口协议 任务拆解 SSE RAG Agent Trace Human in the loop';
+      const query = 'AI 产品工作流 需求分析 页面原型 接口协议 任务拆解 SSE RAG Agent Trace Human in the loop AI Native 前端交互规范';
       const searchResult = await request('/api/copilot/knowledge/search', {
         method: 'POST',
         body: JSON.stringify({
@@ -749,7 +771,7 @@ export default function CopilotWorkbench() {
         sources: nextSources,
         source: 'preview'
       });
-      setRunState({ status: 'idle', label: '产品工作流 Demo 已准备好，可以点击生成' });
+      setRunState({ status: 'idle', label: `Demo 已准备：已同步 ${knowledgeResult.stats?.projectFiles || 0} 个项目文件，预检索命中 ${nextSources.length} 个 chunk` });
     } finally {
       setDemoPreparing(false);
     }
@@ -770,12 +792,14 @@ export default function CopilotWorkbench() {
     const traceFromMessage = [...messages].reverse().find((message) => message.trace?.length)?.trace || trace;
     setTrace(traceFromMessage);
     setReplayIndex(traceFromMessage.length ? 0 : null);
+    setActiveTraceId(traceFromMessage[0]?.id || '');
   }
 
   function nextReplayStep() {
     if (replayIndex === null) return;
     setReplayIndex((index) => {
       const next = Math.min((index || 0) + 1, trace.length - 1);
+      setActiveTraceId(trace[next]?.id || '');
       return Number.isFinite(next) ? next : null;
     });
   }
@@ -796,7 +820,7 @@ export default function CopilotWorkbench() {
         </div>
         <div className="command-side">
           <button className="primary-button demo-run-button" disabled={demoPreparing || running} onClick={prepareProductWorkflowDemo}>
-            <Play size={16} />{demoPreparing ? '准备中' : '准备产品工作流 Demo'}
+            <Play size={16} />{demoPreparing ? '准备中' : '导入资料并准备 Demo'}
           </button>
           <div className="command-metrics">
             <span><strong>{skills.length || 5}</strong> Skills</span>
@@ -1022,6 +1046,25 @@ export default function CopilotWorkbench() {
             </div>
           </section>
 
+          <section className="workflow-chain-map">
+            <div className="workflow-chain-head">
+              <div>
+                <strong>AI Product Workflow 链路架构</strong>
+                <span>输入需求后，系统会按 Skill 约束检索知识库、调用工具、流式生成 Artifact，并在高风险节点进入人工确认。</span>
+              </div>
+              <em>{ragDiagnostics?.sources?.length || sources.length || 0} citations · {trace.length} trace steps</em>
+            </div>
+            <div className="workflow-chain-grid">
+              {workflowArchitectureNodes.map((node, index) => (
+                <article key={node.id}>
+                  <span>{String(index + 1).padStart(2, '0')}</span>
+                  <strong>{node.title}</strong>
+                  <p>{node.desc}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
           <section className="product-workflow-board">
             <div className="workflow-column workflow-input-panel">
               <div className="column-head">
@@ -1191,18 +1234,20 @@ export default function CopilotWorkbench() {
               </div>
             </div>
             <div className="trace-path">
-              {(replayTrace.length ? replayTrace : trace).map((item, index) => (
-                <span key={item.id} className={index === replayIndex ? 'active' : ''}>{index + 1}. {item.name}</span>
+              {visibleTrace.map((item, index) => (
+                <button type="button" key={item.id} className={item.id === activeTrace?.id ? 'active' : ''} onClick={() => setActiveTraceId(item.id)}>
+                  {index + 1}. {item.name}
+                </button>
               ))}
             </div>
             <div className="trace-timeline">
-              {(replayTrace.length ? replayTrace : trace).map((item) => (
+              {visibleTrace.map((item) => (
                 <i key={item.id} className={item.status} title={`${item.name} · ${item.durationMs || 0}ms`} />
               ))}
             </div>
             <div className="trace-list">
-              {(replayTrace.length ? replayTrace : trace).map((item) => (
-                <details key={item.id} open={item.status === 'waiting' || item.status === 'failed'}>
+              {visibleTrace.map((item) => (
+                <details key={item.id} open={item.id === activeTrace?.id} className={item.id === activeTrace?.id ? 'active' : ''}>
                   <summary>
                     <span className={`trace-dot ${item.status}`} />
                     <strong>{item.name}</strong>
@@ -1211,6 +1256,12 @@ export default function CopilotWorkbench() {
                   <pre>{JSON.stringify({ tool: item.tool, input: item.input, output: item.output, error: item.error, humanRequired: item.humanRequired }, null, 2)}</pre>
                 </details>
               ))}
+              {!visibleTrace.length ? (
+                <div className="trace-empty">
+                  <strong>等待执行链路</strong>
+                  <span>点击“生成工作流”后，会展示用户请求、Skill、RAG、Tool、LLM 和人工确认的真实执行步骤。</span>
+                </div>
+              ) : null}
             </div>
           </section>
 

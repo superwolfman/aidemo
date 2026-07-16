@@ -1021,6 +1021,99 @@ kbd {
   line-height: 1.45;
 }
 
+.workflow-chain-map {
+  display: grid;
+  gap: 10px;
+  border-bottom: 1px solid #dce5ee;
+  padding: 12px;
+  background: #fbfdff;
+}
+
+.workflow-chain-head {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-chain-head strong {
+  display: block;
+  color: #172026;
+  font-size: 15px;
+}
+
+.workflow-chain-head span {
+  display: block;
+  margin-top: 3px;
+  color: #667789;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workflow-chain-head em {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: #0f766e;
+  background: #e7f3f1;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.workflow-chain-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.workflow-chain-grid article {
+  position: relative;
+  min-width: 0;
+  border: 1px solid #dce5ee;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+
+.workflow-chain-grid article:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 26px;
+  right: -8px;
+  width: 8px;
+  height: 1px;
+  background: #b8cbd8;
+}
+
+.workflow-chain-grid span {
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.workflow-chain-grid strong {
+  display: block;
+  overflow: hidden;
+  margin: 5px 0 4px;
+  color: #172026;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-chain-grid p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: #667789;
+  font-size: 11px;
+  line-height: 1.45;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 .copilot-layout {
   display: grid;
   grid-template-columns: 270px minmax(0, 1fr) minmax(320px, 360px);
@@ -2809,6 +2902,11 @@ kbd {
   background: #fff;
 }
 
+.trace-list details.active {
+  border-color: #b8ded8;
+  box-shadow: 0 10px 24px rgba(15, 118, 110, 0.08);
+}
+
 .trace-actions {
   display: flex;
   gap: 8px;
@@ -2825,19 +2923,21 @@ kbd {
   margin-bottom: 12px;
 }
 
-.trace-path span {
+.trace-path button {
   min-height: 26px;
   display: inline-flex;
   align-items: center;
+  border: 0;
   border-radius: 999px;
   padding: 0 10px;
   color: #506575;
   background: #eef4f8;
   font-size: 12px;
   font-weight: 800;
+  cursor: pointer;
 }
 
-.trace-path span.active {
+.trace-path button.active {
   color: #fff;
   background: #0f766e;
 }
@@ -2878,8 +2978,8 @@ kbd {
 
 .trace-list pre {
   max-width: 100%;
-  max-height: none;
-  overflow: visible;
+  max-height: 280px;
+  overflow: auto;
   margin: 0;
   border-top: 1px solid #edf1f5;
   padding: 10px 12px;
@@ -2889,6 +2989,25 @@ kbd {
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.trace-empty {
+  display: grid;
+  gap: 5px;
+  border: 1px dashed #cfe0e8;
+  border-radius: 8px;
+  padding: 14px;
+  color: #667789;
+  background: #fbfdff;
+}
+
+.trace-empty strong {
+  color: #172026;
+}
+
+.trace-empty span {
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .trace-dot {
@@ -2944,6 +3063,10 @@ kbd {
     gap: 12px;
   }
 
+  .workflow-chain-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .product-workflow-board {
     grid-template-columns: 1fr;
   }
@@ -2974,6 +3097,10 @@ kbd {
 
   .workflow-artifact-list {
     grid-template-columns: 1fr;
+  }
+
+  .workflow-chain-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

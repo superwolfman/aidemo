@@ -902,7 +902,7 @@ export function copilotRouter(store) {
       artifacts = generateProductWorkflowArtifacts({ prompt, skill, sources });
       await emitStep(step('product-workflow', '生成产品工作流 Artifacts', 'success', {
         tool: 'generateProductWorkflowArtifacts',
-        input: { artifactTypes: ['prd', 'flow', 'api', 'task'], requireHumanApproval: true },
+        input: { artifactTypes: ['prd', 'flow', 'api', 'task', 'risk'], requireHumanApproval: true },
         output: artifacts.map((artifact) => ({ type: artifact.type, title: artifact.title })),
         tokenUsage: tokenCount(JSON.stringify(artifacts))
       }));
@@ -937,7 +937,7 @@ export function copilotRouter(store) {
     const toolResults = {
       searchKnowledge: sources.map((source) => ({ title: source.documentTitle, score: source.score })),
       analyzeRepository: repoAnalysis,
-      generateProductWorkflowArtifacts: artifacts.filter((artifact) => ['prd', 'flow', 'api', 'task'].includes(artifact.type)).map((artifact) => ({ type: artifact.type, title: artifact.title })),
+      generateProductWorkflowArtifacts: artifacts.filter((artifact) => ['prd', 'flow', 'api', 'task', 'risk'].includes(artifact.type)).map((artifact) => ({ type: artifact.type, title: artifact.title })),
       generateArchitectureDocument: documentDraft ? { chars: documentDraft.length } : null,
       artifacts: artifacts.map((artifact) => ({ type: artifact.type, title: artifact.title }))
     };
