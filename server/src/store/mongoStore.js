@@ -112,12 +112,15 @@ export class MongoStore {
     return serialize(safeUser);
   }
 
-  async createDocument({ title, content, tags = [] }) {
+  async createDocument({ title, content, tags = [], sourceType = 'manual', sourcePath, sourceUpdatedAt }) {
     const chunks = splitIntoChunks(content);
     const document = {
       title,
       content,
       tags,
+      sourceType,
+      sourcePath,
+      sourceUpdatedAt,
       chunkCount: chunks.length,
       createdAt: now()
     };
@@ -130,6 +133,8 @@ export class MongoStore {
           documentId: result.insertedId,
           documentTitle: title,
           tags,
+          sourceType,
+          sourcePath,
           content: chunk,
           chunkIndex: index,
           embedding: embedText(chunk),
@@ -180,6 +185,8 @@ export class MongoStore {
           documentId: 1,
           documentTitle: 1,
           tags: 1,
+          sourceType: 1,
+          sourcePath: 1,
           content: 1,
           chunkIndex: 1,
           createdAt: 1,

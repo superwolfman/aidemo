@@ -63,8 +63,13 @@ type RuntimeStatus = {
   };
   rag: {
     backend: string;
+    mode?: string;
     vectorStore: string;
     productionReady: boolean;
+    index?: string;
+    vectorPath?: string;
+    dimensions?: number;
+    error?: string;
   };
   mcp: {
     enabled: boolean;
@@ -103,6 +108,9 @@ type KnowledgeDocument = {
   title: string;
   tags?: string[];
   chunkCount?: number;
+  sourceType?: 'project-file' | 'upload' | 'template' | 'manual';
+  sourcePath?: string;
+  sourceUpdatedAt?: string;
   createdAt?: string;
 };
 
@@ -112,6 +120,28 @@ type RagSource = {
   content: string;
   score: number;
   tags?: string[];
+  chunkIndex?: number;
+  retrievalBackend?: string;
+  sourceType?: string;
+  sourcePath?: string;
+};
+
+type RagStatus = RuntimeStatus['rag'];
+
+type RagDiagnostics = {
+  rag?: RagStatus;
+  query: string;
+  scopes: string[];
+  latencyMs?: number;
+  sources: RagSource[];
+  source: 'preview' | 'generation' | 'runtime';
+};
+
+type KnowledgeStats = {
+  projectFiles: number;
+  uploads: number;
+  templates: number;
+  chunks: number;
 };
 
 type TaskMode = {
@@ -234,6 +264,18 @@ function schemaRequired(schema: Record<string, unknown>) {
   return Array.isArray(required) ? required.join(', ') : 'schema';
 }
 
+function scorePercent(score?: number) {
+  const safeScore = Math.max(0, Math.min(1, Number(score || 0)));
+  return `${Math.round(safeScore * 100)}%`;
+}
+
+function sourceLabel(sourceType?: string) {
+  if (sourceType === 'project-file') return '真实项目文件';
+  if (sourceType === 'upload') return '用户上传';
+  if (sourceType === 'template') return '模板';
+  return '知识库';
+}
+
 function MarkdownView({ content }: { content: string }) {
   const blocks = content.split(/```/g);
   return (
@@ -275,10 +317,13 @@ export default function CopilotWorkbench() {
   const [approvalHistory, setApprovalHistory] = useState<Approval[]>([]);
   const [draftRevision, setDraftRevision] = useState('');
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
+  const [knowledgeStats, setKnowledgeStats] = useState<KnowledgeStats | null>(null);
   const [knowledgeTemplates, setKnowledgeTemplates] = useState<KnowledgeTemplate[]>([]);
   const [ragQuery, setRagQuery] = useState('');
   const [ragPreview, setRagPreview] = useState<RagSource[]>([]);
+  const [ragDiagnostics, setRagDiagnostics] = useState<RagDiagnostics | null>(null);
   const [ragSearching, setRagSearching] = useState(false);
+  const [projectSyncing, setProjectSyncing] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [modelPresets, setModelPresets] = useState<ModelPreset[]>([]);
@@ -304,6 +349,7 @@ export default function CopilotWorkbench() {
     () => modelPresets.find((model) => model.id === selectedModelId) || modelPresets[0],
     [modelPresets, selectedModelId]
   );
+  const diagnosticSources = ragDiagnostics?.sources?.length ? ragDiagnostics.sources : ragPreview;
 
   const load = useCallback(async () => {
     const [skillResult, sessionResult, knowledgeResult, templateResult, runtimeResult, modelResult] = await Promise.all([
@@ -316,8 +362,16 @@ export default function CopilotWorkbench() {
     ]);
     setSkills(skillResult.skills);
     setDocuments(knowledgeResult.documents);
+    setKnowledgeStats(knowledgeResult.stats || null);
     setKnowledgeTemplates(templateResult.templates || []);
     setRuntime(runtimeResult);
+    setRagDiagnostics((current) => current || {
+      rag: runtimeResult.rag,
+      query: '',
+      scopes: [],
+      sources: [],
+      source: 'runtime'
+    });
     setModelPresets(modelResult.models || []);
     setSelectedModelId((current) => current || modelResult.models?.find((item: ModelPreset) => item.active || item.configured)?.id || modelResult.models?.[0]?.id || '');
     const productivitySession = sessionResult.sessions.find((session: Session) => session.activeSkillId === 'engineering-productivity');
@@ -352,6 +406,7 @@ export default function CopilotWorkbench() {
     setArtifacts([]);
     setApproval(null);
     setRagPreview([]);
+    setRagDiagnostics(runtime ? { rag: runtime.rag, query: '', scopes: [], sources: [], source: 'runtime' } : null);
   }
 
   async function refreshActive(sessionId: string) {
@@ -389,7 +444,18 @@ export default function CopilotWorkbench() {
         } : undefined
       }, {
         trace: (step) => setTrace((items) => [...items.filter((item) => item.id !== step.id), step]),
-        sources: (payload) => setSources(payload.sources || []),
+        sources: (payload) => {
+          const nextSources = payload.sources || [];
+          setSources(nextSources);
+          setRagDiagnostics({
+            rag: payload.rag || runtime?.rag,
+            query: payload.query || nextPrompt,
+            scopes: payload.scopes || activeScopes,
+            latencyMs: payload.latencyMs,
+            sources: nextSources,
+            source: 'generation'
+          });
+        },
         artifacts: (payload) => setArtifacts(payload.artifacts || []),
         delta: (payload) => {
           setActive((current) => current ? {
@@ -449,6 +515,7 @@ export default function CopilotWorkbench() {
     setArtifacts([]);
     setApproval(null);
     setRagPreview([]);
+    setRagDiagnostics(runtime ? { rag: runtime.rag, query: '', scopes: [], sources: [], source: 'runtime' } : null);
     const mode = taskModes.find((item) => item.skillId === session.activeSkillId);
     if (mode) {
       setTaskModeId(mode.id);
@@ -469,6 +536,7 @@ export default function CopilotWorkbench() {
     setSources([]);
     setApproval(null);
     setRagPreview([]);
+    setRagDiagnostics(runtime ? { rag: runtime.rag, query: '', scopes: [], sources: [], source: 'runtime' } : null);
   }
 
   function buildPromptFromMode() {
@@ -492,6 +560,7 @@ export default function CopilotWorkbench() {
       })
     });
     setDocuments((items) => [result.document, ...items]);
+    setKnowledgeStats((stats) => stats ? { ...stats, uploads: stats.uploads + 1, chunks: stats.chunks + (result.document.chunkCount || 0) } : stats);
   }
 
   async function importTemplate(templateId: string) {
@@ -500,21 +569,49 @@ export default function CopilotWorkbench() {
       body: JSON.stringify({})
     });
     setDocuments((items) => [result.document, ...items.filter((item) => item.title !== result.document.title)]);
+    setKnowledgeStats((stats) => stats ? { ...stats, templates: stats.templates + 1, chunks: stats.chunks + (result.document.chunkCount || 0) } : stats);
     setRagQuery(result.document.title);
+  }
+
+  async function syncProjectKnowledge() {
+    setProjectSyncing(true);
+    try {
+      await request('/api/copilot/knowledge/project/import', {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      const knowledgeResult = await request('/api/copilot/knowledge');
+      setDocuments(knowledgeResult.documents);
+      setKnowledgeStats(knowledgeResult.stats || null);
+      setRagQuery('AI Architecture Copilot RAG Agent Trace DeepSeek MongoDB Vector Search');
+      setRagDiagnostics((current) => current ? { ...current, source: 'runtime' } : current);
+    } finally {
+      setProjectSyncing(false);
+    }
   }
 
   async function searchKnowledgePreview() {
     setRagSearching(true);
+    const nextQuery = ragQuery || buildPromptFromMode();
     try {
       const result = await request('/api/copilot/knowledge/search', {
         method: 'POST',
         body: JSON.stringify({
-          query: ragQuery || buildPromptFromMode(),
+          query: nextQuery,
           scopes: activeScopes,
           limit: 4
         })
       });
-      setRagPreview(result.sources || []);
+      const nextSources = result.sources || [];
+      setRagPreview(nextSources);
+      setRagDiagnostics({
+        rag: result.rag || runtime?.rag,
+        query: result.query || nextQuery,
+        scopes: result.scopes || activeScopes,
+        latencyMs: result.latencyMs,
+        sources: nextSources,
+        source: 'preview'
+      });
     } finally {
       setRagSearching(false);
     }
@@ -619,17 +716,27 @@ export default function CopilotWorkbench() {
           <section className="panel knowledge-context-panel">
             <div className="section-head">
               <h2>Knowledge Context</h2>
-              <span>{documents.length} docs · {indexedChunks || documents.length} chunks</span>
+              <span>{documents.length} docs · {knowledgeStats?.chunks || indexedChunks || documents.length} chunks</span>
+            </div>
+            <div className="knowledge-source-stats">
+              <span><strong>{knowledgeStats?.projectFiles || 0}</strong> 真实项目文件</span>
+              <span><strong>{knowledgeStats?.uploads || 0}</strong> 上传文档</span>
+              <span><strong>{knowledgeStats?.templates || 0}</strong> 模板</span>
             </div>
             <div className="scope-row">
               {activeScopes.map((scope) => <span key={scope}>{scope}</span>)}
             </div>
-            <label className="upload-button">
-              <UploadCloud size={16} /> 上传 Markdown / TXT / PDF
-              <input type="file" accept=".md,.markdown,.txt,.pdf" onChange={(event) => uploadKnowledge(event.target.files?.[0])} />
-            </label>
+            <div className="knowledge-actions">
+              <button className="secondary-button" disabled={projectSyncing} onClick={syncProjectKnowledge}>
+                <RefreshCw size={15} />{projectSyncing ? '同步中' : '同步项目资料'}
+              </button>
+              <label className="upload-button">
+                <UploadCloud size={16} /> 上传 Markdown / TXT / PDF
+                <input type="file" accept=".md,.markdown,.txt,.pdf" onChange={(event) => uploadKnowledge(event.target.files?.[0])} />
+              </label>
+            </div>
             <div className="template-pack-list">
-              <strong>Context 模板包</strong>
+              <strong>可选 Context 模板包</strong>
               {activeTemplatePacks.map((template) => (
                 <button key={template.id} onClick={() => importTemplate(template.id)}>
                   <strong>{template.title}</strong>
@@ -641,20 +748,56 @@ export default function CopilotWorkbench() {
               <input value={ragQuery} placeholder="按当前 Skill 知识域检索上下文..." onChange={(event) => setRagQuery(event.target.value)} />
               <button className="secondary-button" disabled={ragSearching} onClick={searchKnowledgePreview}>{ragSearching ? '检索中' : '检索预览'}</button>
             </div>
+            <div className="rag-quality-panel">
+              <div className="rag-quality-head">
+                <div>
+                  <strong>Retrieval Quality</strong>
+                  <span>{ragDiagnostics?.source === 'generation' ? 'generation run' : ragDiagnostics?.source === 'preview' ? 'preview run' : 'runtime ready'}</span>
+                </div>
+                <em>{ragDiagnostics?.rag?.mode || runtime?.rag.mode || 'local'}</em>
+              </div>
+              <div className="rag-quality-metrics">
+                <span><b>{ragDiagnostics?.rag?.backend || runtime?.rag.backend || '-'}</b> backend</span>
+                <span><b>{ragDiagnostics?.latencyMs ?? '-'}</b> ms</span>
+                <span><b>{diagnosticSources.length}</b> chunks</span>
+              </div>
+              <div className="rag-query-box">
+                <strong>query</strong>
+                <p>{ragDiagnostics?.query || ragQuery || '执行检索预览或生成后展示真实 query'}</p>
+              </div>
+              <div className="scope-row compact">
+                {(ragDiagnostics?.scopes?.length ? ragDiagnostics.scopes : activeScopes).map((scope) => <span key={scope}>{scope}</span>)}
+              </div>
+              {ragDiagnostics?.rag?.error ? <div className="rag-error">fallback: {ragDiagnostics.rag.error}</div> : null}
+            </div>
             <div className="rag-preview-list">
-              {ragPreview.map((source) => (
+              {diagnosticSources.map((source) => (
                 <article key={source._id}>
                   <div>
                     <strong>{source.documentTitle}</strong>
-                    <span>score {source.score}</span>
+                    <span>score {Number(source.score || 0).toFixed(4)}</span>
                   </div>
+                  <div className="score-bar"><i style={{ width: scorePercent(source.score) }} /></div>
+                  <div className="rag-source-meta">
+                    <span>{sourceLabel(source.sourceType)}</span>
+                    <span>{source.retrievalBackend || ragDiagnostics?.rag?.backend || runtime?.rag.backend || 'local-hash'}</span>
+                    {typeof source.chunkIndex === 'number' ? <span>chunk {source.chunkIndex + 1}</span> : null}
+                    {source.tags?.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}
+                  </div>
+                  {source.sourcePath ? <code className="source-path">{source.sourcePath}</code> : null}
                   <p>{source.content}</p>
                 </article>
               ))}
-              {!ragPreview.length ? <span className="rag-empty">命中结果会展示 chunk、score 和引用来源，并进入生成时的 citations。</span> : null}
+              {!diagnosticSources.length ? <span className="rag-empty">命中结果会展示 chunk、score、backend 和引用来源，并进入生成时的 citations。</span> : null}
             </div>
             <div className="knowledge-mini-list compact">
-              {documents.slice(0, 5).map((doc) => <span key={doc._id}><FileText size={13} />{doc.title}</span>)}
+              {documents.slice(0, 8).map((doc) => (
+                <span key={doc._id} title={doc.sourcePath || doc.title}>
+                  <FileText size={13} />
+                  <b>{sourceLabel(doc.sourceType)}</b>
+                  {doc.sourcePath || doc.title}
+                </span>
+              ))}
             </div>
           </section>
         </aside>
@@ -858,14 +1001,27 @@ export default function CopilotWorkbench() {
 
           <section className="panel">
             <h2>引用来源</h2>
+            <div className="citation-runtime">
+              <span>{ragDiagnostics?.rag?.backend || runtime?.rag.backend || 'local-hash'}</span>
+              <span>{ragDiagnostics?.rag?.mode || runtime?.rag.mode || 'fallback'}</span>
+              {typeof ragDiagnostics?.latencyMs === 'number' ? <span>{ragDiagnostics.latencyMs}ms</span> : null}
+            </div>
             {sources.length ? (
               <div className="citation-list">
                 {sources.map((source, index) => (
                   <article key={source._id}>
                     <div>
                       <strong>[{index + 1}] {source.documentTitle}</strong>
-                      <span>score {source.score}</span>
+                      <span>score {Number(source.score || 0).toFixed(4)}</span>
                     </div>
+                    <div className="citation-meta">
+                      <span>{sourceLabel(source.sourceType)}</span>
+                      <span>{source.retrievalBackend || ragDiagnostics?.rag?.backend || runtime?.rag.backend || 'local-hash'}</span>
+                      {typeof source.chunkIndex === 'number' ? <span>chunk {source.chunkIndex + 1}</span> : null}
+                      {source.tags?.slice(0, 3).map((tag: string) => <span key={tag}>{tag}</span>)}
+                    </div>
+                    {source.sourcePath ? <code className="source-path">{source.sourcePath}</code> : null}
+                    <div className="score-bar"><i style={{ width: scorePercent(source.score) }} /></div>
                     <p>{source.content}</p>
                   </article>
                 ))}

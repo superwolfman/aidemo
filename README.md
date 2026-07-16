@@ -427,9 +427,22 @@ MVP 内置 5 个普通函数工具，接口设计保持可迁移到 MCP Server�
 - MongoDB Atlas Vector Search / local-hash 双后端检索。
 - 回答展示引用来源。
 - 根据 Skill 限定知识范围。
+- 支持同步当前仓库真实项目文件作为 RAG 语料。
+- 检索质量面板展示 query、scopes、backend、latency、chunk、score 和 source path。
 - 默认知识模板可选择导入。
 
-MVP 种子知识包括：
+默认真实项目语料包括：
+
+- `README.md`
+- `package.json`
+- `client/src/modules/copilot/CopilotWorkbench.tsx`
+- `server/src/routes/copilot.js`
+- `server/src/services/ragEngine.js`
+- `server/src/store/mongoStore.js`
+- `server/src/services/llmProvider.js`
+- `server/src/mcp/architectureMcpServer.js`
+
+可选模板知识包括：
 
 - 微前端架构设计文档。
 - SDK 规范与工程约束。
@@ -441,6 +454,7 @@ MVP 种子知识包括：
 
 - Markdown/TXT 直接读取文本。
 - PDF 在 MVP 中支持上传和元数据入库；生产环境可接 PDF parser 抽取正文。
+- 项目文件同步后会写入 `documents` 和 `chunks`，并带上 `sourceType=project-file`、`sourcePath`、`chunkIndex` 等字段。
 - 当前已接入 MongoDB Atlas Vector Search adapter；本地没有 Atlas 索引时自动 fallback 到 hash embedding。
 - 当前 embedding 仍是 96 维本地 deterministic embedding，用于稳定演示向量库链路；生产级语义检索建议替换为 OpenAI / 通义 / bge-m3 等 embedding provider。
 - 这个 RAG 不是通用问答，而是按 Skill 动态选择知识域的研发架构知识库。

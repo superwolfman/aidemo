@@ -1,8 +1,12 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import express from 'express';
 import { generateLlmAnswer, getModelPresets, getProviderStatus, streamLlmAnswer } from '../services/llmProvider.js';
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
 import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
+
+const PROJECT_ROOT = process.cwd();
 
 const skills = [
   {
@@ -202,6 +206,59 @@ const knowledgeTemplates = seedKnowledge.map((item, index) => ({
   content: item.content
 }));
 
+const projectKnowledgeFiles = [
+  {
+    title: '真实项目 README 架构文档',
+    relativePath: 'README.md',
+    tags: ['copilot', 'architecture', 'standards', 'project-file']
+  },
+  {
+    title: '根工作区 package 配置',
+    relativePath: 'package.json',
+    tags: ['copilot', 'standards', 'project-file']
+  },
+  {
+    title: '前端 client package 配置',
+    relativePath: 'client/package.json',
+    tags: ['copilot', 'frontend', 'standards', 'project-file']
+  },
+  {
+    title: '后端 server package 配置',
+    relativePath: 'server/package.json',
+    tags: ['copilot', 'backend', 'standards', 'project-file']
+  },
+  {
+    title: 'Copilot 工作台前端源码',
+    relativePath: 'client/src/modules/copilot/CopilotWorkbench.tsx',
+    tags: ['copilot', 'frontend', 'architecture', 'ai-native', 'project-file']
+  },
+  {
+    title: 'Copilot BFF 路由源码',
+    relativePath: 'server/src/routes/copilot.js',
+    tags: ['copilot', 'backend', 'architecture', 'project-file']
+  },
+  {
+    title: 'RAG Engine 检索实现源码',
+    relativePath: 'server/src/services/ragEngine.js',
+    tags: ['copilot', 'architecture', 'standards', 'project-file']
+  },
+  {
+    title: 'MongoDB Vector Store 实现源码',
+    relativePath: 'server/src/store/mongoStore.js',
+    tags: ['copilot', 'architecture', 'backend', 'project-file']
+  },
+  {
+    title: 'LLM Provider 接入源码',
+    relativePath: 'server/src/services/llmProvider.js',
+    tags: ['copilot', 'architecture', 'sdk', 'project-file']
+  },
+  {
+    title: 'MCP Server POC 源码',
+    relativePath: 'server/src/mcp/architectureMcpServer.js',
+    tags: ['copilot', 'architecture', 'sdk', 'project-file']
+  }
+];
+
 function now() {
   return new Date().toISOString();
 }
@@ -231,11 +288,46 @@ function uniqueByTitle(documents) {
   });
 }
 
+async function readProjectKnowledgeFiles() {
+  const documents = [];
+  for (const item of projectKnowledgeFiles) {
+    const absolutePath = path.resolve(PROJECT_ROOT, item.relativePath);
+    if (!absolutePath.startsWith(PROJECT_ROOT)) continue;
+    try {
+      const raw = await fs.readFile(absolutePath, 'utf8');
+      const content = [
+        `Source file: ${item.relativePath}`,
+        `Indexed at: ${now()}`,
+        '',
+        raw.slice(0, 60000)
+      ].join('\n');
+      documents.push({
+        title: item.title,
+        tags: item.tags,
+        content,
+        sourceType: 'project-file',
+        sourcePath: item.relativePath,
+        sourceUpdatedAt: now()
+      });
+    } catch (error) {
+      console.warn(`[knowledge] skip project file ${item.relativePath}: ${error.message}`);
+    }
+  }
+  return documents;
+}
+
 async function ensureKnowledge(store) {
   const docs = await store.listDocuments();
   const titles = new Set(docs.map((doc) => doc.title));
+  const projectDocs = await readProjectKnowledgeFiles();
+  for (const doc of projectDocs) {
+    if (!titles.has(doc.title)) {
+      await store.createDocument(doc);
+      titles.add(doc.title);
+    }
+  }
   for (const doc of seedKnowledge) {
-    if (!titles.has(doc.title)) await store.createDocument(doc);
+    if (!titles.has(doc.title)) await store.createDocument({ ...doc, sourceType: 'template' });
   }
 }
 
@@ -489,9 +581,33 @@ export function copilotRouter(store) {
     const document = await store.createDocument({
       title: filename || `architecture-note-${Date.now()}.${normalizedType}`,
       tags: ['copilot', normalizedType, ...scopes],
+      sourceType: 'upload',
+      sourcePath: filename,
       content: text || '空文档'
     });
     res.json({ document });
+  });
+
+  router.post('/knowledge/project/import', async (req, res) => {
+    const docs = await store.listDocuments();
+    const titles = new Set(docs.map((doc) => doc.title));
+    const projectDocs = await readProjectKnowledgeFiles();
+    const imported = [];
+    const skipped = [];
+    for (const doc of projectDocs) {
+      if (titles.has(doc.title)) {
+        skipped.push(doc);
+        continue;
+      }
+      const created = await store.createDocument(doc);
+      imported.push(created);
+      titles.add(doc.title);
+    }
+    res.json({
+      imported,
+      skipped: skipped.map((doc) => ({ title: doc.title, sourcePath: doc.sourcePath })),
+      totalProjectFiles: projectDocs.length
+    });
   });
 
   router.post('/knowledge/templates/:id/import', async (req, res) => {
@@ -503,27 +619,47 @@ export function copilotRouter(store) {
     const document = await store.createDocument({
       title: template.title,
       tags: template.tags,
+      sourceType: 'template',
       content: template.content
     });
     res.json({ document });
   });
 
   router.get('/knowledge', async (req, res) => {
-    const documents = uniqueByTitle((await store.listDocuments()).filter((doc) => (doc.tags || []).includes('copilot')));
-    res.json({ documents });
+    const documents = uniqueByTitle((await store.listDocuments()).filter((doc) => (doc.tags || []).includes('copilot')))
+      .sort((a, b) => {
+        const rank = { 'project-file': 0, upload: 1, template: 2, manual: 3 };
+        return (rank[a.sourceType] ?? 4) - (rank[b.sourceType] ?? 4);
+      });
+    res.json({
+      documents,
+      stats: {
+        projectFiles: documents.filter((doc) => doc.sourceType === 'project-file').length,
+        uploads: documents.filter((doc) => doc.sourceType === 'upload').length,
+        templates: documents.filter((doc) => doc.sourceType === 'template' || !doc.sourceType).length,
+        chunks: documents.reduce((sum, doc) => sum + (doc.chunkCount || 0), 0)
+      }
+    });
   });
 
   router.post('/knowledge/search', async (req, res) => {
     const query = String(req.body.query || '').trim();
     const scopes = Array.isArray(req.body.scopes) && req.body.scopes.length ? req.body.scopes : ['architecture', 'standards'];
     const limit = Number(req.body.limit || 5);
+    const startedAt = Date.now();
     const result = await retrieveKnowledge({
       store,
       query: query || scopes.join(' '),
       scopes,
       limit: Number.isFinite(limit) ? limit : 5
     });
-    res.json({ rag: result.status, sources: result.sources });
+    res.json({
+      rag: result.status,
+      query: query || scopes.join(' '),
+      scopes,
+      latencyMs: Date.now() - startedAt,
+      sources: result.sources
+    });
   });
 
   router.post('/sessions/:id/messages/stream', async (req, res) => {
@@ -563,13 +699,16 @@ export function copilotRouter(store) {
       output: { llm: providerStatus, rag: getRagStatus() }
     }));
     await emitStep(step('context', '加载上下文', 'running', { output: { knowledgeScopes: skill.knowledgeScopes } }));
+    const knowledgeStartedAt = Date.now();
     const knowledgeResult = await searchKnowledgeWithStatus(store, prompt, skill.knowledgeScopes);
+    const knowledgeLatencyMs = Date.now() - knowledgeStartedAt;
     const sources = knowledgeResult.sources;
     await emitStep(step('knowledge', '调用知识库 searchKnowledge', 'success', {
       tool: 'searchKnowledge',
       input: { query: prompt, scopes: skill.knowledgeScopes },
       output: {
         rag: knowledgeResult.status,
+        latencyMs: knowledgeLatencyMs,
         sources: sources.map((source) => ({
           title: source.documentTitle,
           score: source.score,
@@ -578,7 +717,13 @@ export function copilotRouter(store) {
       },
       tokenUsage: tokenCount(JSON.stringify(sources))
     }));
-    sendEvent(res, 'sources', { rag: knowledgeResult.status, sources });
+    sendEvent(res, 'sources', {
+      rag: knowledgeResult.status,
+      query: prompt,
+      scopes: skill.knowledgeScopes,
+      latencyMs: knowledgeLatencyMs,
+      sources
+    });
 
     let repoAnalysis = null;
     if (skill.allowedTools.includes('analyzeRepository')) {

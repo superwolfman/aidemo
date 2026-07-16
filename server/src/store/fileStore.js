@@ -87,13 +87,16 @@ export class FileStore {
     if (changed) await writeDb(db);
   }
 
-  async createDocumentInMemory(db, { title, content, tags = [] }) {
+  async createDocumentInMemory(db, { title, content, tags = [], sourceType = 'manual', sourcePath, sourceUpdatedAt }) {
     const docId = crypto.randomUUID();
     const document = {
       _id: docId,
       title,
       content,
       tags,
+      sourceType,
+      sourcePath,
+      sourceUpdatedAt,
       chunkCount: 0,
       createdAt: now()
     };
@@ -104,6 +107,8 @@ export class FileStore {
       documentId: docId,
       documentTitle: title,
       tags,
+      sourceType,
+      sourcePath,
       content: chunk,
       chunkIndex: index,
       embedding: embedText(chunk),
