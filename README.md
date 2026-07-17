@@ -93,6 +93,95 @@ AI Architecture Copilot 的产品理念是：**AI 不直接替人做最终决策
 - 更强的模型治理：多 Provider 灰度、成本监控、限流、脱敏、审计和安全策略。
 - 更成熟的知识库：生产 embedding provider、Atlas Vector Search / pgvector / Milvus 索引治理、增量更新和召回评估。
 
+## 产品级补强说明
+
+这一轮迭代把项目从“可演示工作台”继续向“可运行、可审计、可评估”的产品化形态推进，重点补齐五个链路。
+
+### 1. 真实链路状态
+
+系统不会把 fallback 包装成真实能力。页面会同时展示：
+
+- `LLM Provider`：真实 Provider、fallback、mock、本次调用模型、streaming 状态和错误原因。
+- `Vector Store`：`mongodb-atlas-vector-search`、`local-hash`、连接状态、索引名、向量字段和健康检查结果。
+- `Run Quality`：引用、PRD、API、页面流程、任务拆解、风险确认、Trace 和 Provider 的质量检查结果。
+
+当 DeepSeek / OpenAI-compatible 调用失败时，后端会降级到 deterministic runtime，同时在 Trace 中保留失败节点；当 Atlas Vector Search 未配置或 `$vectorSearch` 不可用时，RAG 会降级到 local-hash，并在界面显示 `fallback` 与失败原因。
+
+### 2. Agent Run 后端状态机
+
+Agent Run 不只存在于前端。后端会在 `agent_runs` 中持久化每次执行：
+
+- `status`：`running / review_required / confirmed / paused / rolled_back / failed`
+- `intent`：意图识别结果、置信度、目标用户和业务域
+- `selectedSkill`：Agent 自动选择的 Skill
+- `plan`：执行计划
+- `sources`：RAG 命中的 chunk、score、citation
+- `artifacts`：结构化交付物和版本记录
+- `trace`：每一步输入、输出、耗时、token、错误和人工确认标记
+- `logs`：运行日志和控制动作
+- `quality`：Eval 质量评分
+
+运行控制接口：
+
+| API | 说明 |
+|---|---|
+| `POST /api/agent-studio/sessions/:id/runs/stream` | 创建 Agent Run，并通过 SSE 推送 plan、trace、sources、artifacts、delta、final |
+| `POST /api/agent-studio/runs/:id/control` | 暂停、恢复、回滚、确认、拒绝 |
+| `POST /api/agent-studio/runs/:id/review` | 写入人工审批意见 |
+| `GET /api/agent-studio/runs` | 查询历史运行，用于 Run Registry 和审计 |
+
+### 3. Artifact 交付物系统
+
+Artifact 从“模型输出文本”升级为可管理交付物：
+
+- 支持 PRD 文档规范、页面流程与原型结构、接口协议草案、研发任务拆解、风险和待确认问题。
+- 每个 Artifact 带 `version`、`status`、`traceStepId`、`reviewStatus`、`versions` 和 `approvals`。
+- 支持预览、复制、确认、保存版本、导出 Markdown、导出 JSON。
+- Artifact 与 Trace 节点通过 `traceStepId` 关联，便于追溯“哪个步骤生成了哪个产物”。
+
+Artifact 接口：
+
+| API | 说明 |
+|---|---|
+| `PATCH /api/agent-studio/runs/:id/artifacts/:artifactId` | 修改内容或状态，自动生成版本记录 |
+| `POST /api/agent-studio/runs/:id/artifacts/:artifactId/confirm` | 确认交付物，写入审批记录 |
+| `GET /api/agent-studio/runs/:id/artifacts/:artifactId/export?format=markdown/json` | 导出 Markdown 或 JSON |
+
+### 4. Eval 质量评估
+
+Eval 不再只是样例按钮，而是用真实产品场景验证 Agent 输出质量。
+
+内置 Case：
+
+- AI 产品工作流：验证 PRD、页面结构、接口协议、任务拆解和 Trace。
+- 智能客服知识库：验证知识库范围、页面原型覆盖、API 检索反馈和风险治理。
+- 投研报告生成工作台：验证资料上传、行业知识检索、报告生成、章节草稿和人工复核。
+
+每次运行后生成 `quality`：
+
+| 指标 | 检查方式 |
+|---|---|
+| 引用命中 | 是否命中真实 sources，是否有 citation 和 score |
+| PRD 完整度 | 是否生成 PRD / summary 类交付物 |
+| API 合理性 | 是否生成 API Contract |
+| 页面流程 | 是否生成 UI Flow / Page Structure |
+| 任务拆解 | 是否生成 Task Breakdown |
+| 风险确认 | 是否生成 Risk / Questions |
+| Trace 可复盘 | 是否有多个可审计 Trace Step |
+| Provider 状态 | 是否明确标记真实模型或 fallback |
+
+### 5. UI QA 约束
+
+当前核心页面按 1440 和 1920 宽度做了布局约束：
+
+- 主工作区采用三栏结构：左侧上下文、中间执行流、右侧 Trace / 引用 / 审批。
+- Agent Trace 默认只展示步骤，点击后可多节点展开详情，不遮挡其他节点。
+- Copilot IM 每条消息独立气泡展示，用户和 AI 消息有明确间距和角色区分。
+- Artifact 使用列表 + 详情的工作台布局，避免五张卡片横向挤压。
+- 流式分析区设置最小高度和滚动边界，长内容不挤压输入区。
+
+移动端目前只保证核心内容可纵向访问，尚未按生产标准做完整适配；如果要上线，需要补移动端断点和触控交互 QA。
+
 ## 前端架构设计
 
 前端采用 `React + TypeScript + Vite + Less`，定位为 AI Native 工作台，而不是传统中后台表单系统。

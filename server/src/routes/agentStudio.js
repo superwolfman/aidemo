@@ -60,31 +60,41 @@ function auditLog(level, message, extra = {}) {
 
 function inferIntent(input) {
   const text = String(input || '');
+  const signals = [];
   if (/客服|知识库|问答|FAQ|答案|引用/.test(text)) {
+    signals.push('knowledge', 'qa', 'citation');
     return {
       id: 'knowledge-assistant',
       label: '知识库问答与运营纠错',
       goal: '从知识库中检索可信上下文，输出带引用答案、缺口和人工纠错建议。',
       scopes: ['architecture', 'standards', 'ai-native', 'im'],
-      riskLevel: 'medium'
+      riskLevel: 'medium',
+      confidence: 0.86,
+      signals
     };
   }
   if (/测试|质量|发布|上线|验收|回归|门禁/.test(text)) {
+    signals.push('quality', 'release', 'review');
     return {
       id: 'delivery-review-agent',
       label: '交付质量评审',
       goal: '评估方案完整度、测试缺口、上线风险和人工确认项。',
       scopes: ['standards', 'architecture', 'sdk'],
-      riskLevel: 'high'
+      riskLevel: 'high',
+      confidence: 0.88,
+      signals
     };
   }
   if (/接口|页面|PRD|原型|任务|流程|产品|工作流|需求/.test(text)) {
+    signals.push('product', 'workflow', 'prd', 'api');
     return {
       id: 'product-delivery-agent',
       label: 'AI 产品交付工作流',
       goal: '把需求转成 PRD、页面结构、API Contract、研发任务和测试策略。',
       scopes: ['architecture', 'standards', 'ai-native', 'frontend'],
-      riskLevel: 'high'
+      riskLevel: 'high',
+      confidence: 0.92,
+      signals
     };
   }
   return {
@@ -92,7 +102,9 @@ function inferIntent(input) {
     label: '通用产研测交付',
     goal: '先澄清需求，再生成可评审交付物和下一步动作。',
     scopes: ['architecture', 'standards', 'ai-native'],
-    riskLevel: 'medium'
+    riskLevel: 'medium',
+    confidence: 0.62,
+    signals: ['general']
   };
 }
 
@@ -243,6 +255,86 @@ function buildDeliveryArtifacts({ intent, prompt, sources }) {
   ];
 }
 
+function attachArtifactWorkflow(artifacts, traceStepId = 'plan') {
+  return artifacts.map((artifact) => ({
+    ...artifact,
+    status: artifact.status || 'draft',
+    version: 1,
+    traceStepId,
+    reviewStatus: 'pending',
+    versions: [
+      {
+        version: 1,
+        status: 'created',
+        content: artifact.content,
+        createdAt: now()
+      }
+    ],
+    approvals: [],
+    exports: []
+  }));
+}
+
+function scoreRunQuality({ sources = [], artifacts = [], trace = [], provider = {}, intent = {} }) {
+  const hasPrd = artifacts.some((artifact) => artifact.type === 'prd');
+  const hasApi = artifacts.some((artifact) => artifact.type === 'api');
+  const hasFlow = artifacts.some((artifact) => artifact.type === 'flow');
+  const hasTask = artifacts.some((artifact) => artifact.type === 'task' || artifact.type === 'test');
+  const hasRisk = artifacts.some((artifact) => artifact.type === 'risk');
+  const traceReplayable = trace.length >= 6 && trace.every((item) => item.id && item.name && item.status);
+  const citationScores = sources.map((source) => Number(source.score || 0));
+  const avgCitationScore = citationScores.length
+    ? Number((citationScores.reduce((sum, value) => sum + value, 0) / citationScores.length).toFixed(4))
+    : 0;
+  const checks = [
+    { key: 'citation', label: '引用来源命中', passed: sources.length > 0, value: `${sources.length} chunks` },
+    { key: 'prd', label: 'PRD 完整度', passed: hasPrd, value: hasPrd ? 'ready' : 'missing' },
+    { key: 'api', label: 'API Contract 合理性', passed: hasApi, value: hasApi ? 'ready' : 'missing' },
+    { key: 'flow', label: '页面 / 状态结构', passed: hasFlow, value: hasFlow ? 'ready' : 'missing' },
+    { key: 'task', label: '任务拆解', passed: hasTask, value: hasTask ? 'ready' : 'missing' },
+    { key: 'risk', label: '风险与人工确认', passed: hasRisk || intent.riskLevel === 'high', value: intent.riskLevel || 'unknown' },
+    { key: 'trace', label: 'Trace 可复盘', passed: traceReplayable, value: `${trace.length} steps` },
+    { key: 'provider', label: 'Provider 状态透明', passed: Boolean(provider.provider && provider.mode), value: `${provider.provider || 'unknown'} / ${provider.mode || 'unknown'}` }
+  ];
+  const passed = checks.filter((item) => item.passed).length;
+  return {
+    score: Math.round((passed / checks.length) * 100),
+    passed,
+    total: checks.length,
+    avgCitationScore,
+    checks,
+    verdict:
+      passed === checks.length
+        ? 'ready_for_review'
+        : passed >= Math.ceil(checks.length * 0.7)
+          ? 'needs_minor_review'
+          : 'needs_revision'
+  };
+}
+
+function buildEvalCases() {
+  return [
+    {
+      id: 'ai-product-workflow',
+      title: 'AI 产品工作流',
+      prompt: '为企业内部 AI 产品研发团队建设一个需求到交付 Copilot 工作台，要求覆盖 PRD、页面结构、接口协议、研发任务和人工确认。',
+      expected: ['引用来源命中', 'PRD 完整度', 'API Contract 合理性', 'Trace 可复盘']
+    },
+    {
+      id: 'customer-knowledge-base',
+      title: '智能客服知识库',
+      prompt: '建设智能客服知识库助手，支持文档上传、问题检索、答案引用、人工纠错、会话历史和知识命中质量评估。',
+      expected: ['知识库范围清楚', '页面结构覆盖会话与引用', 'API 包含检索和反馈', '风险包含幻觉治理']
+    },
+    {
+      id: 'research-report-workbench',
+      title: '投研报告生成工作台',
+      prompt: '建设投研报告生成工作台，支持上传资料、检索公司和行业知识、生成报告大纲、输出章节草稿、展示引用来源并进入合规复核。',
+      expected: ['业务边界明确', '页面结构覆盖资料/生成/审阅', '接口协议有审计字段', 'Trace 支持合规复核']
+    }
+  ];
+}
+
 function buildFallbackAnswer({ prompt, intent, sources, artifacts }) {
   const citationText = sources.map((source, index) => `- [${index + 1}] ${source.documentTitle}：${String(source.content || '').slice(0, 120)}`).join('\n');
   return [
@@ -305,6 +397,17 @@ export function agentStudioRouter(store) {
     res.json({ runs });
   });
 
+  router.get('/eval-cases', async (req, res) => {
+    const runs = await store.listRecords('agent_runs', 100);
+    res.json({
+      cases: buildEvalCases().map((item) => ({
+        ...item,
+        status: 'ready',
+        lastResult: runs.find((run) => run.evalCaseId === item.id)?.quality
+      }))
+    });
+  });
+
   router.post('/sessions', async (req, res) => {
     const session = await store.createRecord('agent_sessions', {
       title: req.body.title || '新的 Agent 会话',
@@ -336,11 +439,113 @@ export function agentStudioRouter(store) {
       note: req.body.note || '',
       reviewerId: req.user._id
     });
+    const log = auditLog('review', `审批动作：${req.body.action || 'confirm'}`, {
+      action: req.body.action || 'confirm',
+      reviewerId: req.user._id,
+      note: req.body.note || ''
+    });
     const nextRun = await store.updateRecord('agent_runs', run._id, {
       status: req.body.action === 'reject' ? 'rejected' : 'confirmed',
-      review
+      review,
+      logs: [...(run.logs || []), log]
     });
     res.json({ review, run: nextRun });
+  });
+
+  router.patch('/runs/:id/artifacts/:artifactId', async (req, res) => {
+    const run = await store.getRecord('agent_runs', req.params.id);
+    if (!run) {
+      res.status(404).json({ message: 'Agent run not found' });
+      return;
+    }
+    const artifacts = (run.artifacts || []).map((artifact) => {
+      if (artifact.id !== req.params.artifactId) return artifact;
+      const version = Number(artifact.version || 1) + 1;
+      const nextContent = req.body.content ?? artifact.content;
+      const nextStatus = req.body.status || artifact.status || 'draft';
+      return {
+        ...artifact,
+        content: nextContent,
+        status: nextStatus,
+        reviewStatus: req.body.reviewStatus || artifact.reviewStatus || 'pending',
+        version,
+        versions: [
+          {
+            version,
+            status: nextStatus,
+            content: nextContent,
+            createdAt: now(),
+            operatorId: req.user._id
+          },
+          ...(artifact.versions || [])
+        ].slice(0, 12)
+      };
+    });
+    const updatedArtifact = artifacts.find((artifact) => artifact.id === req.params.artifactId);
+    if (!updatedArtifact) {
+      res.status(404).json({ message: 'Artifact not found' });
+      return;
+    }
+    const log = auditLog('artifact', `Artifact 更新：${updatedArtifact.title}`, {
+      artifactId: updatedArtifact.id,
+      version: updatedArtifact.version
+    });
+    const nextRun = await store.updateRecord('agent_runs', run._id, {
+      artifacts,
+      logs: [...(run.logs || []), log],
+      quality: scoreRunQuality({ ...run, artifacts })
+    });
+    res.json({ artifact: updatedArtifact, run: nextRun });
+  });
+
+  router.post('/runs/:id/artifacts/:artifactId/confirm', async (req, res) => {
+    const run = await store.getRecord('agent_runs', req.params.id);
+    if (!run) {
+      res.status(404).json({ message: 'Agent run not found' });
+      return;
+    }
+    const artifacts = (run.artifacts || []).map((artifact) => {
+      if (artifact.id !== req.params.artifactId) return artifact;
+      return {
+        ...artifact,
+        status: 'confirmed',
+        reviewStatus: 'confirmed',
+        approvals: [
+          { action: 'confirm', note: req.body.note || '', reviewerId: req.user._id, createdAt: now() },
+          ...(artifact.approvals || [])
+        ]
+      };
+    });
+    const updatedArtifact = artifacts.find((artifact) => artifact.id === req.params.artifactId);
+    if (!updatedArtifact) {
+      res.status(404).json({ message: 'Artifact not found' });
+      return;
+    }
+    const log = auditLog('artifact', `Artifact 确认：${updatedArtifact.title}`, { artifactId: updatedArtifact.id });
+    const nextRun = await store.updateRecord('agent_runs', run._id, {
+      artifacts,
+      logs: [...(run.logs || []), log],
+      quality: scoreRunQuality({ ...run, artifacts })
+    });
+    res.json({ artifact: updatedArtifact, run: nextRun });
+  });
+
+  router.get('/runs/:id/artifacts/:artifactId/export', async (req, res) => {
+    const run = await store.getRecord('agent_runs', req.params.id);
+    const artifact = run?.artifacts?.find((item) => item.id === req.params.artifactId);
+    if (!artifact) {
+      res.status(404).json({ message: 'Artifact not found' });
+      return;
+    }
+    const format = req.query.format === 'json' ? 'json' : 'markdown';
+    const content = typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content, null, 2);
+    res.json({
+      filename: `${artifact.type}-${artifact.id}.${format === 'json' ? 'json' : 'md'}`,
+      format,
+      content: format === 'json'
+        ? JSON.stringify(artifact, null, 2)
+        : `# ${artifact.title}\n\n> version: ${artifact.version || 1} / status: ${artifact.status || 'draft'}\n\n${content}`
+    });
   });
 
   router.post('/runs/:id/control', async (req, res) => {
@@ -438,7 +643,7 @@ export function agentStudioRouter(store) {
     }));
 
     emitStatus('planning', '规划产研测交付路径');
-    const artifacts = buildDeliveryArtifacts({ intent, prompt, sources });
+    const artifacts = attachArtifactWorkflow(buildDeliveryArtifacts({ intent, prompt, sources }), 'plan');
     plan = updatePlan(plan, 'run-tools', 'success', { output: { artifacts: artifacts.map((artifact) => artifact.type) } });
     sendEvent(res, 'plan', { plan, selectedSkill, intent });
     await emitStep(step('plan', '产研测计划生成', 'success', {
@@ -515,6 +720,7 @@ export function agentStudioRouter(store) {
     }));
     logs.push(auditLog('review', '进入人工确认节点', { humanRequired: intent.riskLevel === 'high' }));
 
+    const quality = scoreRunQuality({ sources, artifacts, trace, provider, intent });
     const run = await store.createRecord('agent_runs', {
       runId,
       sessionId: session._id,
@@ -529,6 +735,8 @@ export function agentStudioRouter(store) {
       logs,
       answer,
       provider,
+      quality,
+      evalCaseId: req.body.evalCaseId,
       createdBy: req.user._id
     });
     const userMessage = { id: `user-${Date.now()}`, role: 'user', content: prompt, createdAt: now() };

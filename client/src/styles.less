@@ -6257,6 +6257,38 @@ kbd {
   font-size: 12px;
 }
 
+.agentops-current-run {
+  min-width: 0;
+}
+
+.agentops-current-run-meta,
+.agentops-current-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.agentops-current-run-meta em,
+.agentops-current-signals b {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: #405365;
+  background: #eef5f7;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.agentops-current-signals b {
+  color: #0f766e;
+  background: #e6f7f4;
+}
+
 .agentops-command-strip > div:last-child {
   display: flex;
   gap: 8px;
@@ -7512,4 +7544,351 @@ kbd {
 .agentops-approval-timeline p,
 .agentops-approval-timeline strong {
   overflow-wrap: anywhere;
+}
+
+/* Productization pass: real runtime health, eval quality, artifact records. */
+.agentops-runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.agentops-runtime-grid article {
+  position: relative;
+  min-height: 116px;
+  overflow: hidden;
+  border: 1px solid #dce7f0;
+  border-radius: 14px;
+  padding: 15px 16px;
+  background: #fff;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, .05);
+}
+
+.agentops-runtime-grid article.live {
+  border-color: #9bd8cb;
+  background: linear-gradient(180deg, #f4fffb, #fff);
+}
+
+.agentops-runtime-grid article.fallback {
+  border-color: #ead7a6;
+  background: linear-gradient(180deg, #fffaf0, #fff);
+}
+
+.agentops-runtime-grid span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.agentops-runtime-grid strong {
+  display: block;
+  margin: 6px 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentops-runtime-grid p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: #52667a;
+  font-size: 12px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.agentops-runtime-grid em {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #0f766e;
+  background: #dff4ef;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.agentops-runtime-grid article.fallback em {
+  color: #9a6700;
+  background: #fff2cf;
+}
+
+.agentops-eval-panel {
+  padding: 16px;
+}
+
+.agentops-eval-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.agentops-eval-grid article {
+  display: grid;
+  grid-template-rows: auto minmax(52px, auto) auto auto;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid #dce7f0;
+  border-radius: 13px;
+  padding: 13px;
+  background: linear-gradient(180deg, #fff, #fbfdff);
+}
+
+.agentops-eval-grid article > div:first-child,
+.agentops-eval-grid footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.agentops-eval-grid strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentops-eval-grid p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: #52667a;
+  font-size: 12px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.agentops-eval-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agentops-eval-tags span,
+.agentops-eval-grid footer span,
+.agentops-eval-grid footer em {
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: #0f766e;
+  background: #e7f3f1;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.agentops-eval-grid footer em {
+  max-width: 150px;
+  overflow: hidden;
+  color: #64748b;
+  background: #edf3f7;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentops-artifact-records {
+  display: grid;
+  gap: 12px;
+}
+
+.agentops-artifact-records article {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #dce7f0;
+  border-radius: 13px;
+  background: #fff;
+}
+
+.agentops-artifact-records header {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 12px 12px 10px;
+  background: linear-gradient(180deg, #f8fcfb, #fff);
+}
+
+.agentops-artifact-records header strong {
+  display: block;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentops-artifact-records header span,
+.agentops-artifact-records header em {
+  color: #64748b;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.agentops-artifact-records pre {
+  max-height: 240px;
+  overflow: auto;
+  margin: 0;
+  border-top: 1px solid #edf2f7;
+  border-bottom: 1px solid #edf2f7;
+  padding: 12px;
+  color: #334155;
+  background: #fbfdff;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agentops-artifact-records footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 10px 12px;
+}
+
+.agentops-artifact-records footer button,
+.agentops-drawer-artifact-actions button {
+  min-height: 30px;
+  border: 1px solid #cfe0e8;
+  border-radius: 8px;
+  padding: 0 9px;
+  color: #0f766e;
+  background: #f4fffb;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.agentops-artifact-records details {
+  border-top: 1px solid #edf2f7;
+  padding: 8px 12px 10px;
+}
+
+.agentops-artifact-records summary {
+  cursor: pointer;
+  color: #52667a;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.agentops-artifact-records details span,
+.agentops-drawer-version-list span {
+  display: block;
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.agentops-drawer-artifact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.agentops-drawer-version-list {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid #edf2f7;
+  margin-top: 10px;
+  padding-top: 8px;
+}
+
+.agentops-quality-checks {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  border: 1px solid #dce7f0;
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff;
+}
+
+.agentops-quality-checks > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agentops-quality-checks > div:first-child strong {
+  color: #0f766e;
+  font-size: 28px;
+}
+
+.agentops-quality-checks > div:last-child {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.agentops-quality-checks article {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #dce7f0;
+  border-radius: 10px;
+  padding: 9px 10px;
+  background: #fbfdff;
+}
+
+.agentops-quality-checks article.pass {
+  border-color: #b7ded6;
+  background: #f4fffb;
+}
+
+.agentops-quality-checks b {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  color: #fff;
+  background: #ef4444;
+  font-size: 11px;
+}
+
+.agentops-quality-checks article.pass b {
+  background: #0f766e;
+}
+
+.agentops-quality-checks span,
+.agentops-quality-checks em {
+  min-width: 0;
+  overflow: hidden;
+  color: #334155;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentops-quality-checks em {
+  color: #64748b;
+}
+
+@media (max-width: 1360px) {
+  .agentops-runtime-grid,
+  .agentops-eval-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .agentops-quality-checks > div:last-child {
+    grid-template-columns: 1fr;
+  }
 }

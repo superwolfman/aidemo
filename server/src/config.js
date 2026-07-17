@@ -10,7 +10,8 @@ dotenv.config();
 const ragBackend = process.env.RAG_BACKEND || 'local-hash';
 const defaultMongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/growth_ai_assistant';
 const mongodbAtlasUri = process.env.MONGODB_ATLAS_URI || '';
-const selectedMongoUri = ragBackend === 'mongodb-atlas' && mongodbAtlasUri ? mongodbAtlasUri : defaultMongoUri;
+const atlasCandidateUri = mongodbAtlasUri || (defaultMongoUri.startsWith('mongodb+srv://') ? defaultMongoUri : '');
+const selectedMongoUri = ragBackend === 'mongodb-atlas' && atlasCandidateUri ? atlasCandidateUri : defaultMongoUri;
 
 function redactConnection(uri) {
   if (!uri) return 'not configured';

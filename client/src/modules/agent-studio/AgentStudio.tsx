@@ -16,6 +16,9 @@ import {
 import { request, streamRequest } from '../../api/client';
 import { Header, Status } from '../../components/ui';
 
+let localMessageSeed = 0;
+const createLocalMessageId = (prefix: string) => `${prefix}-local-${localMessageSeed += 1}`;
+
 type AgentCapability = {
   id: string;
   name: string;
@@ -68,6 +71,11 @@ type Artifact = {
   title: string;
   status: string;
   content: string | Record<string, unknown>;
+  version?: number;
+  reviewStatus?: string;
+  traceStepId?: string;
+  versions?: Array<{ version: number; status: string; at?: string; createdAt?: string; content?: unknown }>;
+  approvals?: Array<{ action: string; note?: string; reviewerId?: string; createdAt: string }>;
 };
 
 type AgentPlanItem = {
@@ -96,6 +104,8 @@ type AgentIntent = {
   goal: string;
   scopes: string[];
   riskLevel: string;
+  confidence?: number;
+  signals?: string[];
 };
 
 type AgentRun = {
@@ -115,6 +125,26 @@ type AgentRun = {
   review?: { action?: string; note?: string; reviewerId?: string; createdAt?: string };
   controlState?: { action?: string; status?: string; reason?: string; operatorId?: string; updatedAt?: string };
   provider?: Record<string, unknown>;
+  quality?: RunQuality;
+  evalCaseId?: string;
+};
+
+type RunQuality = {
+  score: number;
+  passed: number;
+  total: number;
+  avgCitationScore: number;
+  verdict: string;
+  checks: Array<{ key: string; label: string; passed: boolean; value: string }>;
+};
+
+type EvalCase = {
+  id: string;
+  title: string;
+  prompt: string;
+  expected: string[];
+  status: string;
+  lastResult?: RunQuality;
 };
 
 type AgentRunState = {
@@ -140,7 +170,18 @@ type Blueprint = {
   };
   runtime: {
     llm: { provider: string; mode: string; model: string; configured: boolean };
-    rag: { backend: string; retrievalBackend?: string; vectorStore: string; productionReady: boolean };
+    rag: {
+      backend: string;
+      retrievalBackend?: string;
+      vectorStore: string;
+      productionReady: boolean;
+      mode?: string;
+      connected?: boolean;
+      vectorSearchReady?: boolean;
+      error?: string;
+      connection?: string;
+      index?: string;
+    };
   };
 };
 
@@ -226,6 +267,7 @@ export default function AgentStudio() {
   const [blueprint, setBlueprint] = useState<Blueprint | null>(null);
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [runs, setRuns] = useState<AgentRun[]>([]);
+  const [evalCases, setEvalCases] = useState<EvalCase[]>([]);
   const [active, setActive] = useState<AgentSession | null>(null);
   const [activeRun, setActiveRun] = useState<AgentRun | null>(null);
   const [message, setMessage] = useState(starterPrompts[0]);
@@ -248,8 +290,9 @@ export default function AgentStudio() {
   const logRef = useRef<HTMLDivElement | null>(null);
 
   const visibleMessages = useMemo(() => latestPair(active?.messages || []), [active?.messages]);
-  const currentIntent = runState.intent || activeRun?.intent;
-  const currentSkill = runState.selectedSkill || activeRun?.selectedSkill || blueprint?.capabilities.find((item) => item.id === active?.activeAgentId);
+  const hasRunContext = Boolean(activeRun || running || runState.runId);
+  const currentIntent = hasRunContext ? runState.intent || activeRun?.intent : undefined;
+  const currentSkill = hasRunContext ? runState.selectedSkill || activeRun?.selectedSkill : undefined;
   const currentPlan = plan.length ? plan : activeRun?.plan || [];
   const currentTrace = useMemo(() => trace.length ? trace : activeRun?.trace || [], [activeRun?.trace, trace]);
   const currentSources = sources.length ? sources : activeRun?.sources || [];
@@ -345,13 +388,33 @@ export default function AgentStudio() {
   }, [activeRun, currentLogs, currentTrace]);
 
   const load = useCallback(async () => {
-    const [blueprintResult, sessionResult, runResult] = await Promise.all([
+    const [blueprintResult, sessionResult, runResult, evalResult] = await Promise.all([
       request('/api/agent-studio/blueprint'),
       request('/api/agent-studio/sessions'),
-      request('/api/agent-studio/runs')
+      request('/api/agent-studio/runs'),
+      request('/api/agent-studio/eval-cases')
     ]);
     setBlueprint(blueprintResult);
     setRuns(runResult.runs || []);
+    setEvalCases(evalResult.cases || []);
+    const latestRun = runResult.runs?.[0];
+    if (latestRun) {
+      setActiveRun((current) => current || latestRun);
+      setTrace((items) => items.length ? items : latestRun.trace || []);
+      setSources((items) => items.length ? items : latestRun.sources || []);
+      setArtifacts((items) => items.length ? items : latestRun.artifacts || []);
+      setPlan((items) => items.length ? items : latestRun.plan || []);
+      setLogs((items) => items.length ? items : latestRun.logs || []);
+      setAnswer((current) => current || latestRun.answer || '');
+      setRunState((current) => current.runId ? current : {
+        status: latestRun.status || 'completed',
+        label: `已加载最新 Run：${latestRun.status || 'unknown'}`,
+        runId: latestRun._id,
+        intent: latestRun.intent,
+        selectedSkill: latestRun.selectedSkill,
+        plan: latestRun.plan
+      });
+    }
     if (sessionResult.sessions?.length) {
       setSessions(sessionResult.sessions);
       setActive((current) => current || sessionResult.sessions[0]);
@@ -408,7 +471,7 @@ export default function AgentStudio() {
     if (nextRun) hydrateRun(nextRun);
   }
 
-  async function runAgent(nextMessage = message) {
+  async function runAgent(nextMessage = message, evalCaseId?: string) {
     if (!active || !nextMessage.trim() || running) return;
     const controller = new AbortController();
     abortRef.current = controller;
@@ -421,12 +484,12 @@ export default function AgentStudio() {
     setLogs([]);
     setActiveRun(null);
     setRunState({ status: 'intent_detected', label: '意图识别中' });
-    const userMessage: AgentMessage = { id: `user-local-${Date.now()}`, role: 'user', content: nextMessage };
-    const assistantMessage: AgentMessage = { id: `assistant-local-${Date.now()}`, role: 'assistant', content: '' };
+    const userMessage: AgentMessage = { id: createLocalMessageId('user'), role: 'user', content: nextMessage };
+    const assistantMessage: AgentMessage = { id: createLocalMessageId('assistant'), role: 'assistant', content: '' };
     setActive({ ...active, messages: [...(active.messages || []), userMessage, assistantMessage] });
 
     try {
-      await streamRequest(`/api/agent-studio/sessions/${active._id}/runs/stream`, { message: nextMessage }, {
+      await streamRequest(`/api/agent-studio/sessions/${active._id}/runs/stream`, { message: nextMessage, evalCaseId }, {
         run_status: (payload) => setRunState(payload),
         plan: (payload) => {
           setPlan(payload.plan || []);
@@ -446,12 +509,14 @@ export default function AgentStudio() {
           setActiveRun(payload.run);
           setLogs(payload.run?.logs || []);
           setRunState({ status: payload.run?.status || 'review_required', label: 'Run 已完成，等待审计/审批', runId: payload.run?._id, intent: payload.run?.intent, selectedSkill: payload.run?.selectedSkill, plan: payload.run?.plan });
-          const [sessionResult, runResult] = await Promise.all([
+          const [sessionResult, runResult, evalResult] = await Promise.all([
             request('/api/agent-studio/sessions'),
-            request('/api/agent-studio/runs')
+            request('/api/agent-studio/runs'),
+            request('/api/agent-studio/eval-cases')
           ]);
           setSessions(sessionResult.sessions || []);
           setRuns(runResult.runs || []);
+          setEvalCases(evalResult.cases || []);
           const refreshed = sessionResult.sessions?.find((session: AgentSession) => session._id === active._id);
           if (refreshed) setActive(refreshed);
         }
@@ -488,6 +553,38 @@ export default function AgentStudio() {
     await refreshRuns(result.run);
   }
 
+  async function saveRunArtifact(artifact: Artifact, status = 'draft') {
+    if (!activeRunId) return;
+    const result = await request(`/api/agent-studio/runs/${activeRunId}/artifacts/${artifact.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ content: artifact.content, status })
+    });
+    await refreshRuns(result.run);
+  }
+
+  async function confirmRunArtifact(artifact: Artifact) {
+    if (!activeRunId) return;
+    const result = await request(`/api/agent-studio/runs/${activeRunId}/artifacts/${artifact.id}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ note: reviewNote })
+    });
+    await refreshRuns(result.run);
+  }
+
+  async function exportRunArtifact(artifact: Artifact, format: 'markdown' | 'json') {
+    if (!activeRunId) {
+      await copyText(stringifyContent(artifact.content));
+      return;
+    }
+    const result = await request(`/api/agent-studio/runs/${activeRunId}/artifacts/${artifact.id}/export?format=${format}`);
+    await copyText(result.content);
+  }
+
+  async function runEvalCase(item: EvalCase) {
+    setMessage(item.prompt);
+    await runAgent(item.prompt, item.id);
+  }
+
   return (
     <section className="agentops-page">
       <Header
@@ -511,11 +608,48 @@ export default function AgentStudio() {
         </div>
       </section>
 
+      <section className="agentops-runtime-grid">
+        <article className={blueprint?.runtime.llm.mode === 'live' ? 'live' : 'fallback'}>
+          <span>LLM Provider</span>
+          <strong>{blueprint?.runtime.llm.provider || 'mock'} / {blueprint?.runtime.llm.model || 'deterministic'}</strong>
+          <p>{blueprint?.runtime.llm.configured ? '真实模型已配置，流式调用可用。' : '未配置真实模型 Key，运行会降级到本地 deterministic runtime。'}</p>
+          <em>{blueprint?.runtime.llm.mode || 'mock'}</em>
+        </article>
+        <article className={blueprint?.runtime.rag.retrievalBackend === 'mongodb-atlas-vector-search' ? 'live' : 'fallback'}>
+          <span>Vector Store</span>
+          <strong>{blueprint?.runtime.rag.retrievalBackend || blueprint?.runtime.rag.vectorStore || 'local-hash'}</strong>
+          <p>{blueprint?.runtime.rag.productionReady ? 'MongoDB Atlas Vector Search 已作为检索后端。' : blueprint?.runtime.rag.error || '当前使用本地 hash fallback，需配置 Atlas URI 和 Vector Search Index。'}</p>
+          <em>{blueprint?.runtime.rag.mode || 'fallback'}</em>
+        </article>
+        <article className={activeRun?.quality?.verdict === 'ready_for_review' ? 'live' : 'fallback'}>
+          <span>Run Quality</span>
+          <strong>{activeRun?.quality ? `${activeRun.quality.score}% · ${activeRun.quality.verdict}` : '等待 Run'}</strong>
+          <p>{activeRun?.quality ? `通过 ${activeRun.quality.passed}/${activeRun.quality.total} 项，平均引用分 ${activeRun.quality.avgCitationScore}` : '运行后展示引用命中、PRD、API、Trace 和 Provider 透明度。'}</p>
+          <em>{activeRun?.status || runState.status}</em>
+        </article>
+      </section>
+
       <section className="agentops-command-strip">
-        <div>
+        <div className="agentops-current-run">
           <span>当前运行</span>
-          <strong>{currentIntent?.label || '等待 Agent Run'}</strong>
-          <p>{currentSkill?.name || 'Runtime Router'} · {runState.status} · {blueprint?.runtime.rag.vectorStore || 'Vector Store'}</p>
+          <strong>{currentIntent?.label || (hasRunContext ? 'Agent Run 执行中' : '暂无活跃 Agent Run')}</strong>
+          <p>
+            {hasRunContext
+              ? `${currentSkill?.name || 'Runtime Router'} · ${runState.status} · ${blueprint?.runtime.rag.retrievalBackend || blueprint?.runtime.rag.vectorStore || 'Vector Store'}`
+              : '运行 Agent 后这里会展示真实 Run ID、意图、Skill、Trace、Artifact 和质量评估。'}
+          </p>
+          <div className="agentops-current-run-meta">
+            <em>run {activeRun?.runId || runState.runId || 'not-started'}</em>
+            <em>confidence {Math.round((currentIntent?.confidence || 0) * 100)}%</em>
+            <em>{currentTrace.length} trace</em>
+            <em>{currentArtifacts.length} artifacts</em>
+            <em>{activeRun?.quality ? `${activeRun.quality.score}% quality` : 'quality pending'}</em>
+          </div>
+          {currentIntent?.signals?.length ? (
+            <div className="agentops-current-signals">
+              {currentIntent.signals.map((signal) => <b key={signal}>{signal}</b>)}
+            </div>
+          ) : null}
         </div>
         <div>
           <button className="primary-button" disabled={running || !message.trim()} onClick={() => runAgent()}><Send size={16} />运行 Agent</button>
@@ -662,6 +796,34 @@ export default function AgentStudio() {
                 <strong>{trend.count || 0} samples</strong>
                 <p>等待审批 {opsMetrics.waiting} 个，失败 {opsMetrics.failed} 个，已确认 {opsMetrics.confirmed} 个。</p>
               </article>
+            </div>
+          </section>
+
+          <section className="panel agentops-eval-panel">
+            <div className="section-head">
+              <div>
+                <h2>Eval Quality Cases</h2>
+                <p>用真实产品场景验证引用命中、Artifact 完整度、API 合理性和 Trace 可复盘性。</p>
+              </div>
+              <span>{evalCases.filter((item) => item.lastResult?.verdict === 'ready_for_review').length} / {evalCases.length} ready</span>
+            </div>
+            <div className="agentops-eval-grid">
+              {evalCases.map((item) => (
+                <article key={item.id}>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <button className="secondary-button compact" disabled={running} onClick={() => void runEvalCase(item)}>运行 Case</button>
+                  </div>
+                  <p>{item.prompt}</p>
+                  <div className="agentops-eval-tags">
+                    {item.expected.map((expected) => <span key={expected}>{expected}</span>)}
+                  </div>
+                  <footer>
+                    <span>{item.lastResult ? `${item.lastResult.score}%` : 'not run'}</span>
+                    <em>{item.lastResult?.verdict || 'waiting'}</em>
+                  </footer>
+                </article>
+              ))}
             </div>
           </section>
 
@@ -861,16 +1023,34 @@ export default function AgentStudio() {
 
           <section className="panel agentops-side-list">
             <h2>Artifacts</h2>
-            <div className="runtime-artifact-list">
+            <div className="agentops-artifact-records">
               {currentArtifacts.map((artifact) => (
-                <details key={artifact.id}>
-                  <summary>
-                    <Workflow size={14} />
-                    <strong>{artifact.title}</strong>
-                    <span>{artifact.status}</span>
-                  </summary>
+                <article key={artifact.id}>
+                  <header>
+                    <Workflow size={15} />
+                    <div>
+                      <strong>{artifact.title}</strong>
+                      <span>{artifact.type} · v{artifact.version || 1} · {artifact.reviewStatus || artifact.status}</span>
+                    </div>
+                    <em>{artifact.traceStepId || 'trace'}</em>
+                  </header>
                   <pre>{stringifyContent(artifact.content)}</pre>
-                </details>
+                  <footer>
+                    <button onClick={() => copyText(stringifyContent(artifact.content))}>复制</button>
+                    <button onClick={() => void saveRunArtifact(artifact, 'edited')}>保存版本</button>
+                    <button onClick={() => void confirmRunArtifact(artifact)}>确认</button>
+                    <button onClick={() => void exportRunArtifact(artifact, 'markdown')}>导出 MD</button>
+                    <button onClick={() => void exportRunArtifact(artifact, 'json')}>导出 JSON</button>
+                  </footer>
+                  {artifact.versions?.length ? (
+                    <details>
+                      <summary>版本记录 · {artifact.versions.length}</summary>
+                      {artifact.versions.map((item) => (
+                        <span key={`${artifact.id}-${item.version}-${item.createdAt || item.at}`}>v{item.version} · {item.status} · {formatDateTime(item.createdAt || item.at)}</span>
+                      ))}
+                    </details>
+                  ) : null}
+                </article>
               ))}
               {!currentArtifacts.length ? <div className="runtime-empty">工具产物会在这里留档。</div> : null}
             </div>
@@ -899,28 +1079,47 @@ export default function AgentStudio() {
             ))}
           </nav>
           {drawerTab === 'overview' ? (
-            <div className="agentops-drawer-grid">
-              <article>
-                <span>Status</span>
-                <strong>{activeRun?.status || runState.status}</strong>
-                <p>{runState.label}</p>
-              </article>
-              <article>
-                <span>Intent</span>
-                <strong>{currentIntent?.label || '未识别'}</strong>
-                <p>{currentIntent?.goal || '暂无意图详情'}</p>
-              </article>
-              <article>
-                <span>Skill</span>
-                <strong>{currentSkill?.name || '未选择'}</strong>
-                <p>{currentSkill?.tools?.join(' / ') || '暂无工具链'}</p>
-              </article>
-              <article>
-                <span>Context</span>
-                <strong>{currentSources.length} citations</strong>
-                <p>{blueprint?.runtime.rag.vectorStore || 'Vector Store'}</p>
-              </article>
-            </div>
+            <>
+              <div className="agentops-drawer-grid">
+                <article>
+                  <span>Status</span>
+                  <strong>{activeRun?.status || runState.status}</strong>
+                  <p>{runState.label}</p>
+                </article>
+                <article>
+                  <span>Intent</span>
+                  <strong>{currentIntent?.label || '未识别'}</strong>
+                  <p>{currentIntent?.goal || '暂无意图详情'}</p>
+                </article>
+                <article>
+                  <span>Skill</span>
+                  <strong>{currentSkill?.name || '未选择'}</strong>
+                  <p>{currentSkill?.tools?.join(' / ') || '暂无工具链'}</p>
+                </article>
+                <article>
+                  <span>Context</span>
+                  <strong>{currentSources.length} citations</strong>
+                  <p>{blueprint?.runtime.rag.vectorStore || 'Vector Store'}</p>
+                </article>
+              </div>
+              {activeRun?.quality ? (
+                <section className="agentops-quality-checks">
+                  <div>
+                    <strong>{activeRun.quality.score}%</strong>
+                    <span>{activeRun.quality.verdict} · {activeRun.quality.passed}/{activeRun.quality.total} passed</span>
+                  </div>
+                  <div>
+                    {activeRun.quality.checks.map((item) => (
+                      <article key={item.key} className={item.passed ? 'pass' : 'fail'}>
+                        <b>{item.passed ? '✓' : '!'}</b>
+                        <span>{item.label}</span>
+                        <em>{item.value}</em>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+            </>
           ) : null}
           {drawerTab === 'trace' ? (
             <div className="agentops-drawer-trace">
@@ -942,9 +1141,20 @@ export default function AgentStudio() {
                 <article key={artifact.id}>
                   <header>
                     <strong>{artifact.title}</strong>
-                    <span>{artifact.type} · {artifact.status}</span>
+                    <span>{artifact.type} · v{artifact.version || 1} · {artifact.reviewStatus || artifact.status}</span>
                   </header>
+                  <div className="agentops-drawer-artifact-actions">
+                    <button onClick={() => copyText(stringifyContent(artifact.content))}>复制</button>
+                    <button onClick={() => void confirmRunArtifact(artifact)}>确认</button>
+                    <button onClick={() => void exportRunArtifact(artifact, 'markdown')}>导出 Markdown</button>
+                    <button onClick={() => void exportRunArtifact(artifact, 'json')}>导出 JSON</button>
+                  </div>
                   <pre>{stringifyContent(artifact.content)}</pre>
+                  {artifact.versions?.length ? (
+                    <div className="agentops-drawer-version-list">
+                      {artifact.versions.map((item) => <span key={`${artifact.id}-${item.version}`}>v{item.version} · {item.status}</span>)}
+                    </div>
+                  ) : null}
                 </article>
               ))}
               {!currentArtifacts.length ? <div className="runtime-empty">暂无 Artifact。</div> : null}
