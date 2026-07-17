@@ -6863,89 +6863,225 @@ kbd {
   --ops-line: #d8e5ee;
 }
 
-.ops-command-center {
+.ops-runtime-summary {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 20px;
+  gap: 18px;
   align-items: center;
-  border-color: #1f2937;
-  color: #e5edf5;
+  border-color: #d8e5ee;
   background:
-    linear-gradient(135deg, rgba(15, 118, 110, .38), transparent 42%),
-    linear-gradient(180deg, #111827, #172033);
+    linear-gradient(90deg, rgba(240, 253, 250, .92), rgba(248, 250, 252, .82)),
+    #fff;
 }
 
-.ops-command-center h2 {
-  color: #fff;
+.ops-runtime-title span,
+.ops-command-center .section-head h2 + p {
+  color: #52667a;
 }
 
-.ops-command-center p {
-  color: #bdc9d7;
-}
-
-.ops-command-center em {
+.ops-runtime-title > span {
   display: inline-flex;
-  margin: 10px 8px 0 0;
-  border: 1px solid rgba(94, 234, 212, .22);
+  margin-bottom: 6px;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.ops-runtime-title h2 {
+  margin: 0;
+  color: #172026;
+  font-size: 22px;
+}
+
+.ops-runtime-title p {
+  max-width: 980px;
+  margin: 7px 0 0;
+  color: #52667a;
+  line-height: 1.65;
+}
+
+.ops-runtime-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  max-width: 520px;
+}
+
+.ops-runtime-pills em {
+  display: inline-flex;
+  border: 1px solid #bfe6dc;
   border-radius: 999px;
-  padding: 5px 9px;
-  color: #99f6e4;
-  background: rgba(15, 118, 110, .18);
+  padding: 7px 10px;
+  color: #0f766e;
+  background: #ecfdf8;
   font-size: 12px;
   font-style: normal;
   font-weight: 900;
 }
 
-.ops-command-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
+.ops-command-center {
+  display: grid;
+  gap: 14px;
+  border-color: #d8e5ee;
+  background: #fff;
 }
 
-.ops-command-form {
-  min-width: 520px;
+.ops-command-layout {
+  display: grid;
+  grid-template-columns: minmax(380px, 1fr) minmax(520px, 1.25fr) 300px;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.ops-command-input,
+.ops-command-config,
+.ops-command-control {
   display: grid;
   gap: 10px;
+  align-content: start;
+  min-width: 0;
+  border: 1px solid #d8e5ee;
+  border-radius: 14px;
+  padding: 14px;
+  background: #fbfdff;
 }
 
-.ops-command-form label {
-  display: grid;
-  gap: 7px;
-  color: #99f6e4;
+.ops-command-input span,
+.ops-command-config label span,
+.ops-command-control > strong {
+  color: #0f766e;
   font-size: 12px;
   font-weight: 950;
+  letter-spacing: .04em;
   text-transform: uppercase;
 }
 
-.ops-command-form textarea {
-  min-height: 96px;
-  max-height: 180px;
+.ops-command-input textarea {
+  min-height: 150px;
+  max-height: 280px;
   overflow: auto;
-  border: 1px solid rgba(153, 246, 228, .28);
+  border: 1px solid #c7d9e6;
   border-radius: 12px;
-  padding: 12px;
-  color: #e5edf5;
-  background: rgba(255, 255, 255, .06);
+  padding: 13px;
+  color: #172026;
+  background: #fff;
   font: inherit;
-  line-height: 1.55;
+  line-height: 1.65;
   resize: vertical;
   outline: none;
 }
 
+.ops-command-config label {
+  display: grid;
+  gap: 7px;
+}
+
+.ops-config-block,
+.ops-scope-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.ops-config-title {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ops-config-title span {
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.ops-config-title em {
+  color: #6a7c8e;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.ops-agent-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ops-agent-grid button {
+  display: grid;
+  gap: 6px;
+  min-height: 116px;
+  border: 1px solid #d8e5ee;
+  border-radius: 13px;
+  padding: 12px;
+  color: #172026;
+  background: linear-gradient(180deg, #fff, #f8fbfc);
+  text-align: left;
+  box-shadow: 0 8px 18px rgba(25, 44, 62, .04);
+}
+
+.ops-agent-grid button.active {
+  border-color: #0f766e;
+  background: linear-gradient(180deg, #ecfdf8, #f8fffd);
+  box-shadow: inset 3px 0 0 #0f766e, 0 12px 24px rgba(15, 118, 110, .09);
+}
+
+.ops-agent-grid strong {
+  color: #172026;
+  font-size: 14px;
+}
+
+.ops-agent-grid p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: #52667a;
+  font-size: 12px;
+  line-height: 1.5;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.ops-agent-grid span {
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+
+.ops-command-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ops-command-control > span {
+  color: #52667a;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .ops-command-grid {
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 
 .ops-command-grid select {
   min-height: 42px;
-  border: 1px solid rgba(153, 246, 228, .28);
+  border: 1px solid #c7d9e6;
   border-radius: 10px;
   padding: 0 10px;
-  color: #e5edf5;
-  background: rgba(255, 255, 255, .08);
+  color: #172026;
+  background: #fff;
   font: inherit;
   outline: none;
 }
@@ -6957,26 +7093,26 @@ kbd {
 .ops-command-preview {
   display: grid;
   gap: 4px;
-  border: 1px solid rgba(153, 246, 228, .18);
+  border: 1px solid #d8e5ee;
   border-radius: 12px;
   padding: 10px;
-  background: rgba(255, 255, 255, .06);
+  background: #fff;
 }
 
 .ops-command-preview strong {
-  color: #fff;
+  color: #172026;
 }
 
 .ops-command-preview p,
 .ops-command-preview span {
   margin: 0;
-  color: #bdc9d7;
+  color: #52667a;
   font-size: 12px;
   line-height: 1.45;
 }
 
 .ops-command-preview span {
-  color: #99f6e4;
+  color: #0f766e;
   overflow-wrap: anywhere;
 }
 
@@ -6989,25 +7125,46 @@ kbd {
 
 .ops-scope-row strong {
   margin-right: 4px;
-  color: #99f6e4;
+  color: #0f766e;
   font-size: 12px;
   text-transform: uppercase;
 }
 
 .ops-scope-row button {
-  border: 1px solid rgba(153, 246, 228, .28);
+  border: 1px solid #d8e5ee;
   border-radius: 999px;
   padding: 6px 10px;
-  color: #bdc9d7;
-  background: rgba(255, 255, 255, .06);
+  color: #52667a;
+  background: #fff;
   font-size: 12px;
   font-weight: 900;
 }
 
 .ops-scope-row button.active {
-  color: #083a36;
-  background: #99f6e4;
-  border-color: #99f6e4;
+  color: #0f766e;
+  background: #ecfdf8;
+  border-color: #0f766e;
+}
+
+.ops-scope-impact {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #d8e5ee;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.ops-scope-impact strong {
+  color: #172026;
+  font-size: 13px;
+}
+
+.ops-scope-impact p {
+  margin: 0;
+  color: #52667a;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .ops-metrics-grid {
@@ -7033,6 +7190,98 @@ kbd {
   color: #52667a;
   font-size: 12px;
   font-weight: 850;
+}
+
+.ops-runtime-metrics-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.ops-runtime-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ops-metric-trend-card,
+.ops-metric-baseline-card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid #d8e5ee;
+  border-radius: 13px;
+  padding: 14px;
+  background: linear-gradient(180deg, #fff, #f8fbfc);
+  box-shadow: 0 10px 22px rgba(25, 44, 62, .05);
+}
+
+.ops-metric-trend-card span,
+.ops-metric-baseline-card span {
+  color: #6a7c8e;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.ops-metric-trend-card strong,
+.ops-metric-baseline-card strong {
+  overflow: hidden;
+  color: #172026;
+  font-size: 24px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-metric-trend-card p,
+.ops-metric-baseline-card p {
+  margin: 0;
+  color: #52667a;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ops-metric-trend-card svg {
+  width: 100%;
+  min-height: 66px;
+  border-radius: 10px;
+  padding: 6px;
+  color: #0f766e;
+  background: linear-gradient(180deg, rgba(236, 253, 248, .95), rgba(248, 251, 252, .6));
+}
+
+.ops-metric-trend-card.blue svg {
+  color: #2563eb;
+  background: linear-gradient(180deg, rgba(239, 246, 255, .95), rgba(248, 251, 252, .6));
+}
+
+.ops-metric-trend-card.cyan svg {
+  color: #06b6d4;
+  background: linear-gradient(180deg, rgba(236, 254, 255, .95), rgba(248, 251, 252, .6));
+}
+
+.ops-runtime-context-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 1px solid #e1eaf2;
+  padding-top: 12px;
+}
+
+.ops-runtime-context-strip span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid #d8e5ee;
+  border-radius: 999px;
+  padding: 7px 10px;
+  color: #405365;
+  background: #f8fbfc;
+  font-size: 12px;
+  font-weight: 850;
+  overflow-wrap: anywhere;
 }
 
 .ops-console-layout {
@@ -7163,6 +7412,18 @@ kbd {
 .ops-state-rail button.failed {
   border-color: #fecaca;
   background: #fff1f2;
+}
+
+.ops-state-rail button.pending {
+  color: #6a7c8e;
+  background: #f8fbfc;
+}
+
+.ops-state-rail button.running,
+.ops-state-rail button.waiting,
+.ops-state-rail button.review_required {
+  border-color: #bfdbfe;
+  background: #eff6ff;
 }
 
 .ops-state-rail em {
@@ -8275,6 +8536,50 @@ kbd {
 
   .agentops-run-drawer {
     width: 100vw;
+  }
+}
+
+@media (max-width: 1500px) {
+  .ops-command-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, .8fr);
+  }
+
+  .ops-agent-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-runtime-metric-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ops-command-control {
+    grid-column: 1 / -1;
+  }
+
+  .ops-command-actions {
+    grid-template-columns: repeat(6, minmax(0, auto));
+    justify-content: start;
+  }
+}
+
+@media (max-width: 980px) {
+  .ops-runtime-summary,
+  .ops-command-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-runtime-pills {
+    justify-content: flex-start;
+  }
+
+  .ops-command-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ops-runtime-metric-grid,
+  .ops-metrics-grid,
+  .ops-state-rail {
+    grid-template-columns: 1fr;
   }
 }
 

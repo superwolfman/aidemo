@@ -11,7 +11,7 @@ type AgentSession = {
 type TraceStep = {
   id: string;
   name: string;
-  status: 'running' | 'success' | 'waiting' | 'failed';
+  status: 'pending' | 'running' | 'success' | 'waiting' | 'failed' | 'paused' | 'cancelled' | 'review_required';
   durationMs?: number;
   tokenUsage?: number;
   input?: unknown;
@@ -85,6 +85,15 @@ const scopeOptions = [
   { id: 'sdk', label: 'SDK / 质量' }
 ];
 
+const stateOrder = [
+  { id: 'intent', label: '意图理解' },
+  { id: 'skill', label: 'Skill 自动选择' },
+  { id: 'rag', label: 'RAG 上下文检索' },
+  { id: 'tool', label: '工具 / 计划执行' },
+  { id: 'llm', label: 'LLM 流式生成' },
+  { id: 'review', label: '人工审批' }
+];
+
 export default function AgentOpsConsole() {
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [blueprint, setBlueprint] = useState<Blueprint | null>(null);
@@ -101,8 +110,19 @@ export default function AgentOpsConsole() {
 
   const activeRun = useMemo(() => runs.find((run) => run._id === activeRunId) || runs[0], [activeRunId, runs]);
   const selectedAgent = useMemo(() => blueprint?.capabilities?.find((item) => item.id === selectedAgentId) || blueprint?.capabilities?.[0], [blueprint, selectedAgentId]);
-  const trace = activeRun?.trace || [];
+  const trace = useMemo(() => activeRun?.trace || [], [activeRun]);
+  const latestTraceById = useMemo(() => {
+    const map = new Map<string, TraceStep>();
+    trace.forEach((item) => map.set(item.id, item));
+    return map;
+  }, [trace]);
+  const stateSteps = useMemo(() => stateOrder.map((state) => latestTraceById.get(state.id) || {
+    id: state.id,
+    name: state.label,
+    status: 'pending' as const
+  }), [latestTraceById]);
   const activeTrace = trace.find((item) => item.id === activeTraceId) || trace[0];
+  const selectedScopeLabels = useMemo(() => scopeOptions.filter((scope) => selectedScopes.includes(scope.id)).map((scope) => scope.label), [selectedScopes]);
   const filteredRuns = useMemo(() => runs.filter((run) => {
     const hitStatus = filter === 'all' || run.status === filter;
     const text = [run.prompt, run.status, run.intent?.label, run.selectedSkill?.name].join(' ').toLowerCase();
@@ -114,17 +134,29 @@ export default function AgentOpsConsole() {
     const waiting = runs.filter((run) => ['review_required', 'paused', 'waiting'].includes(run.status)).length;
     const latency = allTrace.reduce((sum, item) => sum + (item.durationMs || 0), 0);
     const tokens = allTrace.reduce((sum, item) => sum + (item.tokenUsage || 0), 0);
-    const quality = runs.filter((run) => run.quality).reduce((sum, run) => sum + (run.quality?.score || 0), 0);
+    const qualityRuns = runs.filter((run) => run.quality);
+    const quality = qualityRuns.reduce((sum, run) => sum + (run.quality?.score || 0), 0);
+    const confirmed = runs.filter((run) => ['confirmed', 'completed'].includes(run.status)).length;
     return {
       total: runs.length,
       failed,
       waiting,
+      confirmed,
       avgLatency: allTrace.length ? Math.round(latency / allTrace.length) : 0,
       tokens,
-      avgQuality: runs.filter((run) => run.quality).length ? Math.round(quality / runs.filter((run) => run.quality).length) : 0
+      assessed: qualityRuns.length,
+      avgQuality: qualityRuns.length ? Math.round(quality / qualityRuns.length) : 0
     };
   }, [runs]);
   const trendPath = useMemo(() => buildSparkline(runs.slice(0, 12).reverse().map((run) => (run.trace || []).reduce((sum, item) => sum + (item.durationMs || 0), 0))), [runs]);
+  const metricTrends = useMemo(() => {
+    const sample = runs.slice(0, 12).reverse();
+    return {
+      latency: buildSparkline(sample.map((run) => (run.trace || []).reduce((sum, item) => sum + (item.durationMs || 0), 0))),
+      tokens: buildSparkline(sample.map((run) => (run.trace || []).reduce((sum, item) => sum + (item.tokenUsage || 0), 0))),
+      quality: buildSparkline(sample.map((run) => run.quality?.score || 0))
+    };
+  }, [runs]);
 
   const load = useCallback(async () => {
     const [blueprintResult, runResult, sessionResult] = await Promise.all([
@@ -258,52 +290,82 @@ export default function AgentOpsConsole() {
         desc="面向运行治理：Run Registry、状态机、Trace Timeline、Tool Call Audit、Run Detail、审批记录和失败回放。"
       />
 
-      <section className="ops-command-center panel">
-        <div>
-          <span>Live Runtime</span>
+      <section className="ops-runtime-summary panel">
+        <div className="ops-runtime-title">
+          <span>Current Run</span>
           <h2>{activeRun?.intent?.label || '等待 Agent Run'}</h2>
           <p>{activeRun?.prompt || '这里不负责生产内容，而负责解释 Agent 怎么跑、哪里失败、能否恢复。'}</p>
-          <div>
-            <em>{blueprint?.runtime.llm.provider || 'llm'} · {blueprint?.runtime.llm.mode || 'loading'}</em>
-            <em>{blueprint?.runtime.rag.retrievalBackend || blueprint?.runtime.rag.vectorStore || 'vector store'}</em>
-            <em>{activeRun?.status || 'no-run'}</em>
-          </div>
         </div>
-        <div className="ops-command-form">
-          <label>
-            <span>Command Center</span>
+        <div className="ops-runtime-pills">
+          <em>{blueprint?.runtime.llm.provider || 'llm'} · {blueprint?.runtime.llm.mode || 'loading'}</em>
+          <em>{blueprint?.runtime.rag.retrievalBackend || blueprint?.runtime.rag.vectorStore || 'vector store'}</em>
+          <em>{activeRun?.status || 'no-run'}</em>
+        </div>
+      </section>
+
+      <section className="ops-command-center panel">
+        <div className="section-head">
+          <div>
+            <h2>Command Center</h2>
+            <p>输入指令、选择 Agent/Skill、限定知识范围，并对真实 Run 执行暂停、恢复、回滚和重放。</p>
+          </div>
+          <TerminalSquare size={20} />
+        </div>
+        <div className="ops-command-layout">
+          <label className="ops-command-input">
+            <span>Task Instruction</span>
             <textarea value={command} onChange={(event) => setCommand(event.target.value)} />
           </label>
-          <div className="ops-command-grid">
-            <label>
-              <span>Agent / Skill</span>
-              <select value={selectedAgentId} onChange={(event) => setSelectedAgentId(event.target.value)}>
+          <div className="ops-command-config">
+            <div className="ops-config-block">
+              <div className="ops-config-title">
+                <span>Agent / Skill</span>
+                <em>决定意图识别、允许工具、输出约束和审批策略</em>
+              </div>
+              <div className="ops-agent-grid">
                 {(blueprint?.capabilities || []).map((item) => (
-                  <option key={item.id} value={item.id}>{item.name}</option>
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={selectedAgentId === item.id ? 'active' : ''}
+                    onClick={() => setSelectedAgentId(item.id)}
+                  >
+                    <strong>{item.name}</strong>
+                    <p>{item.description}</p>
+                    <span>{item.tools.length} tools · {item.intents.length} intents</span>
+                  </button>
                 ))}
-              </select>
-            </label>
-            <div className="ops-command-preview">
-              <strong>{selectedAgent?.name || 'Agent Runtime'}</strong>
-              <p>{selectedAgent?.description || '选择一个 Agent 后，运行会绑定对应 Skill、Tools 和 Knowledge Scopes。'}</p>
-              <span>{(selectedAgent?.tools || []).join(' / ')}</span>
+              </div>
+            </div>
+            <div className="ops-scope-panel">
+              <div className="ops-config-title">
+                <span>Knowledge Scope</span>
+                <em>限制 RAG 检索域，影响引用来源、Tool Guardrail 和 Trace 审计</em>
+              </div>
+              <div className="ops-scope-row">
+                {scopeOptions.map((scope) => (
+                  <button key={scope.id} type="button" className={selectedScopes.includes(scope.id) ? 'active' : ''} onClick={() => toggleScope(scope.id)}>
+                    {scope.label}
+                  </button>
+                ))}
+              </div>
+              <div className="ops-scope-impact">
+                <strong>{selectedScopeLabels.length || 0}/{scopeOptions.length} scopes</strong>
+                <p>{selectedScopeLabels.length ? `本次 Run 只会检索：${selectedScopeLabels.join('、')}` : '未选择知识域时，RAG 将退化为最小上下文检索。'}</p>
+              </div>
             </div>
           </div>
-          <div className="ops-scope-row">
-            <strong>Knowledge Scope</strong>
-            {scopeOptions.map((scope) => (
-              <button key={scope.id} type="button" className={selectedScopes.includes(scope.id) ? 'active' : ''} onClick={() => toggleScope(scope.id)}>
-                {scope.label}
-              </button>
-            ))}
-          </div>
-          <div className="ops-command-actions">
-            <button className="primary-button" onClick={() => runCommand()} disabled={!session || running}><Send size={15} />{running ? '运行中' : '运行 Agent'}</button>
-            <button className="secondary-button" onClick={load}><RefreshCw size={15} />刷新</button>
-            <button className="secondary-button" onClick={() => control('pause')} disabled={!activeRun}><Pause size={15} />暂停</button>
-            <button className="secondary-button" onClick={() => control('resume')} disabled={!activeRun}><Play size={15} />恢复</button>
-            <button className="secondary-button" onClick={() => control('rollback')} disabled={!activeRun}><RotateCcw size={15} />回滚</button>
-            <button className="secondary-button" onClick={rerunActive} disabled={!activeRun || running}><RefreshCw size={15} />重放</button>
+          <div className="ops-command-control">
+            <strong>Run Control</strong>
+            <span>{running ? 'Agent 正在执行，Trace 会持续写入 Run Registry。' : '准备运行新的 Agent Run，或治理当前选中的 Run。'}</span>
+            <div className="ops-command-actions">
+              <button className="primary-button" onClick={() => runCommand()} disabled={!session || running}><Send size={15} />{running ? '运行中' : '运行 Agent'}</button>
+              <button className="secondary-button" onClick={load}><RefreshCw size={15} />刷新</button>
+              <button className="secondary-button" onClick={() => control('pause')} disabled={!activeRun}><Pause size={15} />暂停</button>
+              <button className="secondary-button" onClick={() => control('resume')} disabled={!activeRun}><Play size={15} />恢复</button>
+              <button className="secondary-button" onClick={() => control('rollback')} disabled={!activeRun}><RotateCcw size={15} />回滚</button>
+              <button className="secondary-button" onClick={rerunActive} disabled={!activeRun || running}><RefreshCw size={15} />重放</button>
+            </div>
           </div>
         </div>
       </section>
@@ -314,6 +376,32 @@ export default function AgentOpsConsole() {
         <article><strong>{metrics.failed}</strong><span>Failed</span></article>
         <article><strong>{metrics.avgLatency}ms</strong><span>Avg Latency</span></article>
         <article><strong>{metrics.avgQuality}%</strong><span>Quality</span></article>
+      </section>
+
+      <section className="ops-runtime-metrics-panel panel">
+        <div className="section-head">
+          <div>
+            <h2>Runtime Metrics</h2>
+            <p>基于真实 Run、Trace 和日志聚合，不使用静态 Mock 指标。</p>
+          </div>
+          <button className="secondary-button compact" type="button" onClick={() => setActiveTraceId(trace[0]?.id || '')}>打开 Run Detail</button>
+        </div>
+        <div className="ops-runtime-metric-grid">
+          <MetricTrendCard label="Latency Trend" value={`${metrics.avgLatency}ms`} desc={`${metrics.total} runs · ${trace.length} current trace events`} path={metricTrends.latency} />
+          <MetricTrendCard label="Token Usage" value={metrics.tokens.toLocaleString('en-US')} desc="Aggregated from trace tokenUsage" path={metricTrends.tokens} tone="blue" />
+          <MetricTrendCard label="Run Quality" value={metrics.assessed ? `${metrics.avgQuality}%` : '未评估'} desc={`${metrics.assessed}/${metrics.total} runs have quality score`} path={metricTrends.quality} tone="cyan" />
+          <article className="ops-metric-baseline-card">
+            <span>Ops Baseline</span>
+            <strong>{Math.min(runs.length, 12)} samples</strong>
+            <p>等待审批 {metrics.waiting} 个，失败 {metrics.failed} 个，已确认 {metrics.confirmed} 个。</p>
+          </article>
+        </div>
+        <div className="ops-runtime-context-strip">
+          <span><Database size={13} />LLM {blueprint?.runtime.llm.provider || 'loading'} · {blueprint?.runtime.llm.mode || 'unknown'} · {blueprint?.runtime.llm.model || 'model loading'}</span>
+          <span>Vector {blueprint?.runtime.rag.retrievalBackend || 'local-hash'} · {blueprint?.runtime.rag.vectorStore || 'retrieval loading'}</span>
+          <span>Skill {selectedAgent?.name || 'Agent Runtime'}</span>
+          <span>Scope {selectedScopeLabels.length}/{scopeOptions.length} · {selectedScopeLabels.join(' / ') || 'minimal context'}</span>
+        </div>
       </section>
 
       <main className="ops-console-layout">
@@ -353,13 +441,12 @@ export default function AgentOpsConsole() {
               <GitBranch size={20} />
             </div>
             <div className="ops-state-rail">
-              {['intent', 'skill', 'rag', 'tool', 'llm', 'review'].map((node, index) => {
-                const step = trace[index];
+              {stateSteps.map((step, index) => {
                 return (
-                  <button key={node} className={activeTrace?.id === step?.id ? 'active' : step?.status || ''} onClick={() => setActiveTraceId(step?.id || '')}>
+                  <button key={step.id} className={`${activeTrace?.id === step.id ? 'active' : ''} ${step.status}`} onClick={() => setActiveTraceId(step.id)}>
                     <em>{String(index + 1).padStart(2, '0')}</em>
-                    <strong>{step?.name || node}</strong>
-                    <span>{step?.status || 'pending'}</span>
+                    <strong>{step.name}</strong>
+                    <span>{step.status}</span>
                   </button>
                 );
               })}
@@ -470,5 +557,18 @@ function FileBadge({ title }: { title: string }) {
       <ClipboardCheck size={14} />
       {title}
     </span>
+  );
+}
+
+function MetricTrendCard({ label, value, desc, path, tone = 'teal' }: { label: string; value: string; desc: string; path: string; tone?: 'teal' | 'blue' | 'cyan' }) {
+  return (
+    <article className={`ops-metric-trend-card ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <svg viewBox="0 0 280 72" aria-hidden="true">
+        <polyline points={path} fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <p>{desc}</p>
+    </article>
   );
 }
