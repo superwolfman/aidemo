@@ -1,0 +1,474 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, CheckCircle2, ClipboardCheck, Clock3, Database, GitBranch, Pause, Play, RefreshCw, RotateCcw, Search, Send, TerminalSquare, Workflow } from 'lucide-react';
+import { request, streamRequest } from '../../api/client';
+import { Header } from '../../components/ui';
+
+type AgentSession = {
+  _id: string;
+  title: string;
+};
+
+type TraceStep = {
+  id: string;
+  name: string;
+  status: 'running' | 'success' | 'waiting' | 'failed';
+  durationMs?: number;
+  tokenUsage?: number;
+  input?: unknown;
+  output?: unknown;
+  error?: string;
+  tool?: string;
+  humanRequired?: boolean;
+};
+
+type AgentRun = {
+  _id: string;
+  runId: string;
+  status: string;
+  prompt: string;
+  intent?: { label: string; goal: string; riskLevel: string; confidence?: number; signals?: string[] };
+  selectedSkill?: { name: string; tools: string[] };
+  plan?: Array<{ id: string; name: string; owner: string; status: string; tool: string; guardrail: string }>;
+  sources?: Array<{ _id: string; documentTitle: string; score: number; retrievalBackend?: string; content: string }>;
+  artifacts?: Array<{ id: string; title: string; type: string; status: string; version?: number }>;
+  trace?: TraceStep[];
+  logs?: Array<{ id: string; level: string; message: string; at: string; action?: string }>;
+  quality?: { score: number; passed: number; total: number; verdict: string };
+  provider?: Record<string, unknown>;
+  createdAt?: string;
+};
+
+type Capability = {
+  id: string;
+  name: string;
+  description: string;
+  intents: string[];
+  tools: string[];
+};
+
+type Blueprint = {
+  capabilities: Capability[];
+  runtime: {
+    llm: { provider: string; mode: string; model: string; configured: boolean };
+    rag: { retrievalBackend?: string; vectorStore: string; productionReady: boolean; mode?: string };
+  };
+};
+
+function formatJson(value: unknown) {
+  return JSON.stringify(value ?? null, null, 2);
+}
+
+function formatTime(value?: string) {
+  if (!value) return '--:--:--';
+  return new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function buildSparkline(values: number[]) {
+  if (!values.length) return '';
+  const width = 280;
+  const height = 72;
+  const max = Math.max(...values, 1);
+  const step = values.length > 1 ? width / (values.length - 1) : width;
+  return values.map((value, index) => {
+    const x = Math.round(index * step);
+    const y = Math.round(height - (value / max) * 58 - 7);
+    return `${x},${y}`;
+  }).join(' ');
+}
+
+const scopeOptions = [
+  { id: 'architecture', label: '架构规范' },
+  { id: 'standards', label: '研发规范' },
+  { id: 'ai-native', label: 'AI Native' },
+  { id: 'frontend', label: '前端交互' },
+  { id: 'im', label: 'IM / 会话' },
+  { id: 'sdk', label: 'SDK / 质量' }
+];
+
+export default function AgentOpsConsole() {
+  const [runs, setRuns] = useState<AgentRun[]>([]);
+  const [blueprint, setBlueprint] = useState<Blueprint | null>(null);
+  const [session, setSession] = useState<AgentSession | null>(null);
+  const [activeRunId, setActiveRunId] = useState('');
+  const [activeTraceId, setActiveTraceId] = useState('');
+  const [filter, setFilter] = useState('all');
+  const [keyword, setKeyword] = useState('');
+  const [command, setCommand] = useState('为企业内部 AI 产品研发团队建设一个需求到交付 Agent，要求输出 PRD、页面结构、BFF API、测试策略和上线风险。');
+  const [selectedAgentId, setSelectedAgentId] = useState('product-delivery-agent');
+  const [selectedScopes, setSelectedScopes] = useState<string[]>(['architecture', 'standards', 'ai-native', 'frontend']);
+  const [controlNote, setControlNote] = useState('运行治理确认：保留审计日志后进入下一步。');
+  const [running, setRunning] = useState(false);
+
+  const activeRun = useMemo(() => runs.find((run) => run._id === activeRunId) || runs[0], [activeRunId, runs]);
+  const selectedAgent = useMemo(() => blueprint?.capabilities?.find((item) => item.id === selectedAgentId) || blueprint?.capabilities?.[0], [blueprint, selectedAgentId]);
+  const trace = activeRun?.trace || [];
+  const activeTrace = trace.find((item) => item.id === activeTraceId) || trace[0];
+  const filteredRuns = useMemo(() => runs.filter((run) => {
+    const hitStatus = filter === 'all' || run.status === filter;
+    const text = [run.prompt, run.status, run.intent?.label, run.selectedSkill?.name].join(' ').toLowerCase();
+    return hitStatus && (!keyword.trim() || text.includes(keyword.trim().toLowerCase()));
+  }), [filter, keyword, runs]);
+  const metrics = useMemo(() => {
+    const allTrace = runs.flatMap((run) => run.trace || []);
+    const failed = runs.filter((run) => run.status === 'failed' || run.trace?.some((item) => item.status === 'failed')).length;
+    const waiting = runs.filter((run) => ['review_required', 'paused', 'waiting'].includes(run.status)).length;
+    const latency = allTrace.reduce((sum, item) => sum + (item.durationMs || 0), 0);
+    const tokens = allTrace.reduce((sum, item) => sum + (item.tokenUsage || 0), 0);
+    const quality = runs.filter((run) => run.quality).reduce((sum, run) => sum + (run.quality?.score || 0), 0);
+    return {
+      total: runs.length,
+      failed,
+      waiting,
+      avgLatency: allTrace.length ? Math.round(latency / allTrace.length) : 0,
+      tokens,
+      avgQuality: runs.filter((run) => run.quality).length ? Math.round(quality / runs.filter((run) => run.quality).length) : 0
+    };
+  }, [runs]);
+  const trendPath = useMemo(() => buildSparkline(runs.slice(0, 12).reverse().map((run) => (run.trace || []).reduce((sum, item) => sum + (item.durationMs || 0), 0))), [runs]);
+
+  const load = useCallback(async () => {
+    const [blueprintResult, runResult, sessionResult] = await Promise.all([
+      request('/api/agent-studio/blueprint'),
+      request('/api/agent-studio/runs'),
+      request('/api/agent-studio/sessions')
+    ]);
+    setBlueprint(blueprintResult);
+    setRuns(runResult.runs || []);
+    if (sessionResult.sessions?.[0]) {
+      setSession(sessionResult.sessions[0]);
+    } else {
+      const created = await request('/api/agent-studio/sessions', {
+        method: 'POST',
+        body: JSON.stringify({ title: 'AgentOps Command Center 会话' })
+      });
+      setSession(created.session);
+    }
+    const first = runResult.runs?.[0];
+    if (first) {
+      setActiveRunId((current) => current || first._id);
+      setActiveTraceId((current) => current || first.trace?.[0]?.id || '');
+    }
+  }, []);
+
+  useEffect(() => {
+    load().catch(console.error);
+  }, [load]);
+
+  async function control(action: string) {
+    if (!activeRun) return;
+    const result = await request(`/api/agent-studio/runs/${activeRun._id}/control`, {
+      method: 'POST',
+      body: JSON.stringify({ action, reason: controlNote })
+    });
+    setRuns((items) => items.map((item) => item._id === result.run._id ? result.run : item));
+  }
+
+  async function review(action: string) {
+    if (!activeRun) return;
+    const result = await request(`/api/agent-studio/runs/${activeRun._id}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ action, note: controlNote })
+    });
+    setRuns((items) => items.map((item) => item._id === result.run._id ? result.run : item));
+  }
+
+  async function runCommand(nextCommand = command) {
+    if (!session || running || !nextCommand.trim()) return;
+    setRunning(true);
+    let draftRun: AgentRun | null = null;
+    try {
+      await streamRequest(`/api/agent-studio/sessions/${session._id}/runs/stream`, {
+        message: nextCommand,
+        commandOptions: {
+          agentId: selectedAgentId,
+          skillId: selectedAgentId,
+          scopes: selectedScopes,
+          source: 'agentops-command-center'
+        }
+      }, {
+        run_status: (payload) => {
+          const payloadRunId = payload.runDbId || payload.runId || 'running';
+          if (!draftRun) {
+            draftRun = {
+              _id: payloadRunId,
+              runId: payload.runId || 'running',
+              status: payload.status || 'running',
+              prompt: nextCommand,
+              intent: payload.intent,
+              selectedSkill: payload.selectedSkill,
+              plan: payload.plan,
+              trace: [],
+              logs: []
+            };
+            setRuns((items) => [draftRun as AgentRun, ...items.filter((item) => item._id !== 'running' && item._id !== payloadRunId)]);
+            setActiveRunId(draftRun._id);
+          } else {
+            draftRun = { ...draftRun, _id: payloadRunId, status: payload.status || draftRun.status, intent: payload.intent || draftRun.intent, selectedSkill: payload.selectedSkill || draftRun.selectedSkill, plan: payload.plan || draftRun.plan };
+            setRuns((items) => items.map((item) => item._id === draftRun?._id ? draftRun as AgentRun : item));
+          }
+        },
+        trace: (payload) => {
+          if (!draftRun) return;
+          const nextTrace = [...(draftRun.trace || []).filter((item) => item.id !== payload.id), payload];
+          draftRun = { ...draftRun, trace: nextTrace };
+          setRuns((items) => items.map((item) => item._id === draftRun?._id ? draftRun as AgentRun : item));
+          setActiveTraceId((current) => current || payload.id);
+        },
+        sources: (payload) => {
+          if (!draftRun) return;
+          draftRun = { ...draftRun, sources: payload.sources || [] };
+          setRuns((items) => items.map((item) => item._id === draftRun?._id ? draftRun as AgentRun : item));
+        },
+        artifacts: (payload) => {
+          if (!draftRun) return;
+          draftRun = { ...draftRun, artifacts: payload.artifacts || [] };
+          setRuns((items) => items.map((item) => item._id === draftRun?._id ? draftRun as AgentRun : item));
+        },
+        final: (payload: { run: AgentRun }) => {
+          setRuns((items) => [payload.run, ...items.filter((item) => item._id !== 'running' && item._id !== payload.run._id)]);
+          setActiveRunId(payload.run._id);
+          setActiveTraceId(payload.run.trace?.[0]?.id || '');
+        }
+      });
+    } finally {
+      setRunning(false);
+      await load();
+    }
+  }
+
+  function rerunActive() {
+    if (activeRun?.prompt) {
+      setCommand(activeRun.prompt);
+      runCommand(activeRun.prompt).catch(console.error);
+    }
+  }
+
+  function toggleScope(scopeId: string) {
+    setSelectedScopes((items) => {
+      if (items.includes(scopeId)) return items.filter((item) => item !== scopeId);
+      return [...items, scopeId];
+    });
+  }
+
+  return (
+    <div className="ops-console-page">
+      <div className="product-page-kicker">AgentOps Runtime Console</div>
+      <Header
+        title="AgentOps 控制台"
+        desc="面向运行治理：Run Registry、状态机、Trace Timeline、Tool Call Audit、Run Detail、审批记录和失败回放。"
+      />
+
+      <section className="ops-command-center panel">
+        <div>
+          <span>Live Runtime</span>
+          <h2>{activeRun?.intent?.label || '等待 Agent Run'}</h2>
+          <p>{activeRun?.prompt || '这里不负责生产内容，而负责解释 Agent 怎么跑、哪里失败、能否恢复。'}</p>
+          <div>
+            <em>{blueprint?.runtime.llm.provider || 'llm'} · {blueprint?.runtime.llm.mode || 'loading'}</em>
+            <em>{blueprint?.runtime.rag.retrievalBackend || blueprint?.runtime.rag.vectorStore || 'vector store'}</em>
+            <em>{activeRun?.status || 'no-run'}</em>
+          </div>
+        </div>
+        <div className="ops-command-form">
+          <label>
+            <span>Command Center</span>
+            <textarea value={command} onChange={(event) => setCommand(event.target.value)} />
+          </label>
+          <div className="ops-command-grid">
+            <label>
+              <span>Agent / Skill</span>
+              <select value={selectedAgentId} onChange={(event) => setSelectedAgentId(event.target.value)}>
+                {(blueprint?.capabilities || []).map((item) => (
+                  <option key={item.id} value={item.id}>{item.name}</option>
+                ))}
+              </select>
+            </label>
+            <div className="ops-command-preview">
+              <strong>{selectedAgent?.name || 'Agent Runtime'}</strong>
+              <p>{selectedAgent?.description || '选择一个 Agent 后，运行会绑定对应 Skill、Tools 和 Knowledge Scopes。'}</p>
+              <span>{(selectedAgent?.tools || []).join(' / ')}</span>
+            </div>
+          </div>
+          <div className="ops-scope-row">
+            <strong>Knowledge Scope</strong>
+            {scopeOptions.map((scope) => (
+              <button key={scope.id} type="button" className={selectedScopes.includes(scope.id) ? 'active' : ''} onClick={() => toggleScope(scope.id)}>
+                {scope.label}
+              </button>
+            ))}
+          </div>
+          <div className="ops-command-actions">
+            <button className="primary-button" onClick={() => runCommand()} disabled={!session || running}><Send size={15} />{running ? '运行中' : '运行 Agent'}</button>
+            <button className="secondary-button" onClick={load}><RefreshCw size={15} />刷新</button>
+            <button className="secondary-button" onClick={() => control('pause')} disabled={!activeRun}><Pause size={15} />暂停</button>
+            <button className="secondary-button" onClick={() => control('resume')} disabled={!activeRun}><Play size={15} />恢复</button>
+            <button className="secondary-button" onClick={() => control('rollback')} disabled={!activeRun}><RotateCcw size={15} />回滚</button>
+            <button className="secondary-button" onClick={rerunActive} disabled={!activeRun || running}><RefreshCw size={15} />重放</button>
+          </div>
+        </div>
+      </section>
+
+      <section className="ops-metrics-grid">
+        <article><strong>{metrics.total}</strong><span>Total Runs</span></article>
+        <article><strong>{metrics.waiting}</strong><span>Waiting Review</span></article>
+        <article><strong>{metrics.failed}</strong><span>Failed</span></article>
+        <article><strong>{metrics.avgLatency}ms</strong><span>Avg Latency</span></article>
+        <article><strong>{metrics.avgQuality}%</strong><span>Quality</span></article>
+      </section>
+
+      <main className="ops-console-layout">
+        <aside className="panel ops-run-registry">
+          <div className="section-head">
+            <div>
+              <h2>Run Registry</h2>
+              <p>按状态、意图、Skill 检索历史运行。</p>
+            </div>
+            <Search size={18} />
+          </div>
+          <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="Search prompt / skill / status" />
+          <div className="ops-filter-row">
+            {['all', 'review_required', 'confirmed', 'failed', 'paused', 'rolled_back'].map((item) => (
+              <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item}</button>
+            ))}
+          </div>
+          <div className="ops-run-list">
+            {filteredRuns.map((run) => (
+              <button key={run._id} className={activeRun?._id === run._id ? 'active' : ''} onClick={() => { setActiveRunId(run._id); setActiveTraceId(run.trace?.[0]?.id || ''); }}>
+                <strong>{run.intent?.label || 'Agent Run'}</strong>
+                <span>{run.status} · {run.selectedSkill?.name || 'Runtime'} · {formatTime(run.createdAt)}</span>
+                <p>{run.prompt}</p>
+              </button>
+            ))}
+            {!filteredRuns.length ? <div className="runtime-empty">暂无匹配 Run。</div> : null}
+          </div>
+        </aside>
+
+        <section className="ops-main-stage">
+          <section className="panel ops-graph-panel">
+            <div className="section-head">
+              <div>
+                <h2>Agent State Machine</h2>
+                <p>展示 Agent 从意图识别到人工确认的真实状态路径。</p>
+              </div>
+              <GitBranch size={20} />
+            </div>
+            <div className="ops-state-rail">
+              {['intent', 'skill', 'rag', 'tool', 'llm', 'review'].map((node, index) => {
+                const step = trace[index];
+                return (
+                  <button key={node} className={activeTrace?.id === step?.id ? 'active' : step?.status || ''} onClick={() => setActiveTraceId(step?.id || '')}>
+                    <em>{String(index + 1).padStart(2, '0')}</em>
+                    <strong>{step?.name || node}</strong>
+                    <span>{step?.status || 'pending'}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <svg className="ops-sparkline" viewBox="0 0 280 72" aria-hidden="true">
+              <polyline points={trendPath} fill="none" stroke="#0f766e" strokeWidth="4" strokeLinecap="round" />
+            </svg>
+          </section>
+
+          <section className="ops-lower-grid">
+            <article className="panel ops-trace-panel">
+              <div className="section-head">
+                <div>
+                  <h2>Trace Timeline</h2>
+                  <p>默认展示步骤，点击节点查看输入输出。</p>
+                </div>
+                <Clock3 size={18} />
+              </div>
+              <div className="ops-trace-list">
+                {trace.map((item) => (
+                  <button key={item.id} className={activeTrace?.id === item.id ? 'active' : ''} onClick={() => setActiveTraceId(item.id)}>
+                    <span className={`ops-dot ${item.status}`} />
+                    <strong>{item.name}</strong>
+                    <em>{item.durationMs || 0}ms · {item.tokenUsage || 0} tokens</em>
+                  </button>
+                ))}
+                {!trace.length ? <div className="runtime-empty">暂无 Trace。</div> : null}
+              </div>
+            </article>
+
+            <article className="panel ops-audit-panel">
+              <div className="section-head">
+                <div>
+                  <h2>Tool Call Audit</h2>
+                  <p>工具调用、错误、token 和审计输入输出。</p>
+                </div>
+                <TerminalSquare size={18} />
+              </div>
+              {activeTrace ? (
+                <div className="ops-node-detail">
+                  <header>
+                    <strong>{activeTrace.name}</strong>
+                    <span>{activeTrace.status}</span>
+                  </header>
+                  <div className="ops-node-meta">
+                    <em>{activeTrace.durationMs || 0}ms</em>
+                    <em>{activeTrace.tokenUsage || 0} tokens</em>
+                    <em>{activeTrace.tool || 'runtime'}</em>
+                  </div>
+                  <pre>{formatJson({ input: activeTrace.input, output: activeTrace.output, error: activeTrace.error })}</pre>
+                </div>
+              ) : <div className="runtime-empty">选择 Trace 节点查看详情。</div>}
+            </article>
+          </section>
+        </section>
+
+        <aside className="panel ops-detail-dock">
+          <div className="section-head">
+            <div>
+              <h2>Run Detail</h2>
+              <p>审批记录、失败回放和产物留档。</p>
+            </div>
+            <Workflow size={20} />
+          </div>
+          <textarea value={controlNote} onChange={(event) => setControlNote(event.target.value)} />
+          <div className="ops-review-actions">
+            <button className="primary-button" onClick={() => review('confirm')} disabled={!activeRun}><CheckCircle2 size={14} />确认</button>
+            <button className="secondary-button" onClick={() => review('revise')} disabled={!activeRun}>修改</button>
+            <button className="danger-button" onClick={() => review('reject')} disabled={!activeRun}><AlertTriangle size={14} />拒绝</button>
+          </div>
+          <div className="ops-detail-block">
+            <strong>Artifacts</strong>
+            {(activeRun?.artifacts || []).map((artifact) => (
+              <article key={artifact.id}>
+                <FileBadge title={artifact.title} />
+                <span>{artifact.type} · {artifact.status} · v{artifact.version || 1}</span>
+              </article>
+            ))}
+          </div>
+          <div className="ops-detail-block">
+            <strong>Sources</strong>
+            {(activeRun?.sources || []).slice(0, 5).map((source) => (
+              <article key={source._id}>
+                <Database size={14} />
+                <span>{source.documentTitle} · {Number(source.score || 0).toFixed(4)}</span>
+              </article>
+            ))}
+          </div>
+          <div className="ops-detail-block">
+            <strong>Audit Log</strong>
+            {(activeRun?.logs || []).slice(-8).reverse().map((log) => (
+              <article key={log.id}>
+                <span>{log.level}</span>
+                <p>{log.message}</p>
+                <em>{formatTime(log.at)}</em>
+              </article>
+            ))}
+          </div>
+        </aside>
+      </main>
+    </div>
+  );
+}
+
+function FileBadge({ title }: { title: string }) {
+  return (
+    <span className="ops-file-badge">
+      <ClipboardCheck size={14} />
+      {title}
+    </span>
+  );
+}

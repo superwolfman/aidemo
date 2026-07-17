@@ -1,6 +1,8 @@
 import { lazy } from 'react';
 import {
+  Activity,
   Bot,
+  Boxes,
   Workflow,
 } from 'lucide-react';
 import type { ComponentType, LazyExoticComponent } from 'react';
@@ -50,6 +52,28 @@ export const subApps: SubAppManifest[] = [
     sandbox: 'wujie',
     capabilities: ['intent-routing', 'agent-plan', 'state-machine', 'tool-audit', 'pause-resume-rollback', 'human-in-loop'],
     loader: lazy(() => import('../modules/agent-studio/AgentStudio'))
+  },
+  {
+    id: 'delivery-copilot',
+    name: 'Delivery Copilot',
+    labelKey: 'nav.deliveryCopilot',
+    icon: Boxes,
+    domain: 'delivery-copilot',
+    mode: 'local',
+    sandbox: 'wujie',
+    capabilities: ['requirement-intake', 'rag-context', 'streaming-analysis', 'artifact-workbench', 'human-review'],
+    loader: lazy(() => import('../modules/delivery-copilot/DeliveryCopilot'))
+  },
+  {
+    id: 'agentops-console',
+    name: 'AgentOps Console',
+    labelKey: 'nav.agentOpsConsole',
+    icon: Activity,
+    domain: 'agentops-console',
+    mode: 'local',
+    sandbox: 'wujie',
+    capabilities: ['run-registry', 'state-machine', 'trace-timeline', 'tool-audit', 'approval-history', 'failure-replay'],
+    loader: lazy(() => import('../modules/agentops-console/AgentOpsConsole'))
   }
 ];
 

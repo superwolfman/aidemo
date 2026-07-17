@@ -590,32 +590,84 @@ export function agentStudioRouter(store) {
     }
 
     const prompt = String(req.body.message || '').trim();
+    const commandOptions = req.body.commandOptions && typeof req.body.commandOptions === 'object' ? req.body.commandOptions : {};
     const modelConfig = req.body.model && typeof req.body.model === 'object' ? req.body.model : {};
     const provider = getProviderStatus(modelConfig);
-    const intent = inferIntent(prompt);
-    const selectedSkill = selectCapability(intent);
+    let intent = inferIntent(prompt);
+    if (Array.isArray(commandOptions.scopes) && commandOptions.scopes.length) {
+      intent = { ...intent, scopes: commandOptions.scopes };
+    }
+    const requestedCapability = agentCapabilities.find((capability) => (
+      capability.id === commandOptions.agentId || capability.id === commandOptions.skillId
+    ));
+    const selectedSkill = requestedCapability || selectCapability(intent);
+    if (requestedCapability && requestedCapability.id !== intent.id) {
+      intent = {
+        ...intent,
+        id: requestedCapability.id,
+        label: requestedCapability.name,
+        goal: requestedCapability.description,
+        signals: [...(intent.signals || []), 'command_center_selected']
+      };
+    }
     let plan = buildAgentPlan(intent);
     const runId = `run-${crypto.randomUUID()}`;
     const logs = [
       auditLog('info', 'Agent Run 已创建', { runId, promptPreview: prompt.slice(0, 80) })
     ];
     const trace = [];
-    const emitStatus = (status, label, extra = {}) => sendEvent(res, 'run_status', { status, label, at: now(), ...extra });
+    let runRecord = await store.createRecord('agent_runs', {
+      runId,
+      sessionId: session._id,
+      status: 'created',
+      prompt,
+      intent,
+      selectedSkill,
+      plan,
+      sources: [],
+      artifacts: [],
+      trace,
+      logs,
+      answer: '',
+      provider,
+      quality: null,
+      evalCaseId: req.body.evalCaseId,
+      commandOptions,
+      createdBy: req.user._id
+    });
+    const persistRun = async (patch = {}) => {
+      runRecord = await store.updateRecord('agent_runs', runRecord._id, {
+        intent,
+        selectedSkill,
+        plan,
+        trace,
+        logs,
+        ...patch
+      });
+      return runRecord;
+    };
+    const emitStatus = async (status, label, extra = {}) => {
+      await persistRun({ status });
+      sendEvent(res, 'run_status', { runDbId: runRecord._id, runId, status, label, at: now(), intent, selectedSkill, plan, ...extra });
+    };
     const emitStep = async (payload) => {
       trace.push(payload);
+      await persistRun({ trace });
       sendEvent(res, 'trace', payload);
       await sleep(110);
     };
 
-    emitStatus('intent_detected', '识别自然语言意图', { runId, intent, selectedSkill, plan });
+    await emitStatus('intent_detected', '识别自然语言意图', { runId, intent, selectedSkill, plan });
     await emitStep(step('intent', '意图理解', 'success', {
       input: { prompt },
       output: intent,
       tokenUsage: tokenCount(prompt)
     }));
     logs.push(auditLog('info', `意图识别完成：${intent.label}`, { intent }));
+    await persistRun({ logs });
 
     plan = updatePlan(plan, 'select-skill', 'success', { output: { skillId: selectedSkill.id, tools: selectedSkill.tools } });
+    await persistRun({ plan });
     sendEvent(res, 'plan', { plan, selectedSkill, intent });
     await emitStep(step('skill', 'Skill 自动选择', 'success', {
       input: { intent: intent.id },
@@ -623,13 +675,15 @@ export function agentStudioRouter(store) {
       tokenUsage: tokenCount(JSON.stringify(selectedSkill))
     }));
     logs.push(auditLog('info', `自动选择 Skill：${selectedSkill.name}`, { skillId: selectedSkill.id }));
+    await persistRun({ logs });
 
-    emitStatus('retrieving', '检索知识库上下文', { scopes: intent.scopes });
+    await emitStatus('retrieving', '检索知识库上下文', { scopes: intent.scopes });
     const retrievalStartedAt = Date.now();
     const rag = await retrieveKnowledge({ store, query: `${intent.goal}\n${prompt}`, scopes: intent.scopes, limit: 5 });
     const sources = rag.sources || [];
     sendEvent(res, 'sources', { sources, rag: rag.status, latencyMs: Date.now() - retrievalStartedAt, scopes: intent.scopes });
     plan = updatePlan(plan, 'retrieve-context', 'success', { output: { hits: sources.length, backend: rag.status?.retrievalBackend || rag.status?.backend } });
+    await persistRun({ status: 'retrieving', sources, plan });
     sendEvent(res, 'plan', { plan, selectedSkill, intent });
     await emitStep(step('rag', 'RAG 上下文检索', 'success', {
       tool: 'retrieveKnowledge',
@@ -641,10 +695,12 @@ export function agentStudioRouter(store) {
       tool: 'retrieveKnowledge',
       hitCount: sources.length
     }));
+    await persistRun({ logs, sources });
 
-    emitStatus('planning', '规划产研测交付路径');
+    await emitStatus('planning', '规划产研测交付路径');
     const artifacts = attachArtifactWorkflow(buildDeliveryArtifacts({ intent, prompt, sources }), 'plan');
     plan = updatePlan(plan, 'run-tools', 'success', { output: { artifacts: artifacts.map((artifact) => artifact.type) } });
+    await persistRun({ status: 'tool_running', artifacts, plan });
     sendEvent(res, 'plan', { plan, selectedSkill, intent });
     await emitStep(step('plan', '产研测计划生成', 'success', {
       tool: 'planDelivery',
@@ -656,9 +712,11 @@ export function agentStudioRouter(store) {
       tool: 'planDelivery',
       artifacts: artifacts.map((artifact) => artifact.title)
     }));
+    await persistRun({ logs, artifacts });
 
-    emitStatus('streaming', '调用 LLM Provider 流式生成');
+    await emitStatus('streaming', '调用 LLM Provider 流式生成');
     plan = updatePlan(plan, 'stream-result', 'running');
+    await persistRun({ status: 'streaming', plan });
     sendEvent(res, 'plan', { plan, selectedSkill, intent });
     await emitStep(step('llm', 'LLM 流式生成', 'running', {
       input: { provider: provider.provider, model: provider.requestedModel || provider.model }
@@ -696,11 +754,13 @@ export function agentStudioRouter(store) {
       }));
       plan = updatePlan(plan, 'stream-result', 'success', { output: { provider: generated.provider.provider, model: generated.provider.model } });
       logs.push(auditLog('llm', 'LLM Provider 调用成功', { provider: generated.provider }));
+      await persistRun({ answer, plan, logs, provider: generated.provider });
     } catch (error) {
       await emitStep(step('llm', 'LLM 流式生成', 'failed', { error: error.message }));
       answer = `${fallback}\n\n### Provider fallback\n真实模型调用失败，已降级到 deterministic Agent Runtime。错误：${error.message}`;
       plan = updatePlan(plan, 'stream-result', 'failed', { error: error.message });
       logs.push(auditLog('error', 'LLM Provider 调用失败，已降级 fallback', { error: error.message }));
+      await persistRun({ answer, plan, logs, provider });
     }
     sendEvent(res, 'plan', { plan, selectedSkill, intent });
 
@@ -711,19 +771,19 @@ export function agentStudioRouter(store) {
       }
     }
 
-    emitStatus('review_required', '等待人工确认');
+    await emitStatus('review_required', '等待人工确认');
     plan = updatePlan(plan, 'human-review', 'waiting', { output: { humanRequired: intent.riskLevel === 'high' } });
+    await persistRun({ status: 'review_required', answer, plan });
     sendEvent(res, 'plan', { plan, selectedSkill, intent });
     await emitStep(step('review', '人工确认节点', 'waiting', {
       humanRequired: intent.riskLevel === 'high',
       output: { policy: '高风险交付物需确认后进入执行' }
     }));
     logs.push(auditLog('review', '进入人工确认节点', { humanRequired: intent.riskLevel === 'high' }));
+    await persistRun({ logs });
 
     const quality = scoreRunQuality({ sources, artifacts, trace, provider, intent });
-    const run = await store.createRecord('agent_runs', {
-      runId,
-      sessionId: session._id,
+    const run = await persistRun({
       status: 'review_required',
       prompt,
       intent,
@@ -737,6 +797,7 @@ export function agentStudioRouter(store) {
       provider,
       quality,
       evalCaseId: req.body.evalCaseId,
+      commandOptions,
       createdBy: req.user._id
     });
     const userMessage = { id: `user-${Date.now()}`, role: 'user', content: prompt, createdAt: now() };
@@ -749,7 +810,16 @@ export function agentStudioRouter(store) {
     });
 
     sendEvent(res, 'review', { runId: run._id, required: intent.riskLevel === 'high', status: 'pending' });
-    emitStatus('completed', 'Agent 运行完成，等待交付确认');
+    sendEvent(res, 'run_status', {
+      runDbId: run._id,
+      runId,
+      status: 'completed',
+      label: 'Agent 运行完成，等待交付确认',
+      at: now(),
+      intent,
+      selectedSkill,
+      plan
+    });
     sendEvent(res, 'final', { run, message: assistantMessage });
     closeSse(res);
   });
