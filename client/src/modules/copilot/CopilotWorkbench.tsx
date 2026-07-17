@@ -554,6 +554,7 @@ export default function CopilotWorkbench() {
   const [knowledgeStats, setKnowledgeStats] = useState<KnowledgeStats | null>(null);
   const [knowledgeTemplates, setKnowledgeTemplates] = useState<KnowledgeTemplate[]>([]);
   const [evalCases, setEvalCases] = useState<EvalCase[]>([]);
+  const [selectedEvalCase, setSelectedEvalCase] = useState<EvalCase | null>(null);
   const [ragQuery, setRagQuery] = useState('');
   const [ragPreview, setRagPreview] = useState<RagSource[]>([]);
   const [ragDiagnostics, setRagDiagnostics] = useState<RagDiagnostics | null>(null);
@@ -606,6 +607,15 @@ export default function CopilotWorkbench() {
     api: artifacts.some((artifact) => artifact.type === 'api'),
     trace: trace.length >= 6
   }), [artifacts, sources.length, trace.length]);
+  const pendingWorkflowSummary = useMemo(() => {
+    const fields = activeMode.fields
+      .map((field) => ({ label: field.label, value: form[field.key] || field.placeholder }))
+      .filter((item) => item.value);
+    return {
+      title: selectedEvalCase?.title || activeMode.label,
+      fields
+    };
+  }, [activeMode, form, selectedEvalCase]);
 
   const load = useCallback(async () => {
     const [skillResult, sessionResult, knowledgeResult, templateResult, runtimeResult, modelResult, evalResult] = await Promise.all([
@@ -835,6 +845,7 @@ export default function CopilotWorkbench() {
   }
 
   function changeMode(mode: TaskMode) {
+    setSelectedEvalCase(null);
     setTaskModeId(mode.id);
     setSkillId(mode.skillId);
     setPrompt(mode.prompt);
@@ -851,6 +862,7 @@ export default function CopilotWorkbench() {
   }
 
   function selectSession(session: Session) {
+    setSelectedEvalCase(null);
     setActive(session);
     setTrace([]);
     setRunState({ status: 'idle', label: '等待输入' });
@@ -872,6 +884,7 @@ export default function CopilotWorkbench() {
 
   function applyScenario(scenario: typeof demoScenarios[number]) {
     const mode = taskModes.find((item) => item.id === scenario.modeId) || taskModes[0];
+    setSelectedEvalCase(null);
     setTaskModeId(mode.id);
     setSkillId(mode.skillId);
     setPrompt(mode.prompt);
@@ -886,12 +899,29 @@ export default function CopilotWorkbench() {
     setRagDiagnostics(runtime ? { rag: runtime.rag, query: '', scopes: [], sources: [], source: 'runtime' } : null);
   }
 
-  function applyEvalCase(item: EvalCase) {
+  async function applyEvalCase(item: EvalCase) {
     const mode = taskModes.find((task) => task.id === item.modeId) || taskModes[0];
+    setSelectedEvalCase(item);
     setTaskModeId(mode.id);
     setSkillId(mode.skillId);
     setPrompt(mode.prompt);
     setForm(item.form);
+    const cleanSessionTitle = `${item.title} Eval 会话`;
+    try {
+      const created = await request('/api/copilot/sessions', {
+        method: 'POST',
+        body: JSON.stringify({ title: cleanSessionTitle, skillId: mode.skillId })
+      });
+      setSessions((items) => [created.session, ...items.filter((session) => session._id !== created.session._id)]);
+      setActive(created.session);
+    } catch {
+      setActive((current) => current ? {
+        ...current,
+        title: cleanSessionTitle,
+        activeSkillId: mode.skillId,
+        messages: []
+      } : current);
+    }
     setArtifacts([]);
     setArtifactReviews({});
     setTrace([]);
@@ -1370,7 +1400,7 @@ export default function CopilotWorkbench() {
                 <article key={item.id}>
                   <div>
                     <strong>{item.title}</strong>
-                    <button type="button" onClick={() => applyEvalCase(item)}>加载案例</button>
+                    <button type="button" onClick={() => void applyEvalCase(item)}>加载案例</button>
                   </div>
                   <p>{item.form.businessRequirement}</p>
                   <div className="eval-tags">
@@ -1524,13 +1554,15 @@ export default function CopilotWorkbench() {
                   {!visibleMessages.length ? (
                     <div className="chat-empty-state workflow-im-empty">
                       <Bot size={26} />
-                      <strong>等待生成 AI Product Workflow</strong>
-                      <span>点击左侧“生成工作流”后，这里会展示用户请求、AI 流式分析、引用上下文和可操作回答。</span>
-                      <div>
-                        <em>需求摘要</em>
-                        <em>页面模块</em>
-                        <em>接口协议</em>
-                        <em>任务拆解</em>
+                      <strong>等待生成：{pendingWorkflowSummary.title}</strong>
+                      <span>当前案例已加载。点击左侧“生成工作流”后，这里会按 SSE 动态展示用户请求、AI 分析、引用上下文和可操作回答。</span>
+                      <div className="pending-workflow-preview">
+                        {pendingWorkflowSummary.fields.slice(0, 4).map((item) => (
+                          <em key={item.label}>
+                            <b>{item.label}</b>
+                            {item.value}
+                          </em>
+                        ))}
                       </div>
                     </div>
                   ) : null}

@@ -3331,7 +3331,7 @@ kbd {
     radial-gradient(circle at center, rgba(15, 118, 110, 0.08), transparent 34%);
 }
 
-.workflow-im-empty div {
+.workflow-im-empty > div:not(.pending-workflow-preview) {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
@@ -3339,7 +3339,7 @@ kbd {
   margin-top: 4px;
 }
 
-.workflow-im-empty em {
+.workflow-im-empty > div:not(.pending-workflow-preview) em {
   border-radius: 999px;
   padding: 5px 9px;
   color: #0f766e;
@@ -3347,6 +3347,37 @@ kbd {
   font-size: 11px;
   font-style: normal;
   font-weight: 900;
+}
+
+.pending-workflow-preview {
+  width: min(100%, 760px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.pending-workflow-preview em {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  border: 1px solid #dce5ee;
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #405365;
+  background: #fff;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 750;
+  line-height: 1.55;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.pending-workflow-preview b {
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 950;
 }
 
 .artifact-panel {
