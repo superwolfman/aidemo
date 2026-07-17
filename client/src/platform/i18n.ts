@@ -6,14 +6,17 @@ const dictionaries: Record<Locale, Dictionary> = {
   'zh-CN': {
     'shell.title': 'AI Architecture Copilot',
     'nav.copilot': 'Copilot 工作台',
+    'nav.agentStudio': 'Agent 运行控制台',
   },
   'en-US': {
     'shell.title': 'AI Architecture Copilot',
     'nav.copilot': 'Copilot Workbench',
+    'nav.agentStudio': 'Agent Runtime',
   },
   'ar-SA': {
     'shell.title': 'AI Architecture Copilot',
     'nav.copilot': 'منصة Copilot',
+    'nav.agentStudio': 'وحدة تشغيل Agent',
   }
 };
 

@@ -6,6 +6,7 @@ import { createStore } from './store/index.js';
 import { requireAuth } from './middleware/auth.js';
 import { authRouter } from './routes/auth.js';
 import { copilotRouter } from './routes/copilot.js';
+import { agentStudioRouter } from './routes/agentStudio.js';
 
 const store = await createStore();
 const app = express();
@@ -42,6 +43,7 @@ app.get('/health', (req, res) => {
 
 app.use('/api/auth', authRouter(store, auth));
 app.use('/api/copilot', auth, copilotRouter(store));
+app.use('/api/agent-studio', auth, agentStudioRouter(store));
 
 app.use((err, req, res, next) => {
   console.error(err);

@@ -1,6 +1,7 @@
 import { lazy } from 'react';
 import {
   Bot,
+  Workflow,
 } from 'lucide-react';
 import type { ComponentType, LazyExoticComponent } from 'react';
 import type { LucideIcon } from 'lucide-react';
@@ -38,6 +39,17 @@ export const subApps: SubAppManifest[] = [
     sandbox: 'wujie',
     capabilities: ['multi-session-chat', 'skill-runtime', 'tool-calling', 'rag', 'human-in-loop', 'agent-trace'],
     loader: lazy(() => import('../modules/copilot/CopilotWorkbench'))
+  },
+  {
+    id: 'agent-studio',
+    name: 'Agent Runtime',
+    labelKey: 'nav.agentStudio',
+    icon: Workflow,
+    domain: 'agent-runtime',
+    mode: 'local',
+    sandbox: 'wujie',
+    capabilities: ['intent-routing', 'agent-plan', 'state-machine', 'tool-audit', 'pause-resume-rollback', 'human-in-loop'],
+    loader: lazy(() => import('../modules/agent-studio/AgentStudio'))
   }
 ];
 

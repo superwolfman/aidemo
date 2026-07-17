@@ -72,6 +72,139 @@ AI Architecture Copilot 的产品理念是：**AI 不直接替人做最终决策
 | LangSmith / LangGraph | Trace-first 执行轨迹，展示工具输入输出、耗时、token、错误和人工确认 |
 | 企业 AI 平台 | Guardrails 内建到运行时：schema、allowedTools、knowledgeScopes、审批 |
 
+## 当前完成度与产品化边界
+
+当前版本已经具备一个 AI 工作流产品的核心闭环：
+
+- 自然语言任务入口：用户不需要先理解复杂表单，可以直接描述目标。
+- Skill Runtime：每个 Skill 有输入约束、输出约束、工具权限和知识域范围。
+- RAG Context：按 Skill scope 检索知识库，展示 chunk、score、citation 和 retrieval backend。
+- LLM Provider Adapter：支持 DeepSeek / OpenAI-compatible / DashScope，并保留本地 fallback。
+- SSE 流式输出：支持停止、重新运行、失败降级和可见状态反馈。
+- Artifact Workbench：输出 PRD、页面结构、API Contract、测试策略和风险确认。
+- Agent Trace：记录意图理解、检索、工具调用、模型调用、产物生成和人工确认。
+- Human-in-the-loop：高风险产物进入确认、修改或拒绝流程。
+
+它已经达到“可演示、可解释、可继续工程化”的产品原型标准；距离线上生产级还需要补齐：
+
+- 更强的权限体系：多租户、组织空间、角色权限、工具级授权。
+- 更完整的运行态持久化：Agent Run 状态机持久化、恢复、重试、幂等和补偿。
+- 更严谨的 Eval：引用准确率、Artifact 完整度、工具调用成功率、人工采纳率。
+- 更强的模型治理：多 Provider 灰度、成本监控、限流、脱敏、审计和安全策略。
+- 更成熟的知识库：生产 embedding provider、Atlas Vector Search / pgvector / Milvus 索引治理、增量更新和召回评估。
+
+## 前端架构设计
+
+前端采用 `React + TypeScript + Vite + Less`，定位为 AI Native 工作台，而不是传统中后台表单系统。
+
+```text
+client
+  src
+    api                 # request / SSE streamRequest / auth token 注入
+    components          # 通用 UI 原语：Header、Status、Panel 等
+    modules
+      copilot           # Copilot Workbench：Skill、RAG、Artifact、Trace 主流程
+      agent-studio      # Agent Runtime Console：Agent 编排、控制与审计中心
+      ...
+    platform            # Shell、子应用注册、路由、i18n、全局事件
+    styles.less         # 全局设计语言与模块样式
+```
+
+### 分层职责
+
+| 层级 | 职责 |
+|---|---|
+| Platform Shell | 左侧导航、路由加载、登录态、i18n、子应用注册和布局约束 |
+| Feature Module | 每个业务能力独立目录维护自己的状态、视图、交互和 API 编排 |
+| API Client | 统一鉴权、错误处理、JSON 请求、SSE 流式事件解析和 Abort 控制 |
+| Runtime UI | 对 `idle / retrieving / streaming / review_required / failed / completed` 等状态做可视化 |
+| Artifact UI | 将模型输出拆成可预览、可复制、可确认、可导出的结构化产物 |
+| Trace UI | 默认展示步骤，按需展开输入输出、耗时、token、错误和人工确认信息 |
+
+### 前端 AI 交互原则
+
+- **自然语言优先**：输入目标，而不是先填复杂表单。
+- **过程可见**：检索、工具调用、模型生成、审批都必须能被用户看到。
+- **输出结构化**：回答不是纯文本，而是 PRD、页面结构、API、任务、风险等 Artifact。
+- **高风险可控**：涉及写入、发布、调用外部工具的动作必须进入人工确认。
+- **可恢复**：支持停止、重试、重新编辑 Prompt、复制回答和回填输入。
+
+## Agent Runtime Console 设计
+
+`Agent Runtime Console` 是新增的 Agent 运行控制台，合并了“AI 对话机器人”和“智能助手”的自然语言入口，但产品定位不是闲聊，而是 Agent 编排、控制与审计中心。它和 `Copilot 工作台` 的分工如下：
+
+| 模块 | 主导方式 | 核心价值 |
+|---|---|---|
+| Copilot 工作台 | 人选择 Skill，AI 生成产物 | 研发交付工作台 / Artifact 生成器 |
+| Agent Runtime Console | Agent 自动识别意图、选择 Skill、生成 Plan 并执行 | Agent 运行控制台 / 编排与审计中心 |
+
+### 典型流程
+
+```text
+用户输入自然语言需求
+  -> detectIntent 识别任务类型
+  -> Skill Runtime 选择 Agent 与工具权限
+  -> Agent Plan 生成执行计划
+  -> RAG 检索项目知识库
+  -> Tool Runtime 执行工具调用
+  -> LLM Provider 流式生成
+  -> Audit Trace 记录输入输出、耗时、token、错误
+  -> requestHumanReview 等待人工确认
+  -> pause / resume / rollback / confirm 写入审计日志
+```
+
+### 前后端链路
+
+| 模块 | 说明 |
+|---|---|
+| `client/src/modules/agent-studio` | AgentOps Console、Run Registry、Execution Graph、Node Detail、Tool Call Audit、Audit Timeline、Run Control |
+| `POST /api/agent-studio/sessions/:id/runs/stream` | 后端 Agent Run SSE 主链路 |
+| `POST /api/agent-studio/runs/:id/control` | 暂停、恢复、回滚等运行控制动作 |
+| `agent_sessions` | 会话、消息、当前 Agent |
+| `agent_runs` | Prompt、Intent、Selected Skill、Plan、Sources、Artifacts、Trace、Logs、Provider、运行状态 |
+| `agent_reviews` | 人工确认、修改、拒绝记录 |
+| `agent_audit_logs` | 线上化后可拆出的审计日志集合；当前随 `agent_runs.logs` 保存 |
+
+### 为什么不单独再做一个 Chatbot 菜单
+
+普通 Chatbot 容易变成“问答窗口”，与研发交付主线割裂。当前设计把对话、意图理解、RAG、Artifact、Trace、运行控制和人工确认合并到 `Agent Runtime Console`，用户看到的是一个完整 Agent 运行系统：
+
+- 顶部：运行健康度，包括 Runs、Sessions、等待审批、失败数和平均耗时。
+- 左侧：Run Registry，支持按状态与关键字检索历史运行。
+- 中间：Command Center、Agent Execution Graph、Plan Board、Tool Call Audit、Audit Log 和 Transcript Snapshot。
+- 右侧：Node Detail、Audit Timeline、Run Control、引用来源和 Artifact 留档。
+
+`Agent Runtime Console` 的核心不是“生成内容”，而是让每一次 Agent 执行都可观察、可解释、可暂停、可恢复、可回滚、可审批和可复盘。
+
+这样更接近 Cursor / Copilot Workspace / Dify / LangSmith 的工作台型产品形态。
+
+## 线上级 AI Agent 扩展方案
+
+当前项目可以继续扩展成线上可用 Agent 系统，建议按下面方向演进：
+
+| 能力 | 当前实现 | 线上化增强 |
+|---|---|---|
+| 状态机 | 前后端均有运行状态 | 后端持久化状态机、恢复、重试、幂等、补偿 |
+| 工具调用 | 普通函数工具和 MCP POC | 工具注册中心、权限策略、审批策略、审计日志 |
+| RAG | 本地 hash fallback + Atlas adapter | 生产 embedding、向量索引治理、召回评估、引用质量检查 |
+| 模型 | Provider Adapter | 多模型路由、成本预算、限流、降级、脱敏 |
+| 交付物 | PRD / Flow / API / Test / Risk | 版本管理、多人协作、Diff、导出、发布审批 |
+| 质量 | lint / typecheck / 本地校验 | Eval Pipeline、回归集、CI 质量门禁、线上观测 |
+
+产研测交付链路建议沉淀为固定 Agent Graph：
+
+```text
+Requirement Intake
+  -> Clarification
+  -> Context Retrieval
+  -> Product Planning
+  -> UI / API Contract Draft
+  -> Test Strategy
+  -> Risk Review
+  -> Human Approval
+  -> Delivery Backlog
+```
+
 ### v1.0 AI Dev Workflow
 
 - 研发提效 Skill。
