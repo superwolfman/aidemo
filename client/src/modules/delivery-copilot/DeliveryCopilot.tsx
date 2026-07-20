@@ -29,6 +29,9 @@ type Artifact = {
   reviewStatus?: string;
   versions?: Array<{ version: number; status: string; createdAt: string }>;
   approvals?: Array<{ action: string; note?: string; createdAt: string }>;
+  exports?: Array<{ id: string; format: string; filename: string; exportedAt: string }>;
+  sourceRefs?: Array<{ id: string; index: number; title: string; score: number; retrievalBackend?: string }>;
+  generatedBy?: { tool: string; traceStepId: string; generatedAt: string };
 };
 
 type TraceStep = {
@@ -64,6 +67,7 @@ type EvalCase = {
   prompt: string;
   expected: string[];
   lastResult?: RunQuality;
+  evalHistory?: Array<{ score: number; verdict: string; createdAt: string }>;
 };
 
 type RuntimeBlueprint = {
@@ -319,6 +323,7 @@ export default function DeliveryCopilot() {
       result.content || '',
       format === 'json' ? 'application/json;charset=utf-8' : 'text/markdown;charset=utf-8'
     );
+    if (result.run) syncRun(result.run);
   }
 
   return (
@@ -495,11 +500,19 @@ export default function DeliveryCopilot() {
                   <textarea value={artifactDraft} onChange={(event) => setArtifactDraft(event.target.value)} />
                   <aside>
                     <strong>版本与审批</strong>
+                    <span>Trace · {activeArtifact.generatedBy?.traceStepId || activeArtifact.traceStepId || 'unknown'}</span>
+                    <span>Tool · {activeArtifact.generatedBy?.tool || 'planDelivery'}</span>
+                    {(activeArtifact.sourceRefs || []).slice(0, 4).map((item) => (
+                      <span key={item.id}>[{item.index}] {item.title} · {Number(item.score || 0).toFixed(4)}</span>
+                    ))}
                     {(activeArtifact.versions || []).slice(0, 5).map((item) => (
                       <span key={`${item.version}-${item.createdAt}`}>v{item.version} · {item.status}</span>
                     ))}
                     {(activeArtifact.approvals || []).slice(0, 5).map((item, index) => (
                       <span key={`${item.createdAt}-${index}`}>{item.action} · {item.note || '已确认'}</span>
+                    ))}
+                    {(activeArtifact.exports || []).slice(0, 5).map((item) => (
+                      <span key={item.id}>export · {item.format} · {item.filename}</span>
                     ))}
                     {!activeArtifact.versions?.length && !activeArtifact.approvals?.length ? <p>保存或确认后会产生真实版本和审批记录。</p> : null}
                   </aside>

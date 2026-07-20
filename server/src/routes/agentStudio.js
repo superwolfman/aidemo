@@ -58,6 +58,74 @@ function auditLog(level, message, extra = {}) {
   };
 }
 
+const runStateTransitions = {
+  created: ['intent_detected', 'failed', 'cancelled', 'paused'],
+  intent_detected: ['skill_selected', 'failed', 'cancelled', 'paused'],
+  skill_selected: ['retrieving', 'failed', 'cancelled', 'paused'],
+  retrieving: ['tool_running', 'failed', 'cancelled', 'paused'],
+  tool_running: ['streaming', 'failed', 'cancelled', 'paused'],
+  streaming: ['review_required', 'failed', 'cancelled', 'paused'],
+  review_required: ['confirmed', 'rejected', 'revision_requested', 'paused'],
+  revision_requested: ['tool_running', 'cancelled', 'paused'],
+  paused: ['resumed', 'cancelled', 'rolled_back'],
+  resumed: ['review_required', 'tool_running', 'streaming', 'failed', 'paused', 'confirmed', 'rejected', 'revision_requested'],
+  rolled_back: ['revision_requested', 'cancelled'],
+  failed: ['resumed', 'rolled_back', 'cancelled'],
+  confirmed: [],
+  rejected: [],
+  cancelled: []
+};
+
+function canTransition(from, to) {
+  if (from === to) return true;
+  return (runStateTransitions[from] || []).includes(to);
+}
+
+function createStateTransition({ from, to, label, actorId, reason = '', meta = {} }) {
+  return {
+    id: `transition-${crypto.randomUUID()}`,
+    from,
+    to,
+    label,
+    actorId,
+    reason,
+    at: now(),
+    meta
+  };
+}
+
+function transitionRunPatch(run, to, { label, actorId, reason = '', meta = {} } = {}) {
+  const from = run.status || 'created';
+  if (!canTransition(from, to)) {
+    const message = `Invalid Agent Run transition: ${from} -> ${to}`;
+    const error = new Error(message);
+    error.statusCode = 409;
+    throw error;
+  }
+  const transition = createStateTransition({ from, to, label: label || to, actorId, reason, meta });
+  return {
+    status: to,
+    stateTransitions: [...(run.stateTransitions || []), transition]
+  };
+}
+
+function upsertTraceStage(trace = [], stageId, patch = {}) {
+  let updated = false;
+  const nextTrace = trace.map((item) => {
+    if (item.id !== stageId) return item;
+    updated = true;
+    return {
+      ...item,
+      ...patch,
+      updatedAt: now()
+    };
+  });
+  if (!updated) {
+    nextTrace.push(step(stageId, patch.name || stageId, patch.status || 'success', patch));
+  }
+  return nextTrace;
+}
+
 function inferIntent(input) {
   const text = String(input || '');
   const signals = [];
@@ -251,16 +319,57 @@ function buildDeliveryArtifacts({ intent, prompt, sources }) {
         '- Artifact：PRD、Flow、API、Test Plan 均可预览、复制、导出和确认。',
         '- Human-in-the-loop：高风险节点必须暂停并记录审批结果。'
       ].join('\n')
+    },
+    {
+      id: `agent-artifact-risk-${crypto.randomUUID()}`,
+      type: 'risk',
+      title: '风险与人工确认问题',
+      status: 'draft',
+      content: [
+        '# 风险与人工确认问题',
+        '',
+        '## 主要风险',
+        '- LLM Provider 失败时必须显式进入 fallback，并保留审计记录。',
+        '- RAG 命中不足时，生成结果必须标记为低置信度，不能伪造引用。',
+        '- API Contract、页面状态流和测试策略需要人工确认后才能进入交付。',
+        '',
+        '## 待确认问题',
+        '- 目标用户与权限边界是否清晰？',
+        '- 是否允许 Agent 自动触发外部系统写入？',
+        '- 是否需要把审批结果同步到研发任务系统？',
+        '',
+        '## 引用依据',
+        sourceBlock
+      ].join('\n')
     }
   ];
 }
 
-function attachArtifactWorkflow(artifacts, traceStepId = 'plan') {
+function normalizeSourceRef(source, index) {
+  return {
+    id: source._id || `source-${index + 1}`,
+    index: index + 1,
+    title: source.documentTitle,
+    score: Number(source.score || 0),
+    retrievalBackend: source.retrievalBackend,
+    sourcePath: source.sourcePath
+  };
+}
+
+function attachArtifactWorkflow(artifacts, traceStepId = 'tool', sources = []) {
+  const sourceRefs = sources.map(normalizeSourceRef);
   return artifacts.map((artifact) => ({
     ...artifact,
     status: artifact.status || 'draft',
     version: 1,
     traceStepId,
+    generatedBy: {
+      tool: 'planDelivery',
+      traceStepId,
+      generatedAt: now()
+    },
+    sourceRefs,
+    sourceIds: sourceRefs.map((source) => source.id),
     reviewStatus: 'pending',
     versions: [
       {
@@ -310,6 +419,24 @@ function scoreRunQuality({ sources = [], artifacts = [], trace = [], provider = 
           ? 'needs_minor_review'
           : 'needs_revision'
   };
+}
+
+async function persistEvalResult(store, run) {
+  const quality = run.quality || scoreRunQuality(run);
+  const result = await store.createRecord('agent_eval_results', {
+    runId: run._id,
+    evalCaseId: run.evalCaseId || null,
+    score: quality.score,
+    passed: quality.passed,
+    total: quality.total,
+    verdict: quality.verdict,
+    checks: quality.checks,
+    citationHitCount: run.sources?.length || 0,
+    artifactCount: run.artifacts?.length || 0,
+    traceStepCount: run.trace?.length || 0,
+    createdAt: now()
+  });
+  return result;
 }
 
 function buildEvalCases() {
@@ -399,11 +526,14 @@ export function agentStudioRouter(store) {
 
   router.get('/eval-cases', async (req, res) => {
     const runs = await store.listRecords('agent_runs', 100);
+    const evalResults = await store.listRecords('agent_eval_results', 100);
     res.json({
       cases: buildEvalCases().map((item) => ({
         ...item,
         status: 'ready',
-        lastResult: runs.find((run) => run.evalCaseId === item.id)?.quality
+        lastRunId: runs.find((run) => run.evalCaseId === item.id)?._id,
+        lastResult: runs.find((run) => run.evalCaseId === item.id)?.quality,
+        evalHistory: evalResults.filter((result) => result.evalCaseId === item.id).slice(0, 5)
       }))
     });
   });
@@ -433,20 +563,61 @@ export function agentStudioRouter(store) {
       res.status(404).json({ message: 'Agent run not found' });
       return;
     }
+    const action = req.body.action || 'confirm';
+    const nextStatusMap = {
+      confirm: 'confirmed',
+      reject: 'rejected',
+      revise: 'revision_requested'
+    };
+    const nextStatus = nextStatusMap[action] || 'confirmed';
     const review = await store.createRecord('agent_reviews', {
       runId: run._id,
-      action: req.body.action || 'confirm',
+      action,
       note: req.body.note || '',
-      reviewerId: req.user._id
+      reviewerId: req.user._id,
+      previousStatus: run.status,
+      nextStatus
     });
-    const log = auditLog('review', `审批动作：${req.body.action || 'confirm'}`, {
-      action: req.body.action || 'confirm',
+    const log = auditLog('review', `审批动作：${action}`, {
+      action,
       reviewerId: req.user._id,
       note: req.body.note || ''
     });
+    const nextArtifacts = action === 'confirm'
+      ? (run.artifacts || []).map((artifact) => ({
+        ...artifact,
+        status: artifact.status === 'confirmed' ? artifact.status : 'reviewed',
+        reviewStatus: artifact.reviewStatus === 'confirmed' ? artifact.reviewStatus : 'reviewed'
+      }))
+      : run.artifacts || [];
+    const nextTrace = upsertTraceStage(run.trace || [], 'review', {
+      name: '人工审批决策',
+      status: action === 'reject' ? 'failed' : action === 'revise' ? 'waiting' : 'success',
+      output: {
+        action,
+        note: req.body.note || '',
+        policy: action === 'confirm' ? '审批通过，允许进入下一阶段' : '审批未通过，需要修订或终止'
+      }
+    });
+    let transitionPatch;
+    try {
+      transitionPatch = transitionRunPatch(run, nextStatus, {
+        label: `人工审批：${action}`,
+        actorId: req.user._id,
+        reason: req.body.note || ''
+      });
+    } catch (error) {
+      res.status(error.statusCode || 500).json({ message: error.message });
+      return;
+    }
+    const quality = scoreRunQuality({ ...run, artifacts: nextArtifacts, trace: nextTrace });
     const nextRun = await store.updateRecord('agent_runs', run._id, {
-      status: req.body.action === 'reject' ? 'rejected' : 'confirmed',
+      ...transitionPatch,
       review,
+      reviewHistory: [review, ...(run.reviewHistory || [])],
+      artifacts: nextArtifacts,
+      trace: nextTrace,
+      quality,
       logs: [...(run.logs || []), log]
     });
     res.json({ review, run: nextRun });
@@ -468,6 +639,8 @@ export function agentStudioRouter(store) {
         content: nextContent,
         status: nextStatus,
         reviewStatus: req.body.reviewStatus || artifact.reviewStatus || 'pending',
+        updatedAt: now(),
+        updatedBy: req.user._id,
         version,
         versions: [
           {
@@ -488,7 +661,9 @@ export function agentStudioRouter(store) {
     }
     const log = auditLog('artifact', `Artifact 更新：${updatedArtifact.title}`, {
       artifactId: updatedArtifact.id,
-      version: updatedArtifact.version
+      version: updatedArtifact.version,
+      traceStepId: updatedArtifact.traceStepId,
+      sourceIds: updatedArtifact.sourceIds || []
     });
     const nextRun = await store.updateRecord('agent_runs', run._id, {
       artifacts,
@@ -510,6 +685,8 @@ export function agentStudioRouter(store) {
         ...artifact,
         status: 'confirmed',
         reviewStatus: 'confirmed',
+        confirmedAt: now(),
+        confirmedBy: req.user._id,
         approvals: [
           { action: 'confirm', note: req.body.note || '', reviewerId: req.user._id, createdAt: now() },
           ...(artifact.approvals || [])
@@ -522,10 +699,19 @@ export function agentStudioRouter(store) {
       return;
     }
     const log = auditLog('artifact', `Artifact 确认：${updatedArtifact.title}`, { artifactId: updatedArtifact.id });
+    const nextTrace = upsertTraceStage(run.trace || [], updatedArtifact.traceStepId || 'tool', {
+      status: 'success',
+      output: {
+        ...(run.trace || []).find((item) => item.id === (updatedArtifact.traceStepId || 'tool'))?.output,
+        confirmedArtifactId: updatedArtifact.id,
+        confirmedArtifactTitle: updatedArtifact.title
+      }
+    });
     const nextRun = await store.updateRecord('agent_runs', run._id, {
       artifacts,
+      trace: nextTrace,
       logs: [...(run.logs || []), log],
-      quality: scoreRunQuality({ ...run, artifacts })
+      quality: scoreRunQuality({ ...run, artifacts, trace: nextTrace })
     });
     res.json({ artifact: updatedArtifact, run: nextRun });
   });
@@ -539,9 +725,31 @@ export function agentStudioRouter(store) {
     }
     const format = req.query.format === 'json' ? 'json' : 'markdown';
     const content = typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content, null, 2);
+    const exportRecord = {
+      id: `export-${crypto.randomUUID()}`,
+      format,
+      filename: `${artifact.type}-${artifact.id}.${format === 'json' ? 'json' : 'md'}`,
+      exportedAt: now(),
+      exportedBy: req.user._id
+    };
+    const artifacts = (run.artifacts || []).map((item) => (
+      item.id === artifact.id
+        ? { ...item, exports: [exportRecord, ...(item.exports || [])].slice(0, 20) }
+        : item
+    ));
+    const log = auditLog('artifact', `Artifact 导出：${artifact.title}`, {
+      artifactId: artifact.id,
+      format,
+      filename: exportRecord.filename
+    });
+    const nextRun = await store.updateRecord('agent_runs', run._id, {
+      artifacts,
+      logs: [...(run.logs || []), log]
+    });
     res.json({
       filename: `${artifact.type}-${artifact.id}.${format === 'json' ? 'json' : 'md'}`,
       format,
+      run: nextRun,
       content: format === 'json'
         ? JSON.stringify(artifact, null, 2)
         : `# ${artifact.title}\n\n> version: ${artifact.version || 1} / status: ${artifact.status || 'draft'}\n\n${content}`
@@ -558,26 +766,102 @@ export function agentStudioRouter(store) {
     const statusMap = {
       pause: 'paused',
       resume: 'resumed',
-      rollback: 'rolled_back'
+      rollback: 'rolled_back',
+      cancel: 'cancelled'
     };
     const status = statusMap[action] || 'paused';
+    let transitionPatch;
+    try {
+      transitionPatch = transitionRunPatch(run, status, {
+        label: `运行控制：${action}`,
+        actorId: req.user._id,
+        reason: req.body.reason || ''
+      });
+    } catch (error) {
+      res.status(error.statusCode || 500).json({ message: error.message });
+      return;
+    }
+    const rollbackArtifacts = action === 'rollback'
+      ? (run.artifacts || []).map((artifact) => {
+        const previousVersion = (artifact.versions || [])[1] || (artifact.versions || [])[0];
+        if (!previousVersion) return artifact;
+        const version = Number(artifact.version || 1) + 1;
+        return {
+          ...artifact,
+          content: previousVersion.content,
+          status: 'rolled_back',
+          reviewStatus: 'pending',
+          version,
+          versions: [
+            {
+              version,
+              status: 'rolled_back',
+              content: previousVersion.content,
+              createdAt: now(),
+              operatorId: req.user._id,
+              rollbackFrom: artifact.version
+            },
+            ...(artifact.versions || [])
+          ].slice(0, 12)
+        };
+      })
+      : run.artifacts || [];
     const log = auditLog('control', `运行控制动作：${action}`, {
       action,
       operatorId: req.user._id,
       reason: req.body.reason || ''
     });
+    const nextTrace = upsertTraceStage(run.trace || [], 'control', {
+      name: '运行治理控制',
+      status: action === 'rollback' ? 'warning' : 'success',
+      input: { action, reason: req.body.reason || '' },
+      output: { nextStatus: status, affectedArtifacts: rollbackArtifacts.length }
+    });
+    const quality = scoreRunQuality({ ...run, artifacts: rollbackArtifacts, trace: nextTrace });
     const nextRun = await store.updateRecord('agent_runs', run._id, {
-      status,
+      ...transitionPatch,
       controlState: {
         action,
         status,
         reason: req.body.reason || '',
         updatedAt: now(),
-        operatorId: req.user._id
+        operatorId: req.user._id,
+        previousStatus: run.status
       },
+      controlHistory: [
+        {
+          id: `control-${crypto.randomUUID()}`,
+          action,
+          status,
+          reason: req.body.reason || '',
+          operatorId: req.user._id,
+          createdAt: now()
+        },
+        ...(run.controlHistory || [])
+      ],
+      artifacts: rollbackArtifacts,
+      trace: nextTrace,
+      quality,
       logs: [...(run.logs || []), log]
     });
     res.json({ run: nextRun, log });
+  });
+
+  router.post('/eval-cases/:id/score', async (req, res) => {
+    const runs = await store.listRecords('agent_runs', 100);
+    const run = runs.find((item) => item.evalCaseId === req.params.id || item._id === req.body.runId);
+    if (!run) {
+      res.status(404).json({ message: 'No run found for eval case' });
+      return;
+    }
+    const quality = scoreRunQuality(run);
+    const evalResult = await persistEvalResult(store, { ...run, quality });
+    const nextRun = await store.updateRecord('agent_runs', run._id, {
+      quality,
+      evalResult,
+      logs: [...(run.logs || []), auditLog('eval', `Eval 质量评分：${quality.score}%`, { evalCaseId: req.params.id, quality })]
+    });
+    res.json({ run: nextRun, evalResult });
   });
 
   router.post('/sessions/:id/runs/stream', async (req, res) => {
@@ -633,7 +917,18 @@ export function agentStudioRouter(store) {
       quality: null,
       evalCaseId: req.body.evalCaseId,
       commandOptions,
-      createdBy: req.user._id
+      createdBy: req.user._id,
+      stateTransitions: [
+        createStateTransition({
+          from: 'none',
+          to: 'created',
+          label: '创建 Agent Run',
+          actorId: req.user._id,
+          meta: { sessionId: session._id }
+        })
+      ],
+      reviewHistory: [],
+      controlHistory: []
     });
     const persistRun = async (patch = {}) => {
       runRecord = await store.updateRecord('agent_runs', runRecord._id, {
@@ -647,7 +942,18 @@ export function agentStudioRouter(store) {
       return runRecord;
     };
     const emitStatus = async (status, label, extra = {}) => {
-      await persistRun({ status });
+      let transitionPatch;
+      try {
+        transitionPatch = transitionRunPatch(runRecord, status, {
+          label,
+          actorId: req.user._id,
+          meta: extra
+        });
+      } catch (error) {
+        transitionPatch = { status };
+        logs.push(auditLog('error', error.message, { from: runRecord.status, to: status }));
+      }
+      await persistRun(transitionPatch);
       sendEvent(res, 'run_status', { runDbId: runRecord._id, runId, status, label, at: now(), intent, selectedSkill, plan, ...extra });
     };
     const emitStep = async (payload) => {
@@ -667,6 +973,7 @@ export function agentStudioRouter(store) {
     await persistRun({ logs });
 
     plan = updatePlan(plan, 'select-skill', 'success', { output: { skillId: selectedSkill.id, tools: selectedSkill.tools } });
+    await emitStatus('skill_selected', '选择 Agent Skill', { skillId: selectedSkill.id });
     await persistRun({ plan });
     sendEvent(res, 'plan', { plan, selectedSkill, intent });
     await emitStep(step('skill', 'Skill 自动选择', 'success', {
@@ -697,14 +1004,18 @@ export function agentStudioRouter(store) {
     }));
     await persistRun({ logs, sources });
 
-    await emitStatus('planning', '规划产研测交付路径');
-    const artifacts = attachArtifactWorkflow(buildDeliveryArtifacts({ intent, prompt, sources }), 'plan');
+    await emitStatus('tool_running', '规划产研测交付路径');
+    const artifacts = attachArtifactWorkflow(buildDeliveryArtifacts({ intent, prompt, sources }), 'tool', sources);
     plan = updatePlan(plan, 'run-tools', 'success', { output: { artifacts: artifacts.map((artifact) => artifact.type) } });
-    await persistRun({ status: 'tool_running', artifacts, plan });
+    await persistRun({ artifacts, plan });
     sendEvent(res, 'plan', { plan, selectedSkill, intent });
-    await emitStep(step('plan', '产研测计划生成', 'success', {
+    await emitStep(step('tool', '产研测计划生成', 'success', {
       tool: 'planDelivery',
-      output: { artifacts: artifacts.map((artifact) => artifact.title), riskLevel: intent.riskLevel },
+      output: {
+        artifacts: artifacts.map((artifact) => ({ id: artifact.id, title: artifact.title, sourceIds: artifact.sourceIds })),
+        riskLevel: intent.riskLevel,
+        sourceRefs: sources.map(normalizeSourceRef)
+      },
       tokenUsage: tokenCount(JSON.stringify(artifacts))
     }));
     sendEvent(res, 'artifacts', { artifacts });
@@ -783,6 +1094,16 @@ export function agentStudioRouter(store) {
     await persistRun({ logs });
 
     const quality = scoreRunQuality({ sources, artifacts, trace, provider, intent });
+    const evalResult = await persistEvalResult(store, {
+      ...runRecord,
+      sources,
+      artifacts,
+      trace,
+      provider,
+      intent,
+      quality,
+      evalCaseId: req.body.evalCaseId
+    });
     const run = await persistRun({
       status: 'review_required',
       prompt,
@@ -796,6 +1117,7 @@ export function agentStudioRouter(store) {
       answer,
       provider,
       quality,
+      evalResult,
       evalCaseId: req.body.evalCaseId,
       commandOptions,
       createdBy: req.user._id

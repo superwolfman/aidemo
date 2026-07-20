@@ -30,10 +30,32 @@ type AgentRun = {
   selectedSkill?: { name: string; tools: string[] };
   plan?: Array<{ id: string; name: string; owner: string; status: string; tool: string; guardrail: string }>;
   sources?: Array<{ _id: string; documentTitle: string; score: number; retrievalBackend?: string; content: string }>;
-  artifacts?: Array<{ id: string; title: string; type: string; status: string; version?: number }>;
+  artifacts?: Array<{
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    version?: number;
+    reviewStatus?: string;
+    traceStepId?: string;
+    sourceRefs?: Array<{ id: string; index: number; title: string; score: number; retrievalBackend?: string }>;
+    versions?: Array<{ version: number; status: string; createdAt: string }>;
+    approvals?: Array<{ action: string; note?: string; createdAt: string }>;
+    exports?: Array<{ id: string; format: string; filename: string; exportedAt: string }>;
+  }>;
   trace?: TraceStep[];
   logs?: Array<{ id: string; level: string; message: string; at: string; action?: string }>;
-  quality?: { score: number; passed: number; total: number; verdict: string };
+  quality?: {
+    score: number;
+    passed: number;
+    total: number;
+    verdict: string;
+    checks?: Array<{ key: string; label: string; passed: boolean; value: string }>;
+  };
+  stateTransitions?: Array<{ id: string; from: string; to: string; label: string; at: string; reason?: string }>;
+  reviewHistory?: Array<{ _id?: string; action: string; note?: string; reviewerId?: string; nextStatus?: string; createdAt?: string }>;
+  controlHistory?: Array<{ id: string; action: string; status: string; reason?: string; createdAt: string }>;
+  evalResult?: { score: number; passed: number; total: number; verdict: string };
   provider?: Record<string, unknown>;
   createdAt?: string;
 };
@@ -107,6 +129,8 @@ export default function AgentOpsConsole() {
   const [selectedScopes, setSelectedScopes] = useState<string[]>(['architecture', 'standards', 'ai-native', 'frontend']);
   const [controlNote, setControlNote] = useState('运行治理确认：保留审计日志后进入下一步。');
   const [running, setRunning] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailTab, setDetailTab] = useState<'overview' | 'trace' | 'artifacts' | 'raw'>('overview');
 
   const activeRun = useMemo(() => runs.find((run) => run._id === activeRunId) || runs[0], [activeRunId, runs]);
   const selectedAgent = useMemo(() => blueprint?.capabilities?.find((item) => item.id === selectedAgentId) || blueprint?.capabilities?.[0], [blueprint, selectedAgentId]);
@@ -384,7 +408,17 @@ export default function AgentOpsConsole() {
             <h2>Runtime Metrics</h2>
             <p>基于真实 Run、Trace 和日志聚合，不使用静态 Mock 指标。</p>
           </div>
-          <button className="secondary-button compact" type="button" onClick={() => setActiveTraceId(trace[0]?.id || '')}>打开 Run Detail</button>
+          <button
+            className="secondary-button compact"
+            type="button"
+            onClick={() => {
+              setActiveTraceId(trace[0]?.id || '');
+              setDetailTab('overview');
+              setDetailOpen(true);
+            }}
+          >
+            打开 Run Detail
+          </button>
         </div>
         <div className="ops-runtime-metric-grid">
           <MetricTrendCard label="Latency Trend" value={`${metrics.avgLatency}ms`} desc={`${metrics.total} runs · ${trace.length} current trace events`} path={metricTrends.latency} />
@@ -536,6 +570,42 @@ export default function AgentOpsConsole() {
             ))}
           </div>
           <div className="ops-detail-block">
+            <strong>State Transitions</strong>
+            {(activeRun?.stateTransitions || []).slice(-6).reverse().map((transition) => (
+              <article key={transition.id}>
+                <GitBranch size={14} />
+                <span>{transition.from} {'->'} {transition.to}</span>
+                <em>{formatTime(transition.at)}</em>
+              </article>
+            ))}
+            {!activeRun?.stateTransitions?.length ? <p>暂无状态机流转记录。</p> : null}
+          </div>
+          <div className="ops-detail-block">
+            <strong>Review / Control History</strong>
+            {(activeRun?.reviewHistory || []).slice(0, 4).map((review, index) => (
+              <article key={review._id || `${review.action}-${index}`}>
+                <CheckCircle2 size={14} />
+                <span>{review.action} {'->'} {review.nextStatus || 'reviewed'}</span>
+                <em>{review.note || 'no note'}</em>
+              </article>
+            ))}
+            {(activeRun?.controlHistory || []).slice(0, 4).map((control) => (
+              <article key={control.id}>
+                <RotateCcw size={14} />
+                <span>{control.action} {'->'} {control.status}</span>
+                <em>{control.reason || 'no reason'}</em>
+              </article>
+            ))}
+            {!activeRun?.reviewHistory?.length && !activeRun?.controlHistory?.length ? <p>暂无审批或控制历史。</p> : null}
+          </div>
+          <div className="ops-detail-block">
+            <strong>Quality Checks</strong>
+            <article>
+              <ShieldValue score={activeRun?.quality?.score ?? activeRun?.evalResult?.score} />
+              <span>{activeRun?.quality?.passed || activeRun?.evalResult?.passed || 0}/{activeRun?.quality?.total || activeRun?.evalResult?.total || 0} checks · {activeRun?.quality?.verdict || activeRun?.evalResult?.verdict || 'not assessed'}</span>
+            </article>
+          </div>
+          <div className="ops-detail-block">
             <strong>Audit Log</strong>
             {(activeRun?.logs || []).slice(-8).reverse().map((log) => (
               <article key={log.id}>
@@ -547,6 +617,129 @@ export default function AgentOpsConsole() {
           </div>
         </aside>
       </main>
+
+      <div className={`agentops-drawer-mask ${detailOpen ? 'open' : ''}`} onMouseDown={() => setDetailOpen(false)}>
+        <aside className="agentops-run-drawer" onMouseDown={(event) => event.stopPropagation()}>
+          <header>
+            <div>
+              <span>RUN DETAIL</span>
+              <h2>{activeRun?.intent?.label || 'Agent Run Detail'}</h2>
+              <p>{activeRun?.prompt || '选择一个 Run 后可以查看完整状态流转、Trace、Artifact、审批和质量评分。'}</p>
+            </div>
+            <button className="secondary-button compact" type="button" onClick={() => setDetailOpen(false)}>关闭</button>
+          </header>
+          <div className="agentops-drawer-tabs">
+            {[
+              ['overview', '概览'],
+              ['trace', 'Trace'],
+              ['artifacts', 'Artifacts'],
+              ['raw', 'Raw']
+            ].map(([id, label]) => (
+              <button key={id} type="button" className={detailTab === id ? 'active' : ''} onClick={() => setDetailTab(id as typeof detailTab)}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {detailTab === 'overview' ? (
+            <>
+              <div className="agentops-drawer-grid">
+                <article>
+                  <span>Status</span>
+                  <strong>{activeRun?.status || 'no-run'}</strong>
+                  <p>{activeRun?.intent?.goal || '暂无运行目标。'}</p>
+                </article>
+                <article>
+                  <span>Quality</span>
+                  <strong>{activeRun?.quality ? `${activeRun.quality.score}%` : 'pending'}</strong>
+                  <p>{activeRun?.quality ? `${activeRun.quality.passed}/${activeRun.quality.total} checks · ${activeRun.quality.verdict}` : '运行完成后写入质量评分。'}</p>
+                </article>
+                <article>
+                  <span>Runtime</span>
+                  <strong>{String(activeRun?.provider?.provider || blueprint?.runtime.llm.provider || 'LLM')}</strong>
+                  <p>{String(activeRun?.provider?.mode || blueprint?.runtime.llm.mode || 'unknown')} · {String(activeRun?.provider?.model || blueprint?.runtime.llm.model || 'model')}</p>
+                </article>
+                <article>
+                  <span>Evidence</span>
+                  <strong>{activeRun?.sources?.length || 0} sources</strong>
+                  <p>{activeRun?.artifacts?.length || 0} artifacts · {activeRun?.trace?.length || 0} trace events</p>
+                </article>
+              </div>
+              <div className="agentops-drawer-trace">
+                {(activeRun?.stateTransitions || []).map((transition) => (
+                  <article key={transition.id}>
+                    <header>
+                      <strong>{transition.from} {'->'} {transition.to}</strong>
+                      <span>{formatTime(transition.at)}</span>
+                    </header>
+                    <p>{transition.label}{transition.reason ? ` · ${transition.reason}` : ''}</p>
+                  </article>
+                ))}
+                {(activeRun?.quality?.checks || []).map((check) => (
+                  <article key={check.key}>
+                    <header>
+                      <strong>{check.label}</strong>
+                      <span>{check.passed ? 'passed' : 'failed'}</span>
+                    </header>
+                    <p>{check.value}</p>
+                  </article>
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          {detailTab === 'trace' ? (
+            <div className="agentops-drawer-trace">
+              {(activeRun?.trace || []).map((item) => (
+                <article key={item.id}>
+                  <header>
+                    <strong>{item.name}</strong>
+                    <span>{item.status} · {item.durationMs || 0}ms · {item.tokenUsage || 0} tokens</span>
+                  </header>
+                  <pre>{formatJson({ input: item.input, output: item.output, error: item.error, tool: item.tool })}</pre>
+                </article>
+              ))}
+            </div>
+          ) : null}
+
+          {detailTab === 'artifacts' ? (
+            <div className="agentops-drawer-artifacts">
+              {(activeRun?.artifacts || []).map((artifact) => (
+                <article key={artifact.id}>
+                  <header>
+                    <strong>{artifact.title}</strong>
+                    <span>{artifact.type} · {artifact.status} · v{artifact.version || 1}</span>
+                  </header>
+                  <div className="agentops-drawer-grid">
+                    <article>
+                      <span>Trace</span>
+                      <strong>{artifact.traceStepId || 'unknown'}</strong>
+                      <p>{artifact.reviewStatus || 'pending'}</p>
+                    </article>
+                    <article>
+                      <span>Citations</span>
+                      <strong>{artifact.sourceRefs?.length || 0}</strong>
+                      <p>{(artifact.sourceRefs || []).slice(0, 3).map((source) => `[${source.index}] ${source.title}`).join(' / ') || 'no source refs'}</p>
+                    </article>
+                    <article>
+                      <span>Versions</span>
+                      <strong>{artifact.versions?.length || 0}</strong>
+                      <p>{(artifact.versions || []).slice(0, 3).map((item) => `v${item.version} ${item.status}`).join(' / ') || 'no version history'}</p>
+                    </article>
+                    <article>
+                      <span>Approvals / Exports</span>
+                      <strong>{(artifact.approvals?.length || 0) + (artifact.exports?.length || 0)}</strong>
+                      <p>{artifact.exports?.[0]?.filename || artifact.approvals?.[0]?.note || 'no operation history'}</p>
+                    </article>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
+
+          {detailTab === 'raw' ? <pre className="agentops-drawer-raw">{formatJson(activeRun)}</pre> : null}
+        </aside>
+      </div>
     </div>
   );
 }
@@ -556,6 +749,15 @@ function FileBadge({ title }: { title: string }) {
     <span className="ops-file-badge">
       <ClipboardCheck size={14} />
       {title}
+    </span>
+  );
+}
+
+function ShieldValue({ score }: { score?: number }) {
+  return (
+    <span className="ops-file-badge">
+      <CheckCircle2 size={14} />
+      {typeof score === 'number' ? `${score}%` : 'pending'}
     </span>
   );
 }
