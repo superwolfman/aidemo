@@ -6,7 +6,7 @@ import { Header } from '../components/ui';
 import { eventBus, AppEvents } from '../platform/events';
 import { MicroAppContainer } from '../platform/microFrontend';
 import { useShellRouter } from '../platform/router';
-import { getSubApp, subApps } from '../platform/subapps';
+import { getSubApp, visibleSubApps } from '../platform/subapps';
 import type { ShellContext } from '../platform/subapps';
 import { i18n } from '../platform/i18n';
 
@@ -75,7 +75,7 @@ function Shell({ user, onLogout }: { user: any; onLogout: () => void }) {
           </button>
         </div>
         <nav>
-          {subApps.map((item) => {
+          {visibleSubApps.map((item) => {
             const Icon = item.icon;
             const label = i18n.t(item.labelKey);
             return (

@@ -5,15 +5,15 @@ type Dictionary = Record<string, string>;
 const dictionaries: Record<Locale, Dictionary> = {
   'zh-CN': {
     'shell.title': 'AI Architecture Copilot',
-    'nav.copilot': 'Copilot 工作台',
-    'nav.agentStudio': 'Agent 运行控制台',
+    'nav.copilot': 'Debug · 原 Copilot',
+    'nav.agentStudio': 'Debug · 原 Agent',
     'nav.deliveryCopilot': 'Copilot 交付工作台',
     'nav.agentOpsConsole': 'AgentOps 控制台',
   },
   'en-US': {
     'shell.title': 'AI Architecture Copilot',
-    'nav.copilot': 'Copilot Workbench',
-    'nav.agentStudio': 'Agent Runtime',
+    'nav.copilot': 'Debug · Legacy Copilot',
+    'nav.agentStudio': 'Debug · Legacy Agent',
     'nav.deliveryCopilot': 'Delivery Copilot',
     'nav.agentOpsConsole': 'AgentOps Console',
   },

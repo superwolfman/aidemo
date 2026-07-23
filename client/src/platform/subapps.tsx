@@ -23,6 +23,8 @@ export type SubAppManifest = {
   labelKey: string;
   icon: LucideIcon;
   domain: string;
+  visible?: boolean;
+  group?: 'product' | 'debug';
   mode: 'local' | 'wujie';
   sandbox: 'wujie';
   entry?: string;
@@ -37,6 +39,8 @@ export const subApps: SubAppManifest[] = [
     labelKey: 'nav.copilot',
     icon: Bot,
     domain: 'architecture-copilot',
+    visible: false,
+    group: 'debug',
     mode: 'local',
     sandbox: 'wujie',
     capabilities: ['multi-session-chat', 'skill-runtime', 'tool-calling', 'rag', 'human-in-loop', 'agent-trace'],
@@ -48,6 +52,8 @@ export const subApps: SubAppManifest[] = [
     labelKey: 'nav.agentStudio',
     icon: Workflow,
     domain: 'agent-runtime',
+    visible: false,
+    group: 'debug',
     mode: 'local',
     sandbox: 'wujie',
     capabilities: ['intent-routing', 'agent-plan', 'state-machine', 'tool-audit', 'pause-resume-rollback', 'human-in-loop'],
@@ -59,6 +65,8 @@ export const subApps: SubAppManifest[] = [
     labelKey: 'nav.deliveryCopilot',
     icon: Boxes,
     domain: 'delivery-copilot',
+    visible: true,
+    group: 'product',
     mode: 'local',
     sandbox: 'wujie',
     capabilities: ['requirement-intake', 'rag-context', 'streaming-analysis', 'artifact-workbench', 'human-review'],
@@ -70,6 +78,8 @@ export const subApps: SubAppManifest[] = [
     labelKey: 'nav.agentOpsConsole',
     icon: Activity,
     domain: 'agentops-console',
+    visible: true,
+    group: 'product',
     mode: 'local',
     sandbox: 'wujie',
     capabilities: ['run-registry', 'state-machine', 'trace-timeline', 'tool-audit', 'approval-history', 'failure-replay'],
@@ -78,5 +88,7 @@ export const subApps: SubAppManifest[] = [
 ];
 
 export function getSubApp(appId: string): SubAppManifest {
-  return subApps.find((item) => item.id === appId) || subApps[0];
+  return subApps.find((item) => item.id === appId) || subApps.find((item) => item.visible !== false) || subApps[0];
 }
+
+export const visibleSubApps = subApps.filter((item) => item.visible !== false);

@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { eventBus, AppEvents } from './events';
 
 export function pathToRoute(pathname: string) {
-  const [, appId = 'copilot'] = pathname.split('/');
-  return appId || 'copilot';
+  const [, appId = 'delivery-copilot'] = pathname.split('/');
+  return appId || 'delivery-copilot';
 }
 
 export function navigate(appId: string) {

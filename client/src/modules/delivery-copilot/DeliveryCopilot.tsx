@@ -73,7 +73,20 @@ type EvalCase = {
 type RuntimeBlueprint = {
   runtime: {
     llm: { provider: string; mode: string; model: string; configured: boolean };
-    rag: { retrievalBackend?: string; vectorStore: string; productionReady: boolean; mode?: string; error?: string };
+    rag: {
+      backend?: string;
+      retrievalBackend?: string;
+      vectorStore: string;
+      productionReady: boolean;
+      mode?: string;
+      error?: string;
+      index?: string;
+      vectorPath?: string;
+      dimensions?: number;
+      connection?: string;
+      connected?: boolean;
+      vectorSearchReady?: boolean;
+    };
   };
 };
 
@@ -157,6 +170,8 @@ export default function DeliveryCopilot() {
 
   const activeArtifact = useMemo(() => artifacts.find((item) => item.id === activeArtifactId) || artifacts[0], [activeArtifactId, artifacts]);
   const activeTaskMode = useMemo(() => deliveryTaskModes.find((item) => item.id === taskModeId) || deliveryTaskModes[0], [taskModeId]);
+  const ragRuntime = blueprint?.runtime.rag;
+  const ragLive = Boolean(ragRuntime?.productionReady || ragRuntime?.vectorSearchReady);
   const artifactSummary = useMemo(() => {
     const slots = [
       { type: 'prd', title: 'PRD 摘要' },
@@ -247,6 +262,7 @@ export default function DeliveryCopilot() {
           setActiveRun(payload.run || null);
           setActiveArtifactId(payload.run?.artifacts?.[0]?.id || '');
           setArtifactDraft(stringify(payload.run?.artifacts?.[0]?.content || ''));
+          if (evalCaseId && payload.run?._id) void scoreEvalCase(payload.run, evalCaseId);
         }
       }, controller.signal);
     } catch (error) {
@@ -272,6 +288,25 @@ export default function DeliveryCopilot() {
     setAudience('产品经理、研发负责人、前后端工程师、测试负责人');
     setDeadline('一周内完成可评审方案与 Demo');
     setConstraints(`验收重点：${item.expected.join('、')}`);
+  }
+
+  async function refreshEvalCases() {
+    const caseResult = await request('/api/agent-studio/eval-cases');
+    setCases(caseResult.cases || []);
+  }
+
+  async function scoreEvalCase(run: AgentRun, evalCaseId: string) {
+    if (!run?._id || !evalCaseId) return;
+    try {
+      const result = await request(`/api/agent-studio/eval-cases/${evalCaseId}/score`, {
+        method: 'POST',
+        body: JSON.stringify({ runId: run._id })
+      });
+      if (result.run) syncRun(result.run);
+      await refreshEvalCases();
+    } catch (error) {
+      console.warn('Eval scoring failed', error);
+    }
   }
 
   async function copy(text: string) {
@@ -341,9 +376,18 @@ export default function DeliveryCopilot() {
           <p>这里不是运行监控，而是业务交付工作区。用户输入目标，系统检索知识库，流式分析并产出可评审交付物。</p>
         </div>
         <div className="delivery-runtime">
-          <article><strong>{blueprint?.runtime.llm.provider || 'LLM'}</strong><span>{blueprint?.runtime.llm.mode || 'loading'}</span></article>
-          <article><strong>{blueprint?.runtime.rag.retrievalBackend || blueprint?.runtime.rag.vectorStore || 'RAG'}</strong><span>{blueprint?.runtime.rag.productionReady ? 'live' : 'fallback'}</span></article>
-          <article><strong>{quality ? `${quality.score}%` : 'pending'}</strong><span>quality</span></article>
+          <article>
+            <strong>{blueprint?.runtime.llm.provider || 'LLM'}</strong>
+            <span>{blueprint?.runtime.llm.mode || 'loading'} · {blueprint?.runtime.llm.model || 'model'}</span>
+          </article>
+          <article className={ragLive ? 'live' : 'fallback'}>
+            <strong>{ragRuntime?.retrievalBackend || ragRuntime?.vectorStore || 'RAG'}</strong>
+            <span>{ragLive ? 'live vector store' : 'fallback'} · {ragRuntime?.index || 'index pending'}</span>
+          </article>
+          <article>
+            <strong>{quality ? `${quality.score}%` : 'pending'}</strong>
+            <span>{quality ? `${quality.passed}/${quality.total} checks` : 'quality'}</span>
+          </article>
         </div>
       </section>
 
@@ -433,6 +477,18 @@ export default function DeliveryCopilot() {
               <p>降低幻觉，保留人工决策。</p>
             </div>
             <Database size={20} />
+          </div>
+          <div className={`delivery-vector-health ${ragLive ? 'live' : 'fallback'}`}>
+            <div>
+              <strong>{ragLive ? 'Live Vector Store' : 'Fallback Retrieval'}</strong>
+              <span>{ragRuntime?.vectorStore || 'retrieval loading'}</span>
+            </div>
+            <p>
+              {ragLive
+                ? `Index ${ragRuntime?.index || 'default'} · Path ${ragRuntime?.vectorPath || 'embedding'} · ${ragRuntime?.dimensions || 0} dims`
+                : (ragRuntime?.error || '当前未启用真实向量库，使用 local deterministic embedding。')}
+            </p>
+            <em>{ragRuntime?.connection || (ragRuntime?.connected ? 'connected' : 'not connected')}</em>
           </div>
           <div className="delivery-source-list">
             {sources.map((source, index) => (
