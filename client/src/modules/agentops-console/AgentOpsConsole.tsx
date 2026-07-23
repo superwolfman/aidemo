@@ -89,6 +89,9 @@ type Blueprint = {
   };
 };
 
+type RagRuntime = Blueprint['runtime']['rag'];
+type RunSource = NonNullable<AgentRun['sources']>[number];
+
 function formatJson(value: unknown) {
   return JSON.stringify(value ?? null, null, 2);
 }
@@ -109,6 +112,36 @@ function buildSparkline(values: number[]) {
     const y = Math.round(height - (value / max) * 58 - 7);
     return `${x},${y}`;
   }).join(' ');
+}
+
+function isLiveVectorSource(source: RunSource) {
+  return source.retrievalBackend === 'mongodb-atlas-vector-search';
+}
+
+function isFallbackSource(source: RunSource) {
+  const backend = source.retrievalBackend || '';
+  return backend === 'local' || backend === 'local-hash' || backend.includes('fallback');
+}
+
+function getRunRetrievalView(ragRuntime: RagRuntime | undefined, currentSources: RunSource[] = []) {
+  const hasRunSources = currentSources.length > 0;
+  const runLive = hasRunSources && currentSources.every(isLiveVectorSource);
+  const runFallback = hasRunSources && currentSources.some(isFallbackSource);
+  const configuredLive = Boolean(ragRuntime?.productionReady && ragRuntime?.retrievalBackend === 'mongodb-atlas-vector-search');
+  const backend = hasRunSources
+    ? (currentSources[0]?.retrievalBackend || 'unknown')
+    : (ragRuntime?.retrievalBackend || ragRuntime?.backend || ragRuntime?.vectorStore || 'retrieval loading');
+
+  return {
+    live: hasRunSources ? runLive : configuredLive,
+    backend,
+    label: hasRunSources
+      ? (runLive ? 'current run live vector' : (runFallback ? 'current run fallback retrieval' : 'current run backend unknown'))
+      : (configuredLive ? 'live vector configured' : 'fallback / not verified'),
+    message: hasRunSources && !runLive
+      ? '当前选中 Run 使用降级检索，审计视图不会把它标记为真实向量链路。'
+      : ''
+  };
 }
 
 const scopeOptions = [
@@ -148,7 +181,9 @@ export default function AgentOpsConsole() {
   const activeRun = useMemo(() => runs.find((run) => run._id === activeRunId) || runs[0], [activeRunId, runs]);
   const selectedAgent = useMemo(() => blueprint?.capabilities?.find((item) => item.id === selectedAgentId) || blueprint?.capabilities?.[0], [blueprint, selectedAgentId]);
   const ragRuntime = blueprint?.runtime.rag;
-  const ragLive = Boolean(ragRuntime?.productionReady || ragRuntime?.vectorSearchReady);
+  const activeSources = useMemo(() => activeRun?.sources || [], [activeRun]);
+  const retrievalView = useMemo(() => getRunRetrievalView(ragRuntime, activeSources), [ragRuntime, activeSources]);
+  const ragLive = retrievalView.live;
   const trace = useMemo(() => activeRun?.trace || [], [activeRun]);
   const latestTraceById = useMemo(() => {
     const map = new Map<string, TraceStep>();
@@ -450,9 +485,9 @@ export default function AgentOpsConsole() {
         <div className="ops-runtime-context-strip">
           <span><Database size={13} />LLM {blueprint?.runtime.llm.provider || 'loading'} · {blueprint?.runtime.llm.mode || 'unknown'} · {blueprint?.runtime.llm.model || 'model loading'}</span>
           <span>
-            Vector {ragRuntime?.retrievalBackend || 'local-hash'} · {ragRuntime?.vectorStore || 'retrieval loading'} · {ragRuntime?.index || 'index pending'}
+            Vector {retrievalView.backend} · {retrievalView.label} · {ragRuntime?.index || 'index pending'}
           </span>
-          <span>{ragLive ? `Live ${ragRuntime?.vectorPath || 'embedding'} · ${ragRuntime?.dimensions || 0} dims` : (ragRuntime?.error || 'fallback retrieval')}</span>
+          <span>{ragLive ? `Live ${ragRuntime?.vectorPath || 'embedding'} · ${ragRuntime?.dimensions || 0} dims` : (retrievalView.message || ragRuntime?.error || 'fallback retrieval')}</span>
           <span>Skill {selectedAgent?.name || 'Agent Runtime'}</span>
           <span>Scope {selectedScopeLabels.length}/{scopeOptions.length} · {selectedScopeLabels.join(' / ') || 'minimal context'}</span>
         </div>

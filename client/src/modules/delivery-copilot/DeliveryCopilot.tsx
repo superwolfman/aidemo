@@ -90,6 +90,8 @@ type RuntimeBlueprint = {
   };
 };
 
+type RagRuntime = RuntimeBlueprint['runtime']['rag'];
+
 function stringify(content: unknown) {
   return typeof content === 'string' ? content : JSON.stringify(content, null, 2);
 }
@@ -108,6 +110,36 @@ function downloadFile(filename: string, content: string, mime: string) {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+function isLiveVectorSource(source: Source) {
+  return source.retrievalBackend === 'mongodb-atlas-vector-search';
+}
+
+function isFallbackSource(source: Source) {
+  const backend = source.retrievalBackend || '';
+  return backend === 'local' || backend === 'local-hash' || backend.includes('fallback');
+}
+
+function getRetrievalView(ragRuntime: RagRuntime | undefined, currentSources: Source[]) {
+  const hasRunSources = currentSources.length > 0;
+  const runLive = hasRunSources && currentSources.every(isLiveVectorSource);
+  const runFallback = hasRunSources && currentSources.some(isFallbackSource);
+  const configuredLive = Boolean(ragRuntime?.productionReady && ragRuntime?.retrievalBackend === 'mongodb-atlas-vector-search');
+  const backend = hasRunSources
+    ? (currentSources[0]?.retrievalBackend || 'unknown')
+    : (ragRuntime?.retrievalBackend || ragRuntime?.backend || ragRuntime?.vectorStore || 'retrieval loading');
+
+  return {
+    live: hasRunSources ? runLive : configuredLive,
+    backend,
+    label: hasRunSources
+      ? (runLive ? 'live vector store' : (runFallback ? 'fallback used by current run' : 'current run backend unknown'))
+      : (configuredLive ? 'live vector store ready' : 'fallback / not verified'),
+    warning: hasRunSources && !runLive
+      ? '本次 Run 的引用来自降级检索，Eval 不会按真实向量检索通过。'
+      : ''
+  };
 }
 
 const deliveryTaskModes = [
@@ -171,7 +203,8 @@ export default function DeliveryCopilot() {
   const activeArtifact = useMemo(() => artifacts.find((item) => item.id === activeArtifactId) || artifacts[0], [activeArtifactId, artifacts]);
   const activeTaskMode = useMemo(() => deliveryTaskModes.find((item) => item.id === taskModeId) || deliveryTaskModes[0], [taskModeId]);
   const ragRuntime = blueprint?.runtime.rag;
-  const ragLive = Boolean(ragRuntime?.productionReady || ragRuntime?.vectorSearchReady);
+  const retrievalView = useMemo(() => getRetrievalView(ragRuntime, sources), [ragRuntime, sources]);
+  const ragLive = retrievalView.live;
   const artifactSummary = useMemo(() => {
     const slots = [
       { type: 'prd', title: 'PRD 摘要' },
@@ -443,7 +476,9 @@ export default function DeliveryCopilot() {
               <button key={item.id} className={selectedEvalCaseId === item.id ? 'active' : ''} onClick={() => loadCase(item)}>
                 <b>{item.title}</b>
                 <span>{item.expected.join(' / ')}</span>
-                <em>{item.lastResult ? `${item.lastResult.passed}/${item.lastResult.total} passed` : '未运行'}</em>
+                <em className={item.lastResult ? (item.lastResult.score === 100 ? 'passed' : 'review') : ''}>
+                  {item.lastResult ? `${item.lastResult.score}% · ${item.lastResult.passed}/${item.lastResult.total}` : '未运行'}
+                </em>
               </button>
             ))}
           </div>
@@ -481,14 +516,14 @@ export default function DeliveryCopilot() {
           <div className={`delivery-vector-health ${ragLive ? 'live' : 'fallback'}`}>
             <div>
               <strong>{ragLive ? 'Live Vector Store' : 'Fallback Retrieval'}</strong>
-              <span>{ragRuntime?.vectorStore || 'retrieval loading'}</span>
+              <span>{retrievalView.label}</span>
             </div>
             <p>
               {ragLive
                 ? `Index ${ragRuntime?.index || 'default'} · Path ${ragRuntime?.vectorPath || 'embedding'} · ${ragRuntime?.dimensions || 0} dims`
-                : (ragRuntime?.error || '当前未启用真实向量库，使用 local deterministic embedding。')}
+                : (retrievalView.warning || ragRuntime?.error || '当前未启用真实向量库，使用 local deterministic embedding。')}
             </p>
-            <em>{ragRuntime?.connection || (ragRuntime?.connected ? 'connected' : 'not connected')}</em>
+            <em>{retrievalView.backend} · {ragRuntime?.connection || (ragRuntime?.connected ? 'connected' : 'not connected')}</em>
           </div>
           <div className="delivery-source-list">
             {sources.map((source, index) => (

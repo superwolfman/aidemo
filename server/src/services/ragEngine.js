@@ -24,10 +24,14 @@ export function getRagStatus(extra = {}) {
       : realStoreConnected
         ? 'configured'
         : 'unavailable');
+  const productionReady = isAtlas
+    ? vectorSearchReady === true
+    : requestedRealVector && realStoreConnected && mode === 'live';
+
   return {
     backend,
     mode,
-    productionReady: requestedRealVector && realStoreConnected && mode !== 'fallback' && vectorSearchReady !== false,
+    productionReady,
     retrievalBackend:
       isAtlas && vectorSearchReady
         ? 'mongodb-atlas-vector-search'
