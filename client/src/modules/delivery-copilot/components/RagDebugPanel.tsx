@@ -5,6 +5,10 @@ type Source = {
   documentTitle?: string;
   content?: string;
   score?: number;
+  candidateRank?: number;
+  rerankScore?: number;
+  rerankStrategy?: string;
+  filterReason?: string;
   retrievalBackend?: string;
   sourcePath?: string;
 };
@@ -72,6 +76,10 @@ export function RagDebugPanel({ query, sources, ragRuntime, retrievalView }: Pro
           <em>path</em>
           <strong>{ragRuntime?.vectorPath || 'embedding'}</strong>
         </article>
+        <article>
+          <em>rerank</em>
+          <strong>{retrievalView.live ? 'vector score' : 'local score'}</strong>
+        </article>
       </div>
       <div className="rag-debug-note">
         <b>{retrievalView.label}</b>
@@ -88,7 +96,10 @@ export function RagDebugPanel({ query, sources, ragRuntime, retrievalView }: Pro
             <footer>
               <span>{source.retrievalBackend || 'unknown-backend'}</span>
               <span>{source.sourcePath || 'no-source-path'}</span>
-              <span>rerank: not enabled</span>
+              <span>rank {source.candidateRank || index + 1}</span>
+              <span>rerank {Number(source.rerankScore ?? source.score ?? 0).toFixed(4)}</span>
+              <span>{source.rerankStrategy || 'score-desc'}</span>
+              <span>{source.filterReason || 'passed current retrieval filters'}</span>
             </footer>
           </article>
         ))}

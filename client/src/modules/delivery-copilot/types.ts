@@ -11,6 +11,10 @@ export type Source = {
   score: number;
   retrievalBackend?: string;
   sourcePath?: string;
+  candidateRank?: number;
+  rerankScore?: number;
+  rerankStrategy?: string;
+  filterReason?: string;
 };
 
 export type Artifact = {
@@ -36,6 +40,8 @@ export type TraceStep = {
   durationMs?: number;
   tokenUsage?: number;
   error?: string;
+  input?: unknown;
+  output?: unknown;
 };
 
 export type RunQuality = {

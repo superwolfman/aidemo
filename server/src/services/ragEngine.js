@@ -69,16 +69,22 @@ export async function retrieveKnowledge({ store, query, scopes, limit = 5 }) {
 
       return {
         status: getRagStatus({ mode: 'live', storeKind: store.kind, vectorSearchReady: true }),
-        sources
+        sources: enrichSources(sources, {
+          backend: 'mongodb-atlas-vector-search',
+          strategy: 'atlas-vector-score',
+          scopes
+        })
       };
     } catch (error) {
       const fallback = await retrieveLocalKnowledge({ store, query, scopes, limit });
       return {
         status: getRagStatus({ mode: 'fallback', storeKind: store.kind, vectorSearchReady: false, error: error.message }),
-        sources: fallback.sources.map((source) => ({
-          ...source,
-          retrievalBackend: 'local-hash-fallback'
-        }))
+        sources: enrichSources(fallback.sources, {
+          backend: 'local-hash-fallback',
+          strategy: 'local-score-desc-scope-filter',
+          scopes,
+          fallbackReason: error.message
+        })
       };
     }
   }
@@ -95,9 +101,34 @@ async function retrieveLocalKnowledge({ store, query, scopes, limit = 5 }) {
 
   return {
     status: getRagStatus({ storeKind: store.kind, error: store.connectionError }),
-    sources: (filtered.length ? filtered : chunks).slice(0, limit).map((source) => ({
-      ...source,
-      retrievalBackend: source.retrievalBackend || 'local-hash'
-    }))
+    sources: enrichSources((filtered.length ? filtered : chunks).slice(0, limit), {
+      backend: 'local-hash',
+      strategy: 'local-score-desc-scope-filter',
+      scopes,
+      usedFallbackPool: !filtered.length
+    })
   };
+}
+
+function enrichSources(sources, { backend, strategy, scopes = [], fallbackReason = '', usedFallbackPool = false } = {}) {
+  return sources.map((source, index) => {
+    const score = Number(source.score || 0);
+    const tags = source.tags || [];
+    const matchedScopes = tags.filter((tag) => scopes.includes(tag) || tag === 'copilot');
+    const scopeReason = matchedScopes.length
+      ? `passed scope filter: ${matchedScopes.join(', ')}`
+      : usedFallbackPool
+        ? 'returned from fallback candidate pool because scoped chunks were empty'
+        : 'passed default untagged/candidate filter';
+    return {
+      ...source,
+      retrievalBackend: source.retrievalBackend || backend,
+      candidateRank: index + 1,
+      rerankScore: score,
+      rerankStrategy: strategy,
+      filterReason: fallbackReason
+        ? `${scopeReason}; fallback reason: ${fallbackReason}`
+        : scopeReason
+    };
+  });
 }

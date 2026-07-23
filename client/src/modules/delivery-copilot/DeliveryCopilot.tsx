@@ -4,8 +4,11 @@ import { Header } from '../../components/ui';
 import { ArtifactOverview } from './components/ArtifactOverview';
 import { ArtifactWorkbench } from './components/ArtifactWorkbench';
 import { KnowledgeContext } from './components/KnowledgeContext';
+import { ApprovalPanel } from './components/ApprovalPanel';
+import { SessionPanel } from './components/SessionPanel';
 import { SkillSelector } from './components/SkillSelector';
 import { StreamPanel } from './components/StreamPanel';
+import { TraceTimeline } from './components/TraceTimeline';
 import type { AgentRun, AgentSession, Artifact, EvalCase, RunQuality, RuntimeBlueprint, Source, TraceStep } from './types';
 import { downloadFile, getRetrievalView, stringify } from './utils';
 
@@ -269,27 +272,7 @@ export default function DeliveryCopilot() {
         desc="面向业务交付：从需求输入、RAG 上下文、流式分析到 PRD / 页面结构 / API / 任务拆解 Artifact。"
       />
 
-      <section className="delivery-hero panel">
-        <div>
-          <span>Product Delivery Flow</span>
-          <h2>需求到产物的 AI 工作流</h2>
-          <p>这里不是运行监控，而是业务交付工作区。用户输入目标，系统检索知识库，流式分析并产出可评审交付物。</p>
-        </div>
-        <div className="delivery-runtime">
-          <article>
-            <strong>{blueprint?.runtime.llm.provider || 'LLM'}</strong>
-            <span>{blueprint?.runtime.llm.mode || 'loading'} · {blueprint?.runtime.llm.model || 'model'}</span>
-          </article>
-          <article className={ragLive ? 'live' : 'fallback'}>
-            <strong>{ragRuntime?.retrievalBackend || ragRuntime?.vectorStore || 'RAG'}</strong>
-            <span>{ragLive ? 'live vector store' : 'fallback'} · {ragRuntime?.index || 'index pending'}</span>
-          </article>
-          <article>
-            <strong>{quality ? `${quality.score}%` : 'pending'}</strong>
-            <span>{quality ? `${quality.passed}/${quality.total} checks` : 'quality'}</span>
-          </article>
-        </div>
-      </section>
+      <SessionPanel blueprint={blueprint} ragRuntime={ragRuntime} ragLive={ragLive} quality={quality} />
 
       <ArtifactOverview
         artifactSummary={artifactSummary}
@@ -327,6 +310,8 @@ export default function DeliveryCopilot() {
           outputRef={outputRef}
         />
 
+        <TraceTimeline trace={trace} status={status} />
+
         <KnowledgeContext
           ragLive={ragLive}
           ragRuntime={ragRuntime}
@@ -335,6 +320,14 @@ export default function DeliveryCopilot() {
           requirement={requirement}
           sources={sources}
           trace={trace}
+        />
+
+        <ApprovalPanel
+          activeRun={activeRun}
+          activeArtifact={activeArtifact}
+          artifactSummary={artifactSummary}
+          onSelectArtifact={selectArtifact}
+          onConfirmArtifact={confirmArtifact}
         />
       </main>
 

@@ -79,3 +79,134 @@ export function transitionRunPatch(run, to, { label, actorId, reason = '', meta 
     stateTransitions: [...(run.stateTransitions || []), transition]
   };
 }
+
+export function getControlTargetStatus(action) {
+  const statusMap = {
+    pause: 'paused',
+    resume: 'resumed',
+    rollback: 'rolled_back',
+    cancel: 'cancelled'
+  };
+  return statusMap[action] || 'paused';
+}
+
+export function buildRollbackArtifacts(run, actorId) {
+  return (run.artifacts || []).map((artifact) => {
+    const previousVersion = (artifact.versions || [])[1] || (artifact.versions || [])[0];
+    if (!previousVersion) return artifact;
+    const version = Number(artifact.version || 1) + 1;
+    return {
+      ...artifact,
+      content: previousVersion.content,
+      status: 'rolled_back',
+      reviewStatus: 'pending',
+      version,
+      versions: [
+        {
+          version,
+          status: 'rolled_back',
+          content: previousVersion.content,
+          createdAt: now(),
+          operatorId: actorId,
+          rollbackFrom: artifact.version
+        },
+        ...(artifact.versions || [])
+      ].slice(0, 12)
+    };
+  });
+}
+
+export function buildRunControlPatch(run, { action = 'pause', actorId, reason = '' } = {}) {
+  const status = getControlTargetStatus(action);
+  const transitionPatch = transitionRunPatch(run, status, {
+    label: `运行控制：${action}`,
+    actorId,
+    reason
+  });
+  const artifacts = action === 'rollback' ? buildRollbackArtifacts(run, actorId) : run.artifacts || [];
+  const controlRecord = {
+    id: `control-${crypto.randomUUID()}`,
+    action,
+    status,
+    reason,
+    operatorId: actorId,
+    createdAt: now()
+  };
+  const log = auditLog('control', `运行控制动作：${action}`, {
+    action,
+    operatorId: actorId,
+    reason
+  });
+
+  return {
+    action,
+    status,
+    artifacts,
+    log,
+    patch: {
+      ...transitionPatch,
+      controlState: {
+        action,
+        status,
+        reason,
+        updatedAt: now(),
+        operatorId: actorId,
+        previousStatus: run.status
+      },
+      controlHistory: [
+        controlRecord,
+        ...(run.controlHistory || [])
+      ]
+    }
+  };
+}
+
+export function createReplayRunDraft(run, { actorId, reason = '' } = {}) {
+  const createdAt = now();
+  const {
+    _id,
+    id,
+    runId,
+    createdAt: previousCreatedAt,
+    updatedAt: previousUpdatedAt,
+    logs,
+    stateTransitions,
+    reviewHistory,
+    controlHistory,
+    replayHistory,
+    quality,
+    ...runDraft
+  } = run;
+  const sourceRunId = _id || runId;
+  return {
+    ...runDraft,
+    runId: `run-${crypto.randomUUID()}`,
+    status: 'created',
+    createdAt,
+    updatedAt: createdAt,
+    replayOf: sourceRunId,
+    replayReason: reason,
+    replayBy: actorId,
+    trace: [],
+    logs: [
+      auditLog('replay', '创建失败回放 Run', {
+        sourceRunId,
+        actorId,
+        reason
+      })
+    ],
+    stateTransitions: [
+      createStateTransition({
+        from: run.status || 'failed',
+        to: 'created',
+        label: '失败回放',
+        actorId,
+        reason,
+        meta: { sourceRunId }
+      })
+    ],
+    reviewHistory: [],
+    controlHistory: [],
+    quality: null
+  };
+}

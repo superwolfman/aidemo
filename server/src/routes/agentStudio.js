@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import express from 'express';
-import { auditLog, createStateTransition, now, step, tokenCount, transitionRunPatch } from '../services/agentRuntimeService.js';
-import { attachArtifactWorkflow, normalizeSourceRef } from '../services/artifactService.js';
+import { auditLog, buildRunControlPatch, createReplayRunDraft, createStateTransition, now, step, tokenCount, transitionRunPatch } from '../services/agentRuntimeService.js';
+import { applyArtifactReview, attachArtifactWorkflow, normalizeSourceRef } from '../services/artifactService.js';
 import { buildEvalCases, persistEvalResult, scoreRunQuality } from '../services/evalService.js';
 import { generateLlmAnswer, getProviderStatus, streamLlmAnswer } from '../services/llmProvider.js';
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
@@ -343,17 +343,11 @@ export function agentStudioRouter(store) {
     }
     const artifacts = (run.artifacts || []).map((artifact) => {
       if (artifact.id !== req.params.artifactId) return artifact;
-      return {
-        ...artifact,
-        status: 'confirmed',
-        reviewStatus: 'confirmed',
-        confirmedAt: now(),
-        confirmedBy: req.user._id,
-        approvals: [
-          { action: 'confirm', note: req.body.note || '', reviewerId: req.user._id, createdAt: now() },
-          ...(artifact.approvals || [])
-        ]
-      };
+      return applyArtifactReview(artifact, {
+        action: 'confirm',
+        note: req.body.note || '',
+        operatorId: req.user._id
+      });
     });
     const updatedArtifact = artifacts.find((artifact) => artifact.id === req.params.artifactId);
     if (!updatedArtifact) {
@@ -425,17 +419,10 @@ export function agentStudioRouter(store) {
       return;
     }
     const action = req.body.action || 'pause';
-    const statusMap = {
-      pause: 'paused',
-      resume: 'resumed',
-      rollback: 'rolled_back',
-      cancel: 'cancelled'
-    };
-    const status = statusMap[action] || 'paused';
-    let transitionPatch;
+    let controlPatch;
     try {
-      transitionPatch = transitionRunPatch(run, status, {
-        label: `运行控制：${action}`,
+      controlPatch = buildRunControlPatch(run, {
+        action,
         actorId: req.user._id,
         reason: req.body.reason || ''
       });
@@ -443,36 +430,7 @@ export function agentStudioRouter(store) {
       res.status(error.statusCode || 500).json({ message: error.message });
       return;
     }
-    const rollbackArtifacts = action === 'rollback'
-      ? (run.artifacts || []).map((artifact) => {
-        const previousVersion = (artifact.versions || [])[1] || (artifact.versions || [])[0];
-        if (!previousVersion) return artifact;
-        const version = Number(artifact.version || 1) + 1;
-        return {
-          ...artifact,
-          content: previousVersion.content,
-          status: 'rolled_back',
-          reviewStatus: 'pending',
-          version,
-          versions: [
-            {
-              version,
-              status: 'rolled_back',
-              content: previousVersion.content,
-              createdAt: now(),
-              operatorId: req.user._id,
-              rollbackFrom: artifact.version
-            },
-            ...(artifact.versions || [])
-          ].slice(0, 12)
-        };
-      })
-      : run.artifacts || [];
-    const log = auditLog('control', `运行控制动作：${action}`, {
-      action,
-      operatorId: req.user._id,
-      reason: req.body.reason || ''
-    });
+    const { artifacts: rollbackArtifacts, log, patch, status } = controlPatch;
     const nextTrace = upsertTraceStage(run.trace || [], 'control', {
       name: '运行治理控制',
       status: action === 'rollback' ? 'warning' : 'success',
@@ -481,32 +439,45 @@ export function agentStudioRouter(store) {
     });
     const quality = scoreRunQuality({ ...run, artifacts: rollbackArtifacts, trace: nextTrace });
     const nextRun = await store.updateRecord('agent_runs', run._id, {
-      ...transitionPatch,
-      controlState: {
-        action,
-        status,
-        reason: req.body.reason || '',
-        updatedAt: now(),
-        operatorId: req.user._id,
-        previousStatus: run.status
-      },
-      controlHistory: [
-        {
-          id: `control-${crypto.randomUUID()}`,
-          action,
-          status,
-          reason: req.body.reason || '',
-          operatorId: req.user._id,
-          createdAt: now()
-        },
-        ...(run.controlHistory || [])
-      ],
+      ...patch,
       artifacts: rollbackArtifacts,
       trace: nextTrace,
       quality,
       logs: [...(run.logs || []), log]
     });
     res.json({ run: nextRun, log });
+  });
+
+  router.post('/runs/:id/replay', async (req, res) => {
+    const run = await store.getRecord('agent_runs', req.params.id);
+    if (!run) {
+      res.status(404).json({ message: 'Agent run not found' });
+      return;
+    }
+    const replayRun = await store.createRecord('agent_runs', createReplayRunDraft(run, {
+      actorId: req.user._id,
+      reason: req.body.reason || 'AgentOps failure replay'
+    }));
+    const log = auditLog('replay', `创建失败回放 Run：${replayRun.runId}`, {
+      sourceRunId: run._id,
+      replayRunId: replayRun._id,
+      operatorId: req.user._id,
+      reason: req.body.reason || ''
+    });
+    await store.updateRecord('agent_runs', run._id, {
+      logs: [...(run.logs || []), log],
+      replayHistory: [
+        {
+          id: `replay-${crypto.randomUUID()}`,
+          replayRunId: replayRun._id,
+          reason: req.body.reason || '',
+          operatorId: req.user._id,
+          createdAt: now()
+        },
+        ...(run.replayHistory || [])
+      ]
+    });
+    res.json({ run: replayRun, sourceRunId: run._id, log });
   });
 
   router.post('/eval-cases/:id/score', async (req, res) => {

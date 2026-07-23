@@ -349,11 +349,16 @@ export default function AgentOpsConsole() {
     }
   }
 
-  function rerunActive() {
-    if (activeRun?.prompt) {
-      setCommand(activeRun.prompt);
-      runCommand(activeRun.prompt).catch(console.error);
-    }
+  async function rerunActive() {
+    if (!activeRun?._id) return;
+    const result = await request<{ run: AgentRun }>(`/api/agent-studio/runs/${activeRun._id}/replay`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: controlNote || 'AgentOps replay' })
+    });
+    setRuns((items) => [result.run, ...items]);
+    setActiveRunId(result.run._id);
+    setActiveTraceId(result.run.trace?.[0]?.id || '');
+    setCommand(result.run.prompt || activeRun.prompt || command);
   }
 
   function toggleScope(scopeId: string) {

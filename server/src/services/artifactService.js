@@ -6,6 +6,9 @@ export function normalizeSourceRef(source, index) {
     index: index + 1,
     title: source.documentTitle || source.title || 'Untitled source',
     score: Number(source.score || 0),
+    rerankScore: Number(source.rerankScore ?? source.score ?? 0),
+    rerankStrategy: source.rerankStrategy,
+    filterReason: source.filterReason,
     retrievalBackend: source.retrievalBackend,
     sourcePath: source.sourcePath
   };
@@ -37,4 +40,33 @@ export function attachArtifactWorkflow(artifacts, traceStepId = 'tool', sources 
     approvals: [],
     exports: []
   }));
+}
+
+export function applyArtifactReview(artifact, { action = 'confirm', note = '', operatorId = '' } = {}) {
+  const statusMap = {
+    confirm: 'confirmed',
+    review: 'reviewed',
+    revise: 'revision_requested',
+    reject: 'rejected'
+  };
+  const nextStatus = statusMap[action] || 'reviewed';
+  const approval = {
+    id: `approval-${artifact.id}-${Date.now()}`,
+    action,
+    status: nextStatus,
+    note,
+    operatorId,
+    createdAt: now()
+  };
+
+  return {
+    ...artifact,
+    status: nextStatus,
+    reviewStatus: nextStatus,
+    updatedAt: approval.createdAt,
+    approvals: [
+      approval,
+      ...(artifact.approvals || [])
+    ].slice(0, 20)
+  };
 }
