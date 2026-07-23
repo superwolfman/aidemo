@@ -17,6 +17,7 @@
     "build": "npm run build --workspace client",
     "lint": "npm run lint --workspace client",
     "typecheck": "npm run typecheck --workspace client",
+    "test:server": "npm run test --workspace server",
     "verify": "node scripts/verify-ai-workflow.mjs",
     "vector:health": "node scripts/atlas-vector-health.mjs"
   },

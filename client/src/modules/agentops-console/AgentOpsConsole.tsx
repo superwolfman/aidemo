@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ClipboardCheck, Clock3, Database, GitBranch, Pause, Play, RefreshCw, RotateCcw, Search, Send, TerminalSquare, Workflow } from 'lucide-react';
 import { request, streamRequest } from '../../api/client';
 import { Header } from '../../components/ui';
+import { CommandCenter } from './components/CommandCenter';
+import { MetricsGrid, RuntimeMetrics } from './components/RuntimeMetrics';
+import { RunDetailDock } from './components/RunDetailDock';
+import { RunDetailDrawer } from './components/RunDetailDrawer';
+import { RunRegistry } from './components/RunRegistry';
+import { RuntimeSummary } from './components/RuntimeSummary';
+import { StateMachinePanel } from './components/StateMachinePanel';
+import { TraceAuditPanel } from './components/TraceAuditPanel';
 
 type AgentSession = {
   _id: string;
@@ -364,468 +371,76 @@ export default function AgentOpsConsole() {
         desc="面向运行治理：Run Registry、状态机、Trace Timeline、Tool Call Audit、Run Detail、审批记录和失败回放。"
       />
 
-      <section className="ops-runtime-summary panel">
-        <div className="ops-runtime-title">
-          <span>Current Run</span>
-          <h2>{activeRun?.intent?.label || '等待 Agent Run'}</h2>
-          <p>{activeRun?.prompt || '这里不负责生产内容，而负责解释 Agent 怎么跑、哪里失败、能否恢复。'}</p>
-        </div>
-        <div className="ops-runtime-pills">
-          <em>{blueprint?.runtime.llm.provider || 'llm'} · {blueprint?.runtime.llm.mode || 'loading'}</em>
-          <em className={ragLive ? 'live' : 'fallback'}>
-            {ragLive ? 'mongodb-atlas-vector-search live' : `${ragRuntime?.retrievalBackend || ragRuntime?.vectorStore || 'vector'} fallback`}
-          </em>
-          <em>{activeRun?.status || 'no-run'}</em>
-        </div>
-      </section>
+      <RuntimeSummary activeRun={activeRun} blueprint={blueprint} ragRuntime={ragRuntime} ragLive={ragLive} />
 
-      <section className="ops-command-center panel">
-        <div className="section-head">
-          <div>
-            <h2>Command Center</h2>
-            <p>输入指令、选择 Agent/Skill、限定知识范围，并对真实 Run 执行暂停、恢复、回滚和重放。</p>
-          </div>
-          <TerminalSquare size={20} />
-        </div>
-        <div className="ops-command-layout">
-          <label className="ops-command-input">
-            <span>Task Instruction</span>
-            <textarea value={command} onChange={(event) => setCommand(event.target.value)} />
-          </label>
-          <div className="ops-command-config">
-            <div className="ops-config-block">
-              <div className="ops-config-title">
-                <span>Agent / Skill</span>
-                <em>决定意图识别、允许工具、输出约束和审批策略</em>
-              </div>
-              <div className="ops-agent-grid">
-                {(blueprint?.capabilities || []).map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={selectedAgentId === item.id ? 'active' : ''}
-                    onClick={() => setSelectedAgentId(item.id)}
-                  >
-                    <strong>{item.name}</strong>
-                    <p>{item.description}</p>
-                    <span>{item.tools.length} tools · {item.intents.length} intents</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="ops-scope-panel">
-              <div className="ops-config-title">
-                <span>Knowledge Scope</span>
-                <em>限制 RAG 检索域，影响引用来源、Tool Guardrail 和 Trace 审计</em>
-              </div>
-              <div className="ops-scope-row">
-                {scopeOptions.map((scope) => (
-                  <button key={scope.id} type="button" className={selectedScopes.includes(scope.id) ? 'active' : ''} onClick={() => toggleScope(scope.id)}>
-                    {scope.label}
-                  </button>
-                ))}
-              </div>
-              <div className="ops-scope-impact">
-                <strong>{selectedScopeLabels.length || 0}/{scopeOptions.length} scopes</strong>
-                <p>{selectedScopeLabels.length ? `本次 Run 只会检索：${selectedScopeLabels.join('、')}` : '未选择知识域时，RAG 将退化为最小上下文检索。'}</p>
-              </div>
-            </div>
-          </div>
-          <div className="ops-command-control">
-            <strong>Run Control</strong>
-            <span>{running ? 'Agent 正在执行，Trace 会持续写入 Run Registry。' : '准备运行新的 Agent Run，或治理当前选中的 Run。'}</span>
-            <div className="ops-command-actions">
-              <button className="primary-button" onClick={() => runCommand()} disabled={!session || running}><Send size={15} />{running ? '运行中' : '运行 Agent'}</button>
-              <button className="secondary-button" onClick={load}><RefreshCw size={15} />刷新</button>
-              <button className="secondary-button" onClick={() => control('pause')} disabled={!activeRun}><Pause size={15} />暂停</button>
-              <button className="secondary-button" onClick={() => control('resume')} disabled={!activeRun}><Play size={15} />恢复</button>
-              <button className="secondary-button" onClick={() => control('rollback')} disabled={!activeRun}><RotateCcw size={15} />回滚</button>
-              <button className="secondary-button" onClick={rerunActive} disabled={!activeRun || running}><RefreshCw size={15} />重放</button>
-            </div>
-          </div>
-        </div>
-      </section>
+      <CommandCenter
+        command={command}
+        selectedAgentId={selectedAgentId}
+        selectedAgent={selectedAgent}
+        capabilities={blueprint?.capabilities || []}
+        selectedScopes={selectedScopes}
+        selectedScopeLabels={selectedScopeLabels}
+        running={running}
+        sessionReady={Boolean(session)}
+        activeRun={activeRun}
+        onCommandChange={setCommand}
+        onAgentChange={setSelectedAgentId}
+        onToggleScope={toggleScope}
+        onRun={() => runCommand()}
+        onRefresh={load}
+        onControl={control}
+        onRerun={rerunActive}
+      />
 
-      <section className="ops-metrics-grid">
-        <article><strong>{metrics.total}</strong><span>Total Runs</span></article>
-        <article><strong>{metrics.waiting}</strong><span>Waiting Review</span></article>
-        <article><strong>{metrics.failed}</strong><span>Failed</span></article>
-        <article><strong>{metrics.avgLatency}ms</strong><span>Avg Latency</span></article>
-        <article><strong>{metrics.avgQuality}%</strong><span>Quality</span></article>
-      </section>
+      <MetricsGrid metrics={metrics} />
 
-      <section className="ops-runtime-metrics-panel panel">
-        <div className="section-head">
-          <div>
-            <h2>Runtime Metrics</h2>
-            <p>基于真实 Run、Trace 和日志聚合，不使用静态 Mock 指标。</p>
-          </div>
-          <button
-            className="secondary-button compact"
-            type="button"
-            onClick={() => {
-              setActiveTraceId(trace[0]?.id || '');
-              setDetailTab('overview');
-              setDetailOpen(true);
-            }}
-          >
-            打开 Run Detail
-          </button>
-        </div>
-        <div className="ops-runtime-metric-grid">
-          <MetricTrendCard label="Latency Trend" value={`${metrics.avgLatency}ms`} desc={`${metrics.total} runs · ${trace.length} current trace events`} path={metricTrends.latency} />
-          <MetricTrendCard label="Token Usage" value={metrics.tokens.toLocaleString('en-US')} desc="Aggregated from trace tokenUsage" path={metricTrends.tokens} tone="blue" />
-          <MetricTrendCard label="Run Quality" value={metrics.assessed ? `${metrics.avgQuality}%` : '未评估'} desc={`${metrics.assessed}/${metrics.total} runs have quality score`} path={metricTrends.quality} tone="cyan" />
-          <article className="ops-metric-baseline-card">
-            <span>Ops Baseline</span>
-            <strong>{Math.min(runs.length, 12)} samples</strong>
-            <p>等待审批 {metrics.waiting} 个，失败 {metrics.failed} 个，已确认 {metrics.confirmed} 个。</p>
-          </article>
-        </div>
-        <div className="ops-runtime-context-strip">
-          <span><Database size={13} />LLM {blueprint?.runtime.llm.provider || 'loading'} · {blueprint?.runtime.llm.mode || 'unknown'} · {blueprint?.runtime.llm.model || 'model loading'}</span>
-          <span>
-            Vector {retrievalView.backend} · {retrievalView.label} · {ragRuntime?.index || 'index pending'}
-          </span>
-          <span>{ragLive ? `Live ${ragRuntime?.vectorPath || 'embedding'} · ${ragRuntime?.dimensions || 0} dims` : (retrievalView.message || ragRuntime?.error || 'fallback retrieval')}</span>
-          <span>Skill {selectedAgent?.name || 'Agent Runtime'}</span>
-          <span>Scope {selectedScopeLabels.length}/{scopeOptions.length} · {selectedScopeLabels.join(' / ') || 'minimal context'}</span>
-        </div>
-      </section>
+      <RuntimeMetrics
+        metrics={metrics}
+        traceCount={trace.length}
+        metricTrends={metricTrends}
+        blueprint={blueprint}
+        selectedAgent={selectedAgent}
+        selectedScopeLabels={selectedScopeLabels}
+        retrievalView={retrievalView}
+        ragRuntime={ragRuntime}
+        ragLive={ragLive}
+        onOpenDetail={() => {
+          setActiveTraceId(trace[0]?.id || '');
+          setDetailTab('overview');
+          setDetailOpen(true);
+        }}
+      />
 
       <main className="ops-console-layout">
-        <aside className="panel ops-run-registry">
-          <div className="section-head">
-            <div>
-              <h2>Run Registry</h2>
-              <p>按状态、意图、Skill 检索历史运行。</p>
-            </div>
-            <Search size={18} />
-          </div>
-          <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="Search prompt / skill / status" />
-          <div className="ops-filter-row">
-            {['all', 'review_required', 'confirmed', 'failed', 'paused', 'rolled_back'].map((item) => (
-              <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item}</button>
-            ))}
-          </div>
-          <div className="ops-run-list">
-            {filteredRuns.map((run) => (
-              <button key={run._id} className={activeRun?._id === run._id ? 'active' : ''} onClick={() => { setActiveRunId(run._id); setActiveTraceId(run.trace?.[0]?.id || ''); }}>
-                <strong>{run.intent?.label || 'Agent Run'}</strong>
-                <span>{run.status} · {run.selectedSkill?.name || 'Runtime'} · {formatTime(run.createdAt)}</span>
-                <p>{run.prompt}</p>
-              </button>
-            ))}
-            {!filteredRuns.length ? <div className="runtime-empty">暂无匹配 Run。</div> : null}
-          </div>
-        </aside>
+        <RunRegistry
+          runs={filteredRuns}
+          activeRun={activeRun}
+          keyword={keyword}
+          filter={filter}
+          onKeywordChange={setKeyword}
+          onFilterChange={setFilter}
+          onSelectRun={(run) => {
+            setActiveRunId(run._id);
+            setActiveTraceId(run.trace?.[0]?.id || '');
+          }}
+        />
 
         <section className="ops-main-stage">
-          <section className="panel ops-graph-panel">
-            <div className="section-head">
-              <div>
-                <h2>Agent State Machine</h2>
-                <p>展示 Agent 从意图识别到人工确认的真实状态路径。</p>
-              </div>
-              <GitBranch size={20} />
-            </div>
-            <div className="ops-state-rail">
-              {stateSteps.map((step, index) => {
-                return (
-                  <button key={step.id} className={`${activeTrace?.id === step.id ? 'active' : ''} ${step.status}`} onClick={() => setActiveTraceId(step.id)}>
-                    <em>{String(index + 1).padStart(2, '0')}</em>
-                    <strong>{step.name}</strong>
-                    <span>{step.status}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <svg className="ops-sparkline" viewBox="0 0 280 72" aria-hidden="true">
-              <polyline points={trendPath} fill="none" stroke="#0f766e" strokeWidth="4" strokeLinecap="round" />
-            </svg>
-          </section>
-
-          <section className="ops-lower-grid">
-            <article className="panel ops-trace-panel">
-              <div className="section-head">
-                <div>
-                  <h2>Trace Timeline</h2>
-                  <p>默认展示步骤，点击节点查看输入输出。</p>
-                </div>
-                <Clock3 size={18} />
-              </div>
-              <div className="ops-trace-list">
-                {trace.map((item) => (
-                  <button key={item.id} className={activeTrace?.id === item.id ? 'active' : ''} onClick={() => setActiveTraceId(item.id)}>
-                    <span className={`ops-dot ${item.status}`} />
-                    <strong>{item.name}</strong>
-                    <em>{item.durationMs || 0}ms · {item.tokenUsage || 0} tokens</em>
-                  </button>
-                ))}
-                {!trace.length ? <div className="runtime-empty">暂无 Trace。</div> : null}
-              </div>
-            </article>
-
-            <article className="panel ops-audit-panel">
-              <div className="section-head">
-                <div>
-                  <h2>Tool Call Audit</h2>
-                  <p>工具调用、错误、token 和审计输入输出。</p>
-                </div>
-                <TerminalSquare size={18} />
-              </div>
-              {activeTrace ? (
-                <div className="ops-node-detail">
-                  <header>
-                    <strong>{activeTrace.name}</strong>
-                    <span>{activeTrace.status}</span>
-                  </header>
-                  <div className="ops-node-meta">
-                    <em>{activeTrace.durationMs || 0}ms</em>
-                    <em>{activeTrace.tokenUsage || 0} tokens</em>
-                    <em>{activeTrace.tool || 'runtime'}</em>
-                  </div>
-                  <pre>{formatJson({ input: activeTrace.input, output: activeTrace.output, error: activeTrace.error })}</pre>
-                </div>
-              ) : <div className="runtime-empty">选择 Trace 节点查看详情。</div>}
-            </article>
-          </section>
+          <StateMachinePanel stateSteps={stateSteps} activeTrace={activeTrace} trendPath={trendPath} onSelectTrace={setActiveTraceId} />
+          <TraceAuditPanel trace={trace} activeTrace={activeTrace} onSelectTrace={setActiveTraceId} />
         </section>
 
-        <aside className="panel ops-detail-dock">
-          <div className="section-head">
-            <div>
-              <h2>Run Detail</h2>
-              <p>审批记录、失败回放和产物留档。</p>
-            </div>
-            <Workflow size={20} />
-          </div>
-          <textarea value={controlNote} onChange={(event) => setControlNote(event.target.value)} />
-          <div className="ops-review-actions">
-            <button className="primary-button" onClick={() => review('confirm')} disabled={!activeRun}><CheckCircle2 size={14} />确认</button>
-            <button className="secondary-button" onClick={() => review('revise')} disabled={!activeRun}>修改</button>
-            <button className="danger-button" onClick={() => review('reject')} disabled={!activeRun}><AlertTriangle size={14} />拒绝</button>
-          </div>
-          <div className="ops-detail-block">
-            <strong>Artifacts</strong>
-            {(activeRun?.artifacts || []).map((artifact) => (
-              <article key={artifact.id}>
-                <FileBadge title={artifact.title} />
-                <span>{artifact.type} · {artifact.status} · v{artifact.version || 1}</span>
-              </article>
-            ))}
-          </div>
-          <div className="ops-detail-block">
-            <strong>Sources</strong>
-            {(activeRun?.sources || []).slice(0, 5).map((source) => (
-              <article key={source._id}>
-                <Database size={14} />
-                <span>{source.documentTitle} · {Number(source.score || 0).toFixed(4)}</span>
-              </article>
-            ))}
-          </div>
-          <div className="ops-detail-block">
-            <strong>State Transitions</strong>
-            {(activeRun?.stateTransitions || []).slice(-6).reverse().map((transition) => (
-              <article key={transition.id}>
-                <GitBranch size={14} />
-                <span>{transition.from} {'->'} {transition.to}</span>
-                <em>{formatTime(transition.at)}</em>
-              </article>
-            ))}
-            {!activeRun?.stateTransitions?.length ? <p>暂无状态机流转记录。</p> : null}
-          </div>
-          <div className="ops-detail-block">
-            <strong>Review / Control History</strong>
-            {(activeRun?.reviewHistory || []).slice(0, 4).map((review, index) => (
-              <article key={review._id || `${review.action}-${index}`}>
-                <CheckCircle2 size={14} />
-                <span>{review.action} {'->'} {review.nextStatus || 'reviewed'}</span>
-                <em>{review.note || 'no note'}</em>
-              </article>
-            ))}
-            {(activeRun?.controlHistory || []).slice(0, 4).map((control) => (
-              <article key={control.id}>
-                <RotateCcw size={14} />
-                <span>{control.action} {'->'} {control.status}</span>
-                <em>{control.reason || 'no reason'}</em>
-              </article>
-            ))}
-            {!activeRun?.reviewHistory?.length && !activeRun?.controlHistory?.length ? <p>暂无审批或控制历史。</p> : null}
-          </div>
-          <div className="ops-detail-block">
-            <strong>Quality Checks</strong>
-            <article>
-              <ShieldValue score={activeRun?.quality?.score ?? activeRun?.evalResult?.score} />
-              <span>{activeRun?.quality?.passed || activeRun?.evalResult?.passed || 0}/{activeRun?.quality?.total || activeRun?.evalResult?.total || 0} checks · {activeRun?.quality?.verdict || activeRun?.evalResult?.verdict || 'not assessed'}</span>
-            </article>
-          </div>
-          <div className="ops-detail-block">
-            <strong>Audit Log</strong>
-            {(activeRun?.logs || []).slice(-8).reverse().map((log) => (
-              <article key={log.id}>
-                <span>{log.level}</span>
-                <p>{log.message}</p>
-                <em>{formatTime(log.at)}</em>
-              </article>
-            ))}
-          </div>
-        </aside>
+        <RunDetailDock activeRun={activeRun} controlNote={controlNote} onControlNoteChange={setControlNote} onReview={review} />
       </main>
 
-      <div className={`agentops-drawer-mask ${detailOpen ? 'open' : ''}`} onMouseDown={() => setDetailOpen(false)}>
-        <aside className="agentops-run-drawer" onMouseDown={(event) => event.stopPropagation()}>
-          <header>
-            <div>
-              <span>RUN DETAIL</span>
-              <h2>{activeRun?.intent?.label || 'Agent Run Detail'}</h2>
-              <p>{activeRun?.prompt || '选择一个 Run 后可以查看完整状态流转、Trace、Artifact、审批和质量评分。'}</p>
-            </div>
-            <button className="secondary-button compact" type="button" onClick={() => setDetailOpen(false)}>关闭</button>
-          </header>
-          <div className="agentops-drawer-tabs">
-            {[
-              ['overview', '概览'],
-              ['trace', 'Trace'],
-              ['artifacts', 'Artifacts'],
-              ['raw', 'Raw']
-            ].map(([id, label]) => (
-              <button key={id} type="button" className={detailTab === id ? 'active' : ''} onClick={() => setDetailTab(id as typeof detailTab)}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {detailTab === 'overview' ? (
-            <>
-              <div className="agentops-drawer-grid">
-                <article>
-                  <span>Status</span>
-                  <strong>{activeRun?.status || 'no-run'}</strong>
-                  <p>{activeRun?.intent?.goal || '暂无运行目标。'}</p>
-                </article>
-                <article>
-                  <span>Quality</span>
-                  <strong>{activeRun?.quality ? `${activeRun.quality.score}%` : 'pending'}</strong>
-                  <p>{activeRun?.quality ? `${activeRun.quality.passed}/${activeRun.quality.total} checks · ${activeRun.quality.verdict}` : '运行完成后写入质量评分。'}</p>
-                </article>
-                <article>
-                  <span>Runtime</span>
-                  <strong>{String(activeRun?.provider?.provider || blueprint?.runtime.llm.provider || 'LLM')}</strong>
-                  <p>{String(activeRun?.provider?.mode || blueprint?.runtime.llm.mode || 'unknown')} · {String(activeRun?.provider?.model || blueprint?.runtime.llm.model || 'model')}</p>
-                </article>
-                <article>
-                  <span>Evidence</span>
-                  <strong>{activeRun?.sources?.length || 0} sources</strong>
-                  <p>{activeRun?.artifacts?.length || 0} artifacts · {activeRun?.trace?.length || 0} trace events</p>
-                </article>
-              </div>
-              <div className="agentops-drawer-trace">
-                {(activeRun?.stateTransitions || []).map((transition) => (
-                  <article key={transition.id}>
-                    <header>
-                      <strong>{transition.from} {'->'} {transition.to}</strong>
-                      <span>{formatTime(transition.at)}</span>
-                    </header>
-                    <p>{transition.label}{transition.reason ? ` · ${transition.reason}` : ''}</p>
-                  </article>
-                ))}
-                {(activeRun?.quality?.checks || []).map((check) => (
-                  <article key={check.key}>
-                    <header>
-                      <strong>{check.label}</strong>
-                      <span>{check.passed ? 'passed' : 'failed'}</span>
-                    </header>
-                    <p>{check.value}</p>
-                  </article>
-                ))}
-              </div>
-            </>
-          ) : null}
-
-          {detailTab === 'trace' ? (
-            <div className="agentops-drawer-trace">
-              {(activeRun?.trace || []).map((item) => (
-                <article key={item.id}>
-                  <header>
-                    <strong>{item.name}</strong>
-                    <span>{item.status} · {item.durationMs || 0}ms · {item.tokenUsage || 0} tokens</span>
-                  </header>
-                  <pre>{formatJson({ input: item.input, output: item.output, error: item.error, tool: item.tool })}</pre>
-                </article>
-              ))}
-            </div>
-          ) : null}
-
-          {detailTab === 'artifacts' ? (
-            <div className="agentops-drawer-artifacts">
-              {(activeRun?.artifacts || []).map((artifact) => (
-                <article key={artifact.id}>
-                  <header>
-                    <strong>{artifact.title}</strong>
-                    <span>{artifact.type} · {artifact.status} · v{artifact.version || 1}</span>
-                  </header>
-                  <div className="agentops-drawer-grid">
-                    <article>
-                      <span>Trace</span>
-                      <strong>{artifact.traceStepId || 'unknown'}</strong>
-                      <p>{artifact.reviewStatus || 'pending'}</p>
-                    </article>
-                    <article>
-                      <span>Citations</span>
-                      <strong>{artifact.sourceRefs?.length || 0}</strong>
-                      <p>{(artifact.sourceRefs || []).slice(0, 3).map((source) => `[${source.index}] ${source.title}`).join(' / ') || 'no source refs'}</p>
-                    </article>
-                    <article>
-                      <span>Versions</span>
-                      <strong>{artifact.versions?.length || 0}</strong>
-                      <p>{(artifact.versions || []).slice(0, 3).map((item) => `v${item.version} ${item.status}`).join(' / ') || 'no version history'}</p>
-                    </article>
-                    <article>
-                      <span>Approvals / Exports</span>
-                      <strong>{(artifact.approvals?.length || 0) + (artifact.exports?.length || 0)}</strong>
-                      <p>{artifact.exports?.[0]?.filename || artifact.approvals?.[0]?.note || 'no operation history'}</p>
-                    </article>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : null}
-
-          {detailTab === 'raw' ? <pre className="agentops-drawer-raw">{formatJson(activeRun)}</pre> : null}
-        </aside>
-      </div>
+      <RunDetailDrawer
+        open={detailOpen}
+        activeRun={activeRun}
+        blueprint={blueprint}
+        detailTab={detailTab}
+        onTabChange={setDetailTab}
+        onClose={() => setDetailOpen(false)}
+      />
     </div>
-  );
-}
-
-function FileBadge({ title }: { title: string }) {
-  return (
-    <span className="ops-file-badge">
-      <ClipboardCheck size={14} />
-      {title}
-    </span>
-  );
-}
-
-function ShieldValue({ score }: { score?: number }) {
-  return (
-    <span className="ops-file-badge">
-      <CheckCircle2 size={14} />
-      {typeof score === 'number' ? `${score}%` : 'pending'}
-    </span>
-  );
-}
-
-function MetricTrendCard({ label, value, desc, path, tone = 'teal' }: { label: string; value: string; desc: string; path: string; tone?: 'teal' | 'blue' | 'cyan' }) {
-  return (
-    <article className={`ops-metric-trend-card ${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <svg viewBox="0 0 280 72" aria-hidden="true">
-        <polyline points={path} fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-      <p>{desc}</p>
-    </article>
   );
 }

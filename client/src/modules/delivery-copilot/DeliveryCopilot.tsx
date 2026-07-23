@@ -1,146 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, Copy, Database, FileText, Pause, RefreshCw, Send, ShieldCheck, Sparkles } from 'lucide-react';
 import { request, streamRequest } from '../../api/client';
 import { Header } from '../../components/ui';
-
-type AgentSession = {
-  _id: string;
-  title: string;
-  messages: Array<{ id: string; role: 'user' | 'assistant'; content: string }>;
-};
-
-type Source = {
-  _id: string;
-  documentTitle: string;
-  content: string;
-  score: number;
-  retrievalBackend?: string;
-  sourcePath?: string;
-};
-
-type Artifact = {
-  id: string;
-  type: string;
-  title: string;
-  status: string;
-  content: string | Record<string, unknown>;
-  version?: number;
-  traceStepId?: string;
-  reviewStatus?: string;
-  versions?: Array<{ version: number; status: string; createdAt: string }>;
-  approvals?: Array<{ action: string; note?: string; createdAt: string }>;
-  exports?: Array<{ id: string; format: string; filename: string; exportedAt: string }>;
-  sourceRefs?: Array<{ id: string; index: number; title: string; score: number; retrievalBackend?: string }>;
-  generatedBy?: { tool: string; traceStepId: string; generatedAt: string };
-};
-
-type TraceStep = {
-  id: string;
-  name: string;
-  status: string;
-  durationMs?: number;
-  tokenUsage?: number;
-  error?: string;
-};
-
-type RunQuality = {
-  score: number;
-  passed: number;
-  total: number;
-  verdict: string;
-};
-
-type AgentRun = {
-  _id: string;
-  runId: string;
-  status: string;
-  answer?: string;
-  sources?: Source[];
-  artifacts?: Artifact[];
-  trace?: TraceStep[];
-  quality?: RunQuality;
-};
-
-type EvalCase = {
-  id: string;
-  title: string;
-  prompt: string;
-  expected: string[];
-  lastResult?: RunQuality;
-  evalHistory?: Array<{ score: number; verdict: string; createdAt: string }>;
-};
-
-type RuntimeBlueprint = {
-  runtime: {
-    llm: { provider: string; mode: string; model: string; configured: boolean };
-    rag: {
-      backend?: string;
-      retrievalBackend?: string;
-      vectorStore: string;
-      productionReady: boolean;
-      mode?: string;
-      error?: string;
-      index?: string;
-      vectorPath?: string;
-      dimensions?: number;
-      connection?: string;
-      connected?: boolean;
-      vectorSearchReady?: boolean;
-    };
-  };
-};
-
-type RagRuntime = RuntimeBlueprint['runtime']['rag'];
-
-function stringify(content: unknown) {
-  return typeof content === 'string' ? content : JSON.stringify(content, null, 2);
-}
-
-function shortText(value = '', size = 150) {
-  return value.length > size ? `${value.slice(0, size)}...` : value;
-}
-
-function downloadFile(filename: string, content: string, mime: string) {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-}
-
-function isLiveVectorSource(source: Source) {
-  return source.retrievalBackend === 'mongodb-atlas-vector-search';
-}
-
-function isFallbackSource(source: Source) {
-  const backend = source.retrievalBackend || '';
-  return backend === 'local' || backend === 'local-hash' || backend.includes('fallback');
-}
-
-function getRetrievalView(ragRuntime: RagRuntime | undefined, currentSources: Source[]) {
-  const hasRunSources = currentSources.length > 0;
-  const runLive = hasRunSources && currentSources.every(isLiveVectorSource);
-  const runFallback = hasRunSources && currentSources.some(isFallbackSource);
-  const configuredLive = Boolean(ragRuntime?.productionReady && ragRuntime?.retrievalBackend === 'mongodb-atlas-vector-search');
-  const backend = hasRunSources
-    ? (currentSources[0]?.retrievalBackend || 'unknown')
-    : (ragRuntime?.retrievalBackend || ragRuntime?.backend || ragRuntime?.vectorStore || 'retrieval loading');
-
-  return {
-    live: hasRunSources ? runLive : configuredLive,
-    backend,
-    label: hasRunSources
-      ? (runLive ? 'live vector store' : (runFallback ? 'fallback used by current run' : 'current run backend unknown'))
-      : (configuredLive ? 'live vector store ready' : 'fallback / not verified'),
-    warning: hasRunSources && !runLive
-      ? '本次 Run 的引用来自降级检索，Eval 不会按真实向量检索通过。'
-      : ''
-  };
-}
+import { ArtifactOverview } from './components/ArtifactOverview';
+import { ArtifactWorkbench } from './components/ArtifactWorkbench';
+import { KnowledgeContext } from './components/KnowledgeContext';
+import { SkillSelector } from './components/SkillSelector';
+import { StreamPanel } from './components/StreamPanel';
+import type { AgentRun, AgentSession, Artifact, EvalCase, RunQuality, RuntimeBlueprint, Source, TraceStep } from './types';
+import { downloadFile, getRetrievalView, stringify } from './utils';
 
 const deliveryTaskModes = [
   {
@@ -424,197 +291,65 @@ export default function DeliveryCopilot() {
         </div>
       </section>
 
-      <section className="delivery-artifact-overview panel">
-        {artifactSummary.map((item) => (
-          <button
-            key={item.type}
-            className={item.artifact?.id === activeArtifact?.id ? 'active' : ''}
-            type="button"
-            disabled={!item.artifact}
-            onClick={() => item.artifact && selectArtifact(item.artifact)}
-          >
-            <CheckCircle2 size={15} />
-            <strong>{item.title}</strong>
-            <span>{item.confirmed ? 'confirmed' : item.done ? 'ready' : 'waiting'} · {item.artifact ? `v${item.artifact.version || 1}` : 'no artifact'}</span>
-          </button>
-        ))}
-      </section>
+      <ArtifactOverview
+        artifactSummary={artifactSummary}
+        activeArtifactId={activeArtifact?.id}
+        onSelectArtifact={selectArtifact}
+      />
 
       <main className="delivery-workspace">
-        <aside className="panel delivery-intake">
-          <div className="section-head">
-            <div>
-              <h2>需求输入</h2>
-              <p>自然语言主导，结构化约束兜底。</p>
-            </div>
-            <Sparkles size={20} />
-          </div>
-          <div className="delivery-mode-board">
-            <strong>任务模式</strong>
-            {deliveryTaskModes.map((item) => (
-              <button key={item.id} type="button" className={taskModeId === item.id ? 'active' : ''} onClick={() => setTaskModeId(item.id)}>
-                <b>{item.title}</b>
-                <span>{item.desc}</span>
-              </button>
-            ))}
-          </div>
-          <label>业务需求<textarea value={requirement} onChange={(event) => setRequirement(event.target.value)} /></label>
-          <div className="delivery-two-fields">
-            <label>目标用户<input value={audience} onChange={(event) => setAudience(event.target.value)} /></label>
-            <label>交付目标<input value={deadline} onChange={(event) => setDeadline(event.target.value)} /></label>
-          </div>
-          <label>约束条件<textarea value={constraints} onChange={(event) => setConstraints(event.target.value)} /></label>
-          <div className="delivery-actions">
-            <button className="primary-button" disabled={running} onClick={() => run()}><Send size={15} />生成交付物</button>
-            <button className="secondary-button" disabled={!running} onClick={stop}><Pause size={15} />停止</button>
-            <button className="secondary-button" disabled={running} onClick={() => run(prompt)}><RefreshCw size={15} />重跑</button>
-          </div>
+        <SkillSelector
+          taskModes={deliveryTaskModes}
+          taskModeId={taskModeId}
+          onTaskModeChange={setTaskModeId}
+          requirement={requirement}
+          audience={audience}
+          deadline={deadline}
+          constraints={constraints}
+          onRequirementChange={setRequirement}
+          onAudienceChange={setAudience}
+          onDeadlineChange={setDeadline}
+          onConstraintsChange={setConstraints}
+          cases={cases}
+          selectedEvalCaseId={selectedEvalCaseId}
+          onLoadCase={loadCase}
+          running={running}
+          onRun={() => run()}
+          onStop={stop}
+          onRerun={() => run(prompt)}
+        />
 
-          <div className="delivery-cases">
-            <strong>真实 Eval Cases</strong>
-            {cases.map((item) => (
-              <button key={item.id} className={selectedEvalCaseId === item.id ? 'active' : ''} onClick={() => loadCase(item)}>
-                <b>{item.title}</b>
-                <span>{item.expected.join(' / ')}</span>
-                <em className={item.lastResult ? (item.lastResult.score === 100 ? 'passed' : 'review') : ''}>
-                  {item.lastResult ? `${item.lastResult.score}% · ${item.lastResult.passed}/${item.lastResult.total}` : '未运行'}
-                </em>
-              </button>
-            ))}
-          </div>
-        </aside>
+        <StreamPanel
+          status={status}
+          running={running}
+          trace={trace}
+          answer={answer}
+          outputRef={outputRef}
+        />
 
-        <section className="panel delivery-stream">
-          <div className="section-head">
-            <div>
-              <h2>流式分析过程</h2>
-              <p>展示 AI 如何把需求拆解为上下文、计划和结论。</p>
-            </div>
-            <span className={`delivery-status ${status}`}>{running ? 'streaming' : status}</span>
-          </div>
-          <div className="delivery-flow-steps">
-            {['需求校验', 'RAG 检索', '工具产物', '流式总结', '人工确认'].map((item, index) => (
-              <article key={item} className={trace.length > index || running ? 'active' : ''}>
-                <em>{String(index + 1).padStart(2, '0')}</em>
-                <strong>{item}</strong>
-              </article>
-            ))}
-          </div>
-          <div className="delivery-output" ref={outputRef}>
-            {answer ? <pre>{answer}</pre> : <div className="runtime-empty">点击生成后，这里会展示真实 SSE 流式分析过程。</div>}
-          </div>
-        </section>
-
-        <aside className="panel delivery-context">
-          <div className="section-head">
-            <div>
-              <h2>引用与确认</h2>
-              <p>降低幻觉，保留人工决策。</p>
-            </div>
-            <Database size={20} />
-          </div>
-          <div className={`delivery-vector-health ${ragLive ? 'live' : 'fallback'}`}>
-            <div>
-              <strong>{ragLive ? 'Live Vector Store' : 'Fallback Retrieval'}</strong>
-              <span>{retrievalView.label}</span>
-            </div>
-            <p>
-              {ragLive
-                ? `Index ${ragRuntime?.index || 'default'} · Path ${ragRuntime?.vectorPath || 'embedding'} · ${ragRuntime?.dimensions || 0} dims`
-                : (retrievalView.warning || ragRuntime?.error || '当前未启用真实向量库，使用 local deterministic embedding。')}
-            </p>
-            <em>{retrievalView.backend} · {ragRuntime?.connection || (ragRuntime?.connected ? 'connected' : 'not connected')}</em>
-          </div>
-          <div className="delivery-source-list">
-            {sources.map((source, index) => (
-              <article key={source._id || index}>
-                <strong>[{index + 1}] {source.documentTitle}</strong>
-                <span>score {Number(source.score || 0).toFixed(4)} · {source.retrievalBackend || 'local'}</span>
-                <p>{shortText(source.content, 180)}</p>
-              </article>
-            ))}
-            {!sources.length ? <div className="runtime-empty">运行后展示真实命中的 chunk、score 和 citation。</div> : null}
-          </div>
-          <div className="delivery-review-box">
-            <ShieldCheck size={18} />
-            <div>
-              <strong>人工确认节点</strong>
-              <p>PRD、API、任务拆解和风险项生成后，进入人工确认再继续交付。</p>
-            </div>
-          </div>
-          <div className="delivery-mini-trace">
-            <strong>真实 Trace</strong>
-            {trace.slice(0, 6).map((item) => (
-              <span key={item.id}>{item.name} · {item.status} · {item.durationMs || 0}ms</span>
-            ))}
-            {!trace.length ? <p>运行后展示 Agent 状态流转。</p> : null}
-          </div>
-        </aside>
+        <KnowledgeContext
+          ragLive={ragLive}
+          ragRuntime={ragRuntime}
+          retrievalView={retrievalView}
+          prompt={prompt}
+          requirement={requirement}
+          sources={sources}
+          trace={trace}
+        />
       </main>
 
-      <section className="panel delivery-artifacts">
-        <div className="section-head">
-          <div>
-            <h2>Artifact 交付物总览</h2>
-            <p>把模型输出变成可预览、可复制、可确认、可导出的产品资产。</p>
-          </div>
-          <span>{artifacts.length} artifacts</span>
-        </div>
-        <div className="delivery-artifact-shell">
-          <nav>
-            {artifacts.map((artifact) => (
-              <button key={artifact.id} className={activeArtifact?.id === artifact.id ? 'active' : ''} onClick={() => selectArtifact(artifact)}>
-                <FileText size={15} />
-                <strong>{artifact.title}</strong>
-                <span>{artifact.status} · {artifact.reviewStatus || 'pending'} · v{artifact.version || 1}</span>
-              </button>
-            ))}
-            {!artifacts.length ? <div className="runtime-empty">暂无交付物。</div> : null}
-          </nav>
-          <article>
-            {activeArtifact ? (
-              <>
-                <header>
-                  <div>
-                    <strong>{activeArtifact.title}</strong>
-                    <span>trace: {activeArtifact.traceStepId || 'unknown'} · {activeArtifact.type}</span>
-                  </div>
-                  <div>
-                    <button className="secondary-button compact" onClick={() => copy(artifactDraft)}><Copy size={13} />复制</button>
-                    <button className="secondary-button compact" disabled={!activeRun} onClick={saveArtifact}>保存版本</button>
-                    <button className="secondary-button compact" disabled={!activeRun} onClick={() => exportArtifact('markdown')}>导出 MD</button>
-                    <button className="secondary-button compact" disabled={!activeRun} onClick={() => exportArtifact('json')}>导出 JSON</button>
-                    <button className="primary-button compact" disabled={!activeRun} onClick={confirmArtifact}><CheckCircle2 size={13} />确认</button>
-                  </div>
-                </header>
-                <div className="delivery-artifact-editor">
-                  <textarea value={artifactDraft} onChange={(event) => setArtifactDraft(event.target.value)} />
-                  <aside>
-                    <strong>版本与审批</strong>
-                    <span>Trace · {activeArtifact.generatedBy?.traceStepId || activeArtifact.traceStepId || 'unknown'}</span>
-                    <span>Tool · {activeArtifact.generatedBy?.tool || 'planDelivery'}</span>
-                    {(activeArtifact.sourceRefs || []).slice(0, 4).map((item) => (
-                      <span key={item.id}>[{item.index}] {item.title} · {Number(item.score || 0).toFixed(4)}</span>
-                    ))}
-                    {(activeArtifact.versions || []).slice(0, 5).map((item) => (
-                      <span key={`${item.version}-${item.createdAt}`}>v{item.version} · {item.status}</span>
-                    ))}
-                    {(activeArtifact.approvals || []).slice(0, 5).map((item, index) => (
-                      <span key={`${item.createdAt}-${index}`}>{item.action} · {item.note || '已确认'}</span>
-                    ))}
-                    {(activeArtifact.exports || []).slice(0, 5).map((item) => (
-                      <span key={item.id}>export · {item.format} · {item.filename}</span>
-                    ))}
-                    {!activeArtifact.versions?.length && !activeArtifact.approvals?.length ? <p>保存或确认后会产生真实版本和审批记录。</p> : null}
-                  </aside>
-                </div>
-              </>
-            ) : (
-              <div className="runtime-empty">生成后选择左侧 Artifact 查看详情。</div>
-            )}
-          </article>
-        </div>
-      </section>
+      <ArtifactWorkbench
+        artifacts={artifacts}
+        activeArtifact={activeArtifact}
+        activeRun={activeRun}
+        artifactDraft={artifactDraft}
+        onArtifactDraftChange={setArtifactDraft}
+        onSelectArtifact={selectArtifact}
+        onCopy={copy}
+        onSaveArtifact={saveArtifact}
+        onConfirmArtifact={confirmArtifact}
+        onExportArtifact={exportArtifact}
+      />
     </div>
   );
 }

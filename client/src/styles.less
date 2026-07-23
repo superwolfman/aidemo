@@ -6737,6 +6737,133 @@ kbd {
   line-height: 1.55;
 }
 
+.rag-debug-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  border: 1px solid #d7e4ee;
+  border-radius: 14px;
+  padding: 12px;
+  background: linear-gradient(180deg, #fff, #f8fbfd);
+}
+
+.rag-debug-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.rag-debug-head div {
+  display: grid;
+  gap: 3px;
+}
+
+.rag-debug-head span,
+.rag-debug-grid em {
+  color: #66788a;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 950;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.rag-debug-head strong {
+  color: #172026;
+  font-size: 14px;
+}
+
+.rag-debug-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.rag-debug-grid article {
+  min-width: 0;
+  border: 1px solid #d7e4ee;
+  border-radius: 10px;
+  padding: 9px;
+  background: #fff;
+}
+
+.rag-debug-grid strong {
+  display: block;
+  margin-top: 4px;
+  color: #26394a;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rag-debug-note {
+  display: grid;
+  gap: 5px;
+  border-radius: 10px;
+  padding: 10px;
+  color: #0f766e;
+  background: rgba(15, 118, 110, .08);
+}
+
+.rag-debug-note b {
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.rag-debug-note span {
+  color: #52667a;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.rag-debug-results {
+  display: grid;
+  gap: 10px;
+  max-height: 430px;
+  overflow: auto;
+}
+
+.rag-debug-results article {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d7e4ee;
+  border-radius: 12px;
+  padding: 10px;
+  background: #fff;
+}
+
+.rag-debug-results header,
+.rag-debug-results footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+  align-items: center;
+}
+
+.rag-debug-results strong {
+  color: #172026;
+  font-size: 13px;
+}
+
+.rag-debug-results p {
+  margin: 0;
+  color: #52667a;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.rag-debug-results span {
+  border-radius: 999px;
+  padding: 4px 7px;
+  color: #52667a;
+  background: #eef4f7;
+  font-size: 11px;
+  font-weight: 850;
+}
+
 .delivery-review-box {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
