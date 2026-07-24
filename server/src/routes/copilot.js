@@ -247,6 +247,21 @@ const seedKnowledge = [
                 API 设计遵循 RESTful 或 RPC 风格，需有版本管理、限流、审计。
                 测试策略：单元测试、集成测试、E2E、性能测试、安全测试。
                 上线风险：数据迁移、权限割接、灰度发布、回滚预案。`
+    },
+    {
+        title: 'B 端 SaaS 客户管理后台产品设计',
+        tags: ['copilot', 'business', 'saas', 'crm'],
+        content: 'B 端 SaaS 客户管理后台典型页面：1) 客户档案管理 - 客户列表、客户详情、联系人管理、客户标签、操作审计；2) 跟进记录 - 跟进时间线、跟进表单、附件上传、跟进提醒；3) 销售漏斗 - 漏斗看板、阶段拖拽、转化率统计、预期金额；4) 团队协作 - 权限管理、操作日志、消息通知、任务分配。典型 API：GET/POST /api/customers、GET/POST /api/follow-ups、GET /api/sales-pipeline、POST /api/permissions。'
+    },
+    {
+        title: '智能客服知识库产品设计',
+        tags: ['copilot', 'business', 'knowledge', 'service'],
+        content: '智能客服知识库典型页面：1) 问答接待台 - 问题输入、流式答案、引用卡片、低置信度提示、转人工入口；2) 知识库管理 - 文档上传、分组标签、向量索引状态、失效知识提醒、灰度发布；3) 质检反馈台 - 答案采纳、人工纠错、未解决问题池、命中率统计、知识缺口分析；4) 运营看板 - 命中率、未解决率、人工接管率、高频问题、质检通过率。典型 API：POST /api/knowledge/search、POST /api/conversations/:id/messages、POST /api/knowledge/feedback。'
+    },
+    {
+        title: '投研报告生成工作台产品设计',
+        tags: ['copilot', 'business', 'research', 'report'],
+        content: '投研报告生成工作台典型页面：1) 资料导入区 - 研报上传、公司/行业标签、资料解析状态、引用质量检查；2) 报告生成区 - 大纲生成、章节草稿、引用定位、风险提示、模型选择；3) 合规复核区 - 投资建议标记、敏感表述检查、引用缺失检查、人工审批；4) 报告导出区 - Markdown 导出、PDF 导出、审计记录、版本对比。典型 API：POST /api/research/upload、POST /api/research/generate、POST /api/research/compliance-review。'
     }
 
 ];
