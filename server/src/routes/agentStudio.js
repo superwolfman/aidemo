@@ -9,775 +9,787 @@ import { agentCapabilities, getAgentCapability } from '../services/skillRegistry
 import { buildDeliveryArtifacts, buildFallbackAnswer } from '../services/toolExecutor.js';
 import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
 
-function upsertTraceStage(trace = [], stageId, patch = {}) {
-  let updated = false;
-  const nextTrace = trace.map((item) => {
-    if (item.id !== stageId) return item;
-    updated = true;
+function upsertTraceStage (trace = [], stageId, patch = {}) {
+    let updated = false;
+    const nextTrace = trace.map((item) => {
+        if (item.id !== stageId) return item;
+        updated = true;
+        return {
+            ...item,
+            ...patch,
+            updatedAt: now()
+        };
+    });
+    if (!updated) {
+        nextTrace.push(step(stageId, patch.name || stageId, patch.status || 'success', patch));
+    }
+    return nextTrace;
+}
+
+function inferIntent (input) {
+    const text = String(input || '');
+    const signals = [];
+    if (/客服|知识库|问答|FAQ|答案|引用/.test(text)) {
+        signals.push('knowledge', 'qa', 'citation');
+        return {
+            id: 'knowledge-assistant',
+            label: '知识库问答与运营纠错',
+            goal: '从知识库中检索可信上下文，输出带引用答案、缺口和人工纠错建议。',
+            scopes: ['architecture', 'standards', 'ai-native', 'im'],
+            riskLevel: 'medium',
+            confidence: 0.86,
+            signals
+        };
+    }
+    if (/测试|质量|发布|上线|验收|回归|门禁/.test(text)) {
+        signals.push('quality', 'release', 'review');
+        return {
+            id: 'delivery-review-agent',
+            label: '交付质量评审',
+            goal: '评估方案完整度、测试缺口、上线风险和人工确认项。',
+            scopes: ['standards', 'architecture', 'sdk'],
+            riskLevel: 'high',
+            confidence: 0.88,
+            signals
+        };
+    }
+    if (/接口|页面|PRD|原型|任务|流程|产品|工作流|需求/.test(text)) {
+        signals.push('product', 'workflow', 'prd', 'api');
+        return {
+            id: 'product-delivery-agent',
+            label: 'AI 产品交付工作流',
+            goal: '把需求转成 PRD、页面结构、API Contract、研发任务和测试策略。',
+            scopes: ['architecture', 'standards', 'ai-native', 'frontend'],
+            riskLevel: 'high',
+            confidence: 0.92,
+            signals
+        };
+    }
     return {
-      ...item,
-      ...patch,
-      updatedAt: now()
+        id: 'product-delivery-agent',
+        label: '通用产研测交付',
+        goal: '先澄清需求，再生成可评审交付物和下一步动作。',
+        scopes: ['architecture', 'standards', 'ai-native'],
+        riskLevel: 'medium',
+        confidence: 0.62,
+        signals: ['general']
     };
-  });
-  if (!updated) {
-    nextTrace.push(step(stageId, patch.name || stageId, patch.status || 'success', patch));
-  }
-  return nextTrace;
 }
 
-function inferIntent(input) {
-  const text = String(input || '');
-  const signals = [];
-  if (/客服|知识库|问答|FAQ|答案|引用/.test(text)) {
-    signals.push('knowledge', 'qa', 'citation');
-    return {
-      id: 'knowledge-assistant',
-      label: '知识库问答与运营纠错',
-      goal: '从知识库中检索可信上下文，输出带引用答案、缺口和人工纠错建议。',
-      scopes: ['architecture', 'standards', 'ai-native', 'im'],
-      riskLevel: 'medium',
-      confidence: 0.86,
-      signals
-    };
-  }
-  if (/测试|质量|发布|上线|验收|回归|门禁/.test(text)) {
-    signals.push('quality', 'release', 'review');
-    return {
-      id: 'delivery-review-agent',
-      label: '交付质量评审',
-      goal: '评估方案完整度、测试缺口、上线风险和人工确认项。',
-      scopes: ['standards', 'architecture', 'sdk'],
-      riskLevel: 'high',
-      confidence: 0.88,
-      signals
-    };
-  }
-  if (/接口|页面|PRD|原型|任务|流程|产品|工作流|需求/.test(text)) {
-    signals.push('product', 'workflow', 'prd', 'api');
-    return {
-      id: 'product-delivery-agent',
-      label: 'AI 产品交付工作流',
-      goal: '把需求转成 PRD、页面结构、API Contract、研发任务和测试策略。',
-      scopes: ['architecture', 'standards', 'ai-native', 'frontend'],
-      riskLevel: 'high',
-      confidence: 0.92,
-      signals
-    };
-  }
-  return {
-    id: 'product-delivery-agent',
-    label: '通用产研测交付',
-    goal: '先澄清需求，再生成可评审交付物和下一步动作。',
-    scopes: ['architecture', 'standards', 'ai-native'],
-    riskLevel: 'medium',
-    confidence: 0.62,
-    signals: ['general']
-  };
+function selectCapability (intent) {
+    return getAgentCapability(intent);
 }
 
-function selectCapability(intent) {
-  return getAgentCapability(intent);
-}
-
-function buildAgentPlan(intent) {
-  return [
-    {
-      id: 'validate-request',
-      name: '校验用户请求',
-      owner: 'Runtime',
-      status: 'success',
-      guardrail: '检查输入是否可执行、是否需要人工澄清',
-      tool: 'validateInput'
-    },
-    {
-      id: 'select-skill',
-      name: '选择 Skill',
-      owner: 'Skill Runtime',
-      status: 'success',
-      guardrail: '根据意图映射 allowedTools 与 knowledgeScopes',
-      tool: 'selectSkill'
-    },
-    {
-      id: 'retrieve-context',
-      name: '检索上下文',
-      owner: 'RAG Engine',
-      status: 'pending',
-      guardrail: `限定 scopes: ${intent.scopes.join(', ')}`,
-      tool: 'retrieveKnowledge'
-    },
-    {
-      id: 'run-tools',
-      name: '执行工具',
-      owner: 'Tool Runtime',
-      status: 'pending',
-      guardrail: '只允许当前 Skill 声明的工具执行',
-      tool: 'planDelivery'
-    },
-    {
-      id: 'stream-result',
-      name: '流式生成',
-      owner: 'LLM Provider',
-      status: 'pending',
-      guardrail: 'Provider fallback 必须显式展示',
-      tool: 'streamLlmAnswer'
-    },
-    {
-      id: 'human-review',
-      name: '人工审批',
-      owner: 'Reviewer',
-      status: intent.riskLevel === 'high' ? 'waiting' : 'pending',
-      guardrail: '高风险动作必须暂停等待确认',
-      tool: 'requestHumanReview'
-    }
-  ];
-}
-
-function updatePlan(plan, id, status, patch = {}) {
-  return plan.map((item) => item.id === id ? { ...item, status, ...patch } : item);
-}
-
-function normalizeSession(session) {
-  if (!session) return session;
-  return {
-    ...session,
-    messages: Array.isArray(session.messages) ? session.messages.filter((item) => item?.content) : []
-  };
-}
-
-function normalizeRun(run) {
-  if (!run) return run;
-  return {
-    ...run,
-    quality: scoreRunQuality(run)
-  };
-}
-
-export function agentStudioRouter(store) {
-  const router = express.Router();
-
-  router.get('/blueprint', (req, res) => {
-    res.json({
-      capabilities: agentCapabilities,
-      architecture: {
-        frontend: ['Agent Runtime Console', 'Run Queue', 'Intent Inspector', 'Plan Board', 'State Machine', 'Tool Calls', 'Audit Timeline'],
-        bff: ['Auth', 'Session', 'Agent Run State', 'RAG Retrieval', 'Tool Runtime', 'LLM Provider Adapter', 'Human Review', 'Audit Log'],
-        states: ['idle', 'intent_detected', 'skill_selected', 'retrieving', 'tool_running', 'streaming', 'review_required', 'paused', 'resumed', 'rolled_back', 'confirmed', 'failed', 'cancelled'],
-        data: ['agent_sessions', 'agent_runs', 'agent_reviews', 'agent_audit_logs']
-      },
-      controls: {
-        supportedActions: ['pause', 'resume', 'rollback', 'confirm', 'revise', 'reject'],
-        policy: '高风险工具和外部写入动作必须 human-in-the-loop；运行控制动作写入 audit log。'
-      },
-      runtime: {
-        llm: getProviderStatus(),
-        rag: getRagStatus({ storeKind: store.kind, error: store.connectionError })
-      }
-    });
-  });
-
-  router.get('/sessions', async (req, res) => {
-    const sessions = await store.listRecords('agent_sessions', 50);
-    res.json({ sessions: sessions.map(normalizeSession) });
-  });
-
-  router.get('/runs', async (req, res) => {
-    const runs = await store.listRecords('agent_runs', 50);
-    res.json({ runs: runs.map(normalizeRun) });
-  });
-
-  router.get('/eval-cases', async (req, res) => {
-    const runs = (await store.listRecords('agent_runs', 100)).map(normalizeRun);
-    const evalResults = await store.listRecords('agent_eval_results', 100);
-    res.json({
-      cases: buildEvalCases().map((item) => ({
-        ...item,
-        status: 'ready',
-        lastRunId: runs.find((run) => run.evalCaseId === item.id)?._id,
-        lastResult: runs.find((run) => run.evalCaseId === item.id)?.quality,
-        evalHistory: evalResults.filter((result) => result.evalCaseId === item.id).slice(0, 5)
-      }))
-    });
-  });
-
-  router.post('/sessions', async (req, res) => {
-    const session = await store.createRecord('agent_sessions', {
-      title: req.body.title || '新的 Agent 会话',
-      createdBy: req.user._id,
-      activeAgentId: req.body.agentId || 'product-delivery-agent',
-      messages: []
-    });
-    res.json({ session: normalizeSession(session) });
-  });
-
-  router.get('/runs/:id', async (req, res) => {
-    const run = await store.getRecord('agent_runs', req.params.id);
-    if (!run) {
-      res.status(404).json({ message: 'Agent run not found' });
-      return;
-    }
-    res.json({ run: normalizeRun(run) });
-  });
-
-  router.post('/runs/:id/review', async (req, res) => {
-    const run = await store.getRecord('agent_runs', req.params.id);
-    if (!run) {
-      res.status(404).json({ message: 'Agent run not found' });
-      return;
-    }
-    const action = req.body.action || 'confirm';
-    const nextStatusMap = {
-      confirm: 'confirmed',
-      reject: 'rejected',
-      revise: 'revision_requested'
-    };
-    const nextStatus = nextStatusMap[action] || 'confirmed';
-    const review = await store.createRecord('agent_reviews', {
-      runId: run._id,
-      action,
-      note: req.body.note || '',
-      reviewerId: req.user._id,
-      previousStatus: run.status,
-      nextStatus
-    });
-    const log = auditLog('review', `审批动作：${action}`, {
-      action,
-      reviewerId: req.user._id,
-      note: req.body.note || ''
-    });
-    const nextArtifacts = action === 'confirm'
-      ? (run.artifacts || []).map((artifact) => ({
-        ...artifact,
-        status: artifact.status === 'confirmed' ? artifact.status : 'reviewed',
-        reviewStatus: artifact.reviewStatus === 'confirmed' ? artifact.reviewStatus : 'reviewed'
-      }))
-      : run.artifacts || [];
-    const nextTrace = upsertTraceStage(run.trace || [], 'review', {
-      name: '人工审批决策',
-      status: action === 'reject' ? 'failed' : action === 'revise' ? 'waiting' : 'success',
-      output: {
-        action,
-        note: req.body.note || '',
-        policy: action === 'confirm' ? '审批通过，允许进入下一阶段' : '审批未通过，需要修订或终止'
-      }
-    });
-    let transitionPatch;
-    try {
-      transitionPatch = transitionRunPatch(run, nextStatus, {
-        label: `人工审批：${action}`,
-        actorId: req.user._id,
-        reason: req.body.note || ''
-      });
-    } catch (error) {
-      res.status(error.statusCode || 500).json({ message: error.message });
-      return;
-    }
-    const quality = scoreRunQuality({ ...run, artifacts: nextArtifacts, trace: nextTrace });
-    const nextRun = await store.updateRecord('agent_runs', run._id, {
-      ...transitionPatch,
-      review,
-      reviewHistory: [review, ...(run.reviewHistory || [])],
-      artifacts: nextArtifacts,
-      trace: nextTrace,
-      quality,
-      logs: [...(run.logs || []), log]
-    });
-    res.json({ review, run: nextRun });
-  });
-
-  router.patch('/runs/:id/artifacts/:artifactId', async (req, res) => {
-    const run = await store.getRecord('agent_runs', req.params.id);
-    if (!run) {
-      res.status(404).json({ message: 'Agent run not found' });
-      return;
-    }
-    const artifacts = (run.artifacts || []).map((artifact) => {
-      if (artifact.id !== req.params.artifactId) return artifact;
-      const version = Number(artifact.version || 1) + 1;
-      const nextContent = req.body.content ?? artifact.content;
-      const nextStatus = req.body.status || artifact.status || 'draft';
-      return {
-        ...artifact,
-        content: nextContent,
-        status: nextStatus,
-        reviewStatus: req.body.reviewStatus || artifact.reviewStatus || 'pending',
-        updatedAt: now(),
-        updatedBy: req.user._id,
-        version,
-        versions: [
-          {
-            version,
-            status: nextStatus,
-            content: nextContent,
-            createdAt: now(),
-            operatorId: req.user._id
-          },
-          ...(artifact.versions || [])
-        ].slice(0, 12)
-      };
-    });
-    const updatedArtifact = artifacts.find((artifact) => artifact.id === req.params.artifactId);
-    if (!updatedArtifact) {
-      res.status(404).json({ message: 'Artifact not found' });
-      return;
-    }
-    const log = auditLog('artifact', `Artifact 更新：${updatedArtifact.title}`, {
-      artifactId: updatedArtifact.id,
-      version: updatedArtifact.version,
-      traceStepId: updatedArtifact.traceStepId,
-      sourceIds: updatedArtifact.sourceIds || []
-    });
-    const nextRun = await store.updateRecord('agent_runs', run._id, {
-      artifacts,
-      logs: [...(run.logs || []), log],
-      quality: scoreRunQuality({ ...run, artifacts })
-    });
-    res.json({ artifact: updatedArtifact, run: nextRun });
-  });
-
-  router.post('/runs/:id/artifacts/:artifactId/confirm', async (req, res) => {
-    const run = await store.getRecord('agent_runs', req.params.id);
-    if (!run) {
-      res.status(404).json({ message: 'Agent run not found' });
-      return;
-    }
-    const artifacts = (run.artifacts || []).map((artifact) => {
-      if (artifact.id !== req.params.artifactId) return artifact;
-      return applyArtifactReview(artifact, {
-        action: 'confirm',
-        note: req.body.note || '',
-        operatorId: req.user._id
-      });
-    });
-    const updatedArtifact = artifacts.find((artifact) => artifact.id === req.params.artifactId);
-    if (!updatedArtifact) {
-      res.status(404).json({ message: 'Artifact not found' });
-      return;
-    }
-    const log = auditLog('artifact', `Artifact 确认：${updatedArtifact.title}`, { artifactId: updatedArtifact.id });
-    const nextTrace = upsertTraceStage(run.trace || [], updatedArtifact.traceStepId || 'tool', {
-      status: 'success',
-      output: {
-        ...(run.trace || []).find((item) => item.id === (updatedArtifact.traceStepId || 'tool'))?.output,
-        confirmedArtifactId: updatedArtifact.id,
-        confirmedArtifactTitle: updatedArtifact.title
-      }
-    });
-    const nextRun = await store.updateRecord('agent_runs', run._id, {
-      artifacts,
-      trace: nextTrace,
-      logs: [...(run.logs || []), log],
-      quality: scoreRunQuality({ ...run, artifacts, trace: nextTrace })
-    });
-    res.json({ artifact: updatedArtifact, run: nextRun });
-  });
-
-  router.get('/runs/:id/artifacts/:artifactId/export', async (req, res) => {
-    const run = await store.getRecord('agent_runs', req.params.id);
-    const artifact = run?.artifacts?.find((item) => item.id === req.params.artifactId);
-    if (!artifact) {
-      res.status(404).json({ message: 'Artifact not found' });
-      return;
-    }
-    const format = req.query.format === 'json' ? 'json' : 'markdown';
-    const content = typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content, null, 2);
-    const exportRecord = {
-      id: `export-${crypto.randomUUID()}`,
-      format,
-      filename: `${artifact.type}-${artifact.id}.${format === 'json' ? 'json' : 'md'}`,
-      exportedAt: now(),
-      exportedBy: req.user._id
-    };
-    const artifacts = (run.artifacts || []).map((item) => (
-      item.id === artifact.id
-        ? { ...item, exports: [exportRecord, ...(item.exports || [])].slice(0, 20) }
-        : item
-    ));
-    const log = auditLog('artifact', `Artifact 导出：${artifact.title}`, {
-      artifactId: artifact.id,
-      format,
-      filename: exportRecord.filename
-    });
-    const nextRun = await store.updateRecord('agent_runs', run._id, {
-      artifacts,
-      logs: [...(run.logs || []), log]
-    });
-    res.json({
-      filename: `${artifact.type}-${artifact.id}.${format === 'json' ? 'json' : 'md'}`,
-      format,
-      run: nextRun,
-      content: format === 'json'
-        ? JSON.stringify(artifact, null, 2)
-        : `# ${artifact.title}\n\n> version: ${artifact.version || 1} / status: ${artifact.status || 'draft'}\n\n${content}`
-    });
-  });
-
-  router.post('/runs/:id/control', async (req, res) => {
-    const run = await store.getRecord('agent_runs', req.params.id);
-    if (!run) {
-      res.status(404).json({ message: 'Agent run not found' });
-      return;
-    }
-    const action = req.body.action || 'pause';
-    let controlPatch;
-    try {
-      controlPatch = buildRunControlPatch(run, {
-        action,
-        actorId: req.user._id,
-        reason: req.body.reason || ''
-      });
-    } catch (error) {
-      res.status(error.statusCode || 500).json({ message: error.message });
-      return;
-    }
-    const { artifacts: rollbackArtifacts, log, patch, status } = controlPatch;
-    const nextTrace = upsertTraceStage(run.trace || [], 'control', {
-      name: '运行治理控制',
-      status: action === 'rollback' ? 'warning' : 'success',
-      input: { action, reason: req.body.reason || '' },
-      output: { nextStatus: status, affectedArtifacts: rollbackArtifacts.length }
-    });
-    const quality = scoreRunQuality({ ...run, artifacts: rollbackArtifacts, trace: nextTrace });
-    const nextRun = await store.updateRecord('agent_runs', run._id, {
-      ...patch,
-      artifacts: rollbackArtifacts,
-      trace: nextTrace,
-      quality,
-      logs: [...(run.logs || []), log]
-    });
-    res.json({ run: nextRun, log });
-  });
-
-  router.post('/runs/:id/replay', async (req, res) => {
-    const run = await store.getRecord('agent_runs', req.params.id);
-    if (!run) {
-      res.status(404).json({ message: 'Agent run not found' });
-      return;
-    }
-    const replayRun = await store.createRecord('agent_runs', createReplayRunDraft(run, {
-      actorId: req.user._id,
-      reason: req.body.reason || 'AgentOps failure replay'
-    }));
-    const log = auditLog('replay', `创建失败回放 Run：${replayRun.runId}`, {
-      sourceRunId: run._id,
-      replayRunId: replayRun._id,
-      operatorId: req.user._id,
-      reason: req.body.reason || ''
-    });
-    await store.updateRecord('agent_runs', run._id, {
-      logs: [...(run.logs || []), log],
-      replayHistory: [
+function buildAgentPlan (intent) {
+    return [
         {
-          id: `replay-${crypto.randomUUID()}`,
-          replayRunId: replayRun._id,
-          reason: req.body.reason || '',
-          operatorId: req.user._id,
-          createdAt: now()
+            id: 'validate-request',
+            name: '校验用户请求',
+            owner: 'Runtime',
+            status: 'success',
+            guardrail: '检查输入是否可执行、是否需要人工澄清',
+            tool: 'validateInput'
         },
-        ...(run.replayHistory || [])
-      ]
-    });
-    res.json({ run: replayRun, sourceRunId: run._id, log });
-  });
-
-  router.post('/eval-cases/:id/score', async (req, res) => {
-    const runs = await store.listRecords('agent_runs', 100);
-    const run = runs.find((item) => item.evalCaseId === req.params.id || item._id === req.body.runId);
-    if (!run) {
-      res.status(404).json({ message: 'No run found for eval case' });
-      return;
-    }
-    const quality = scoreRunQuality(run);
-    const evalResult = await persistEvalResult(store, { ...run, quality });
-    const nextRun = await store.updateRecord('agent_runs', run._id, {
-      quality,
-      evalResult,
-      logs: [...(run.logs || []), auditLog('eval', `Eval 质量评分：${quality.score}%`, { evalCaseId: req.params.id, quality })]
-    });
-    res.json({ run: nextRun, evalResult });
-  });
-
-  router.post('/sessions/:id/runs/stream', async (req, res) => {
-    initSse(res);
-    const session = await store.getRecord('agent_sessions', req.params.id);
-    if (!session) {
-      sendEvent(res, 'error', { message: 'Session not found' });
-      closeSse(res);
-      return;
-    }
-
-    const prompt = String(req.body.message || '').trim();
-    const commandOptions = req.body.commandOptions && typeof req.body.commandOptions === 'object' ? req.body.commandOptions : {};
-    const modelConfig = req.body.model && typeof req.body.model === 'object' ? req.body.model : {};
-    const provider = getProviderStatus(modelConfig);
-    let intent = inferIntent(prompt);
-    if (Array.isArray(commandOptions.scopes) && commandOptions.scopes.length) {
-      intent = { ...intent, scopes: commandOptions.scopes };
-    }
-    const requestedCapability = agentCapabilities.find((capability) => (
-      capability.id === commandOptions.agentId || capability.id === commandOptions.skillId
-    ));
-    const selectedSkill = requestedCapability || selectCapability(intent);
-    if (requestedCapability && requestedCapability.id !== intent.id) {
-      intent = {
-        ...intent,
-        id: requestedCapability.id,
-        label: requestedCapability.name,
-        goal: requestedCapability.description,
-        signals: [...(intent.signals || []), 'command_center_selected']
-      };
-    }
-    let plan = buildAgentPlan(intent);
-    const runId = `run-${crypto.randomUUID()}`;
-    const logs = [
-      auditLog('info', 'Agent Run 已创建', { runId, promptPreview: prompt.slice(0, 80) })
+        {
+            id: 'select-skill',
+            name: '选择 Skill',
+            owner: 'Skill Runtime',
+            status: 'success',
+            guardrail: '根据意图映射 allowedTools 与 knowledgeScopes',
+            tool: 'selectSkill'
+        },
+        {
+            id: 'retrieve-context',
+            name: '检索上下文',
+            owner: 'RAG Engine',
+            status: 'pending',
+            guardrail: `限定 scopes: ${intent.scopes.join(', ')}`,
+            tool: 'retrieveKnowledge'
+        },
+        {
+            id: 'run-tools',
+            name: '执行工具',
+            owner: 'Tool Runtime',
+            status: 'pending',
+            guardrail: '只允许当前 Skill 声明的工具执行',
+            tool: 'planDelivery'
+        },
+        {
+            id: 'stream-result',
+            name: '流式生成',
+            owner: 'LLM Provider',
+            status: 'pending',
+            guardrail: 'Provider fallback 必须显式展示',
+            tool: 'streamLlmAnswer'
+        },
+        {
+            id: 'human-review',
+            name: '人工审批',
+            owner: 'Reviewer',
+            status: intent.riskLevel === 'high' ? 'waiting' : 'pending',
+            guardrail: '高风险动作必须暂停等待确认',
+            tool: 'requestHumanReview'
+        }
     ];
-    const trace = [];
-    let runRecord = await store.createRecord('agent_runs', {
-      runId,
-      sessionId: session._id,
-      status: 'created',
-      prompt,
-      intent,
-      selectedSkill,
-      plan,
-      sources: [],
-      artifacts: [],
-      trace,
-      logs,
-      answer: '',
-      provider,
-      quality: null,
-      evalCaseId: req.body.evalCaseId,
-      commandOptions,
-      createdBy: req.user._id,
-      stateTransitions: [
-        createStateTransition({
-          from: 'none',
-          to: 'created',
-          label: '创建 Agent Run',
-          actorId: req.user._id,
-          meta: { sessionId: session._id }
-        })
-      ],
-      reviewHistory: [],
-      controlHistory: []
-    });
-    const persistRun = async (patch = {}) => {
-      runRecord = await store.updateRecord('agent_runs', runRecord._id, {
-        intent,
-        selectedSkill,
-        plan,
-        trace,
-        logs,
-        ...patch
-      });
-      return runRecord;
+}
+
+function updatePlan (plan, id, status, patch = {}) {
+    return plan.map((item) => item.id === id ? { ...item, status, ...patch } : item);
+}
+
+function normalizeSession (session) {
+    if (!session) return session;
+    return {
+        ...session,
+        messages: Array.isArray(session.messages) ? session.messages.filter((item) => item?.content) : []
     };
-    const emitStatus = async (status, label, extra = {}) => {
-      let transitionPatch;
-      try {
-        transitionPatch = transitionRunPatch(runRecord, status, {
-          label,
-          actorId: req.user._id,
-          meta: extra
+}
+
+function normalizeRun (run) {
+    if (!run) return run;
+    return {
+        ...run,
+        quality: scoreRunQuality(run)
+    };
+}
+
+export function agentStudioRouter (store) {
+    const router = express.Router();
+
+    router.get('/blueprint', async (req, res) => {
+        let ragStatus;
+        try {
+            const vs = await store.checkVectorSearch();
+            if (vs.ok) {
+                ragStatus = getRagStatus({ storeKind: store.kind, mode: 'live', vectorSearchReady: true });
+            } else {
+                ragStatus = getRagStatus({ storeKind: store.kind, mode: 'fallback', vectorSearchReady: false, error: vs.error });
+            }
+        } catch (e) {
+            ragStatus = getRagStatus({ storeKind: store.kind, error: e.message });
+        }
+
+        res.json({
+            capabilities: agentCapabilities,
+            architecture: {
+                frontend: ['Agent Runtime Console', 'Run Queue', 'Intent Inspector', 'Plan Board', 'State Machine', 'Tool Calls', 'Audit Timeline'],
+                bff: ['Auth', 'Session', 'Agent Run State', 'RAG Retrieval', 'Tool Runtime', 'LLM Provider Adapter', 'Human Review', 'Audit Log'],
+                states: ['idle', 'intent_detected', 'skill_selected', 'retrieving', 'tool_running', 'streaming', 'review_required', 'paused', 'resumed', 'rolled_back', 'confirmed', 'failed', 'cancelled'],
+                data: ['agent_sessions', 'agent_runs', 'agent_reviews', 'agent_audit_logs']
+            },
+            controls: {
+                supportedActions: ['pause', 'resume', 'rollback', 'confirm', 'revise', 'reject'],
+                policy: '高风险工具和外部写入动作必须 human-in-the-loop；运行控制动作写入 audit log。'
+            },
+            runtime: {
+                llm: getProviderStatus(),
+                rag: ragStatus
+            }
         });
-      } catch (error) {
-        transitionPatch = { status };
-        logs.push(auditLog('error', error.message, { from: runRecord.status, to: status }));
-      }
-      await persistRun(transitionPatch);
-      sendEvent(res, 'run_status', { runDbId: runRecord._id, runId, status, label, at: now(), intent, selectedSkill, plan, ...extra });
-    };
-    const emitStep = async (payload) => {
-      trace.push(payload);
-      await persistRun({ trace });
-      sendEvent(res, 'trace', payload);
-      await sleep(110);
-    };
+    });
 
-    await emitStatus('intent_detected', '识别自然语言意图', { runId, intent, selectedSkill, plan });
-    await emitStep(step('intent', '意图理解', 'success', {
-      input: { prompt },
-      output: intent,
-      tokenUsage: tokenCount(prompt)
-    }));
-    logs.push(auditLog('info', `意图识别完成：${intent.label}`, { intent }));
-    await persistRun({ logs });
+    router.get('/sessions', async (req, res) => {
+        const sessions = await store.listRecords('agent_sessions', 50);
+        res.json({ sessions: sessions.map(normalizeSession) });
+    });
 
-    plan = updatePlan(plan, 'select-skill', 'success', { output: { skillId: selectedSkill.id, tools: selectedSkill.tools } });
-    await emitStatus('skill_selected', '选择 Agent Skill', { skillId: selectedSkill.id });
-    await persistRun({ plan });
-    sendEvent(res, 'plan', { plan, selectedSkill, intent });
-    await emitStep(step('skill', 'Skill 自动选择', 'success', {
-      input: { intent: intent.id },
-      output: selectedSkill,
-      tokenUsage: tokenCount(JSON.stringify(selectedSkill))
-    }));
-    logs.push(auditLog('info', `自动选择 Skill：${selectedSkill.name}`, { skillId: selectedSkill.id }));
-    await persistRun({ logs });
+    router.get('/runs', async (req, res) => {
+        const runs = await store.listRecords('agent_runs', 50);
+        res.json({ runs: runs.map(normalizeRun) });
+    });
 
-    await emitStatus('retrieving', '检索知识库上下文', { scopes: intent.scopes });
-    const retrievalStartedAt = Date.now();
-    const rag = await retrieveKnowledge({ store, query: `${intent.goal}\n${prompt}`, scopes: intent.scopes, limit: 5 });
-    const sources = rag.sources || [];
-    sendEvent(res, 'sources', { sources, rag: rag.status, latencyMs: Date.now() - retrievalStartedAt, scopes: intent.scopes });
-    plan = updatePlan(plan, 'retrieve-context', 'success', { output: { hits: sources.length, backend: rag.status?.retrievalBackend || rag.status?.backend } });
-    await persistRun({ status: 'retrieving', sources, plan });
-    sendEvent(res, 'plan', { plan, selectedSkill, intent });
-    await emitStep(step('rag', 'RAG 上下文检索', 'success', {
-      tool: 'retrieveKnowledge',
-      input: { query: prompt, scopes: intent.scopes },
-      output: sources.map((source) => ({ title: source.documentTitle, score: source.score, backend: source.retrievalBackend })),
-      tokenUsage: tokenCount(JSON.stringify(sources))
-    }));
-    logs.push(auditLog('tool', `RAG 检索完成，命中 ${sources.length} 个 chunk`, {
-      tool: 'retrieveKnowledge',
-      hitCount: sources.length
-    }));
-    await persistRun({ logs, sources });
-
-    await emitStatus('tool_running', '规划产研测交付路径');
-    const artifacts = attachArtifactWorkflow(buildDeliveryArtifacts({ intent, prompt, sources }), 'tool', sources);
-    plan = updatePlan(plan, 'run-tools', 'success', { output: { artifacts: artifacts.map((artifact) => artifact.type) } });
-    await persistRun({ artifacts, plan });
-    sendEvent(res, 'plan', { plan, selectedSkill, intent });
-    await emitStep(step('tool', '产研测计划生成', 'success', {
-      tool: 'planDelivery',
-      output: {
-        artifacts: artifacts.map((artifact) => ({ id: artifact.id, title: artifact.title, sourceIds: artifact.sourceIds })),
-        riskLevel: intent.riskLevel,
-        sourceRefs: sources.map(normalizeSourceRef)
-      },
-      tokenUsage: tokenCount(JSON.stringify(artifacts))
-    }));
-    sendEvent(res, 'artifacts', { artifacts });
-    logs.push(auditLog('tool', `工具生成 ${artifacts.length} 个 Artifact`, {
-      tool: 'planDelivery',
-      artifacts: artifacts.map((artifact) => artifact.title)
-    }));
-    await persistRun({ logs, artifacts });
-
-    await emitStatus('streaming', '调用 LLM Provider 流式生成');
-    plan = updatePlan(plan, 'stream-result', 'running');
-    await persistRun({ status: 'streaming', plan });
-    sendEvent(res, 'plan', { plan, selectedSkill, intent });
-    await emitStep(step('llm', 'LLM 流式生成', 'running', {
-      input: { provider: provider.provider, model: provider.requestedModel || provider.model }
-    }));
-
-    const fallback = buildFallbackAnswer({ prompt, intent, sources, artifacts });
-    let answer = fallback;
-    let streamed = false;
-    try {
-      const generated = await streamLlmAnswer({
-        systemPrompt: '你是企业级 AI Agent 产品专家，输出要围绕产研测交付闭环、自然语言交互、RAG 引用、Artifact、Trace 和人工确认。',
-        prompt,
-        sources,
-        toolResults: { intent, artifacts: artifacts.map((artifact) => ({ type: artifact.type, title: artifact.title })) },
-        modelConfig,
-        onDelta: (text) => sendEvent(res, 'delta', { text })
-      });
-      if (generated.text?.trim()) {
-        answer = generated.text;
-        streamed = generated.streamed;
-      } else {
-        const completed = await generateLlmAnswer({
-          systemPrompt: '你是企业级 AI Agent 产品专家。',
-          prompt,
-          sources,
-          toolResults: { intent, artifacts },
-          modelConfig,
-          fallback
+    router.get('/eval-cases', async (req, res) => {
+        const runs = (await store.listRecords('agent_runs', 100)).map(normalizeRun);
+        const evalResults = await store.listRecords('agent_eval_results', 100);
+        res.json({
+            cases: buildEvalCases().map((item) => ({
+                ...item,
+                status: 'ready',
+                lastRunId: runs.find((run) => run.evalCaseId === item.id)?._id,
+                lastResult: runs.find((run) => run.evalCaseId === item.id)?.quality,
+                evalHistory: evalResults.filter((result) => result.evalCaseId === item.id).slice(0, 5)
+            }))
         });
-        answer = completed.text;
-      }
-      await emitStep(step('llm', 'LLM 流式生成', 'success', {
-        output: { mode: generated.provider.mode, streaming: generated.streamed },
-        tokenUsage: tokenCount(answer)
-      }));
-      plan = updatePlan(plan, 'stream-result', 'success', { output: { provider: generated.provider.provider, model: generated.provider.model } });
-      logs.push(auditLog('llm', 'LLM Provider 调用成功', { provider: generated.provider }));
-      await persistRun({ answer, plan, logs, provider: generated.provider });
-    } catch (error) {
-      await emitStep(step('llm', 'LLM 流式生成', 'failed', { error: error.message }));
-      answer = `${fallback}\n\n### Provider fallback\n真实模型调用失败，已降级到 deterministic Agent Runtime。错误：${error.message}`;
-      plan = updatePlan(plan, 'stream-result', 'failed', { error: error.message });
-      logs.push(auditLog('error', 'LLM Provider 调用失败，已降级 fallback', { error: error.message }));
-      await persistRun({ answer, plan, logs, provider });
-    }
-    sendEvent(res, 'plan', { plan, selectedSkill, intent });
-
-    if (!streamed) {
-      for (let index = 0; index < answer.length; index += 20) {
-        sendEvent(res, 'delta', { text: answer.slice(index, index + 20) });
-        await sleep(14);
-      }
-    }
-
-    await emitStatus('review_required', '等待人工确认');
-    plan = updatePlan(plan, 'human-review', 'waiting', { output: { humanRequired: intent.riskLevel === 'high' } });
-    await persistRun({ status: 'review_required', answer, plan });
-    sendEvent(res, 'plan', { plan, selectedSkill, intent });
-    await emitStep(step('review', '人工确认节点', 'waiting', {
-      humanRequired: intent.riskLevel === 'high',
-      output: { policy: '高风险交付物需确认后进入执行' }
-    }));
-    logs.push(auditLog('review', '进入人工确认节点', { humanRequired: intent.riskLevel === 'high' }));
-    await persistRun({ logs });
-
-    const quality = scoreRunQuality({ sources, artifacts, trace, provider, intent });
-    const evalResult = await persistEvalResult(store, {
-      ...runRecord,
-      sources,
-      artifacts,
-      trace,
-      provider,
-      intent,
-      quality,
-      evalCaseId: req.body.evalCaseId
-    });
-    const run = await persistRun({
-      status: 'review_required',
-      prompt,
-      intent,
-      selectedSkill,
-      plan,
-      sources,
-      artifacts,
-      trace,
-      logs,
-      answer,
-      provider,
-      quality,
-      evalResult,
-      evalCaseId: req.body.evalCaseId,
-      commandOptions,
-      createdBy: req.user._id
-    });
-    const userMessage = { id: `user-${Date.now()}`, role: 'user', content: prompt, createdAt: now() };
-    const assistantMessage = { id: `assistant-${Date.now()}`, role: 'assistant', content: answer, runId: run._id, sources, trace, createdAt: now() };
-    const messages = [...(session.messages || []), userMessage, assistantMessage];
-    await store.updateRecord('agent_sessions', session._id, {
-      messages,
-      activeAgentId: intent.id,
-      title: session.title === '新的 Agent 会话' ? prompt.slice(0, 24) || session.title : session.title
     });
 
-    sendEvent(res, 'review', { runId: run._id, required: intent.riskLevel === 'high', status: 'pending' });
-    sendEvent(res, 'run_status', {
-      runDbId: run._id,
-      runId,
-      status: 'completed',
-      label: 'Agent 运行完成，等待交付确认',
-      at: now(),
-      intent,
-      selectedSkill,
-      plan
+    router.post('/sessions', async (req, res) => {
+        const session = await store.createRecord('agent_sessions', {
+            title: req.body.title || '新的 Agent 会话',
+            createdBy: req.user._id,
+            activeAgentId: req.body.agentId || 'product-delivery-agent',
+            messages: []
+        });
+        res.json({ session: normalizeSession(session) });
     });
-    sendEvent(res, 'final', { run, message: assistantMessage });
-    closeSse(res);
-  });
 
-  return router;
+    router.get('/runs/:id', async (req, res) => {
+        const run = await store.getRecord('agent_runs', req.params.id);
+        if (!run) {
+            res.status(404).json({ message: 'Agent run not found' });
+            return;
+        }
+        res.json({ run: normalizeRun(run) });
+    });
+
+    router.post('/runs/:id/review', async (req, res) => {
+        const run = await store.getRecord('agent_runs', req.params.id);
+        if (!run) {
+            res.status(404).json({ message: 'Agent run not found' });
+            return;
+        }
+        const action = req.body.action || 'confirm';
+        const nextStatusMap = {
+            confirm: 'confirmed',
+            reject: 'rejected',
+            revise: 'revision_requested'
+        };
+        const nextStatus = nextStatusMap[action] || 'confirmed';
+        const review = await store.createRecord('agent_reviews', {
+            runId: run._id,
+            action,
+            note: req.body.note || '',
+            reviewerId: req.user._id,
+            previousStatus: run.status,
+            nextStatus
+        });
+        const log = auditLog('review', `审批动作：${action}`, {
+            action,
+            reviewerId: req.user._id,
+            note: req.body.note || ''
+        });
+        const nextArtifacts = action === 'confirm'
+            ? (run.artifacts || []).map((artifact) => ({
+                ...artifact,
+                status: artifact.status === 'confirmed' ? artifact.status : 'reviewed',
+                reviewStatus: artifact.reviewStatus === 'confirmed' ? artifact.reviewStatus : 'reviewed'
+            }))
+            : run.artifacts || [];
+        const nextTrace = upsertTraceStage(run.trace || [], 'review', {
+            name: '人工审批决策',
+            status: action === 'reject' ? 'failed' : action === 'revise' ? 'waiting' : 'success',
+            output: {
+                action,
+                note: req.body.note || '',
+                policy: action === 'confirm' ? '审批通过，允许进入下一阶段' : '审批未通过，需要修订或终止'
+            }
+        });
+        let transitionPatch;
+        try {
+            transitionPatch = transitionRunPatch(run, nextStatus, {
+                label: `人工审批：${action}`,
+                actorId: req.user._id,
+                reason: req.body.note || ''
+            });
+        } catch (error) {
+            res.status(error.statusCode || 500).json({ message: error.message });
+            return;
+        }
+        const quality = scoreRunQuality({ ...run, artifacts: nextArtifacts, trace: nextTrace });
+        const nextRun = await store.updateRecord('agent_runs', run._id, {
+            ...transitionPatch,
+            review,
+            reviewHistory: [review, ...(run.reviewHistory || [])],
+            artifacts: nextArtifacts,
+            trace: nextTrace,
+            quality,
+            logs: [...(run.logs || []), log]
+        });
+        res.json({ review, run: nextRun });
+    });
+
+    router.patch('/runs/:id/artifacts/:artifactId', async (req, res) => {
+        const run = await store.getRecord('agent_runs', req.params.id);
+        if (!run) {
+            res.status(404).json({ message: 'Agent run not found' });
+            return;
+        }
+        const artifacts = (run.artifacts || []).map((artifact) => {
+            if (artifact.id !== req.params.artifactId) return artifact;
+            const version = Number(artifact.version || 1) + 1;
+            const nextContent = req.body.content ?? artifact.content;
+            const nextStatus = req.body.status || artifact.status || 'draft';
+            return {
+                ...artifact,
+                content: nextContent,
+                status: nextStatus,
+                reviewStatus: req.body.reviewStatus || artifact.reviewStatus || 'pending',
+                updatedAt: now(),
+                updatedBy: req.user._id,
+                version,
+                versions: [
+                    {
+                        version,
+                        status: nextStatus,
+                        content: nextContent,
+                        createdAt: now(),
+                        operatorId: req.user._id
+                    },
+                    ...(artifact.versions || [])
+                ].slice(0, 12)
+            };
+        });
+        const updatedArtifact = artifacts.find((artifact) => artifact.id === req.params.artifactId);
+        if (!updatedArtifact) {
+            res.status(404).json({ message: 'Artifact not found' });
+            return;
+        }
+        const log = auditLog('artifact', `Artifact 更新：${updatedArtifact.title}`, {
+            artifactId: updatedArtifact.id,
+            version: updatedArtifact.version,
+            traceStepId: updatedArtifact.traceStepId,
+            sourceIds: updatedArtifact.sourceIds || []
+        });
+        const nextRun = await store.updateRecord('agent_runs', run._id, {
+            artifacts,
+            logs: [...(run.logs || []), log],
+            quality: scoreRunQuality({ ...run, artifacts })
+        });
+        res.json({ artifact: updatedArtifact, run: nextRun });
+    });
+
+    router.post('/runs/:id/artifacts/:artifactId/confirm', async (req, res) => {
+        const run = await store.getRecord('agent_runs', req.params.id);
+        if (!run) {
+            res.status(404).json({ message: 'Agent run not found' });
+            return;
+        }
+        const artifacts = (run.artifacts || []).map((artifact) => {
+            if (artifact.id !== req.params.artifactId) return artifact;
+            return applyArtifactReview(artifact, {
+                action: 'confirm',
+                note: req.body.note || '',
+                operatorId: req.user._id
+            });
+        });
+        const updatedArtifact = artifacts.find((artifact) => artifact.id === req.params.artifactId);
+        if (!updatedArtifact) {
+            res.status(404).json({ message: 'Artifact not found' });
+            return;
+        }
+        const log = auditLog('artifact', `Artifact 确认：${updatedArtifact.title}`, { artifactId: updatedArtifact.id });
+        const nextTrace = upsertTraceStage(run.trace || [], updatedArtifact.traceStepId || 'tool', {
+            status: 'success',
+            output: {
+                ...(run.trace || []).find((item) => item.id === (updatedArtifact.traceStepId || 'tool'))?.output,
+                confirmedArtifactId: updatedArtifact.id,
+                confirmedArtifactTitle: updatedArtifact.title
+            }
+        });
+        const nextRun = await store.updateRecord('agent_runs', run._id, {
+            artifacts,
+            trace: nextTrace,
+            logs: [...(run.logs || []), log],
+            quality: scoreRunQuality({ ...run, artifacts, trace: nextTrace })
+        });
+        res.json({ artifact: updatedArtifact, run: nextRun });
+    });
+
+    router.get('/runs/:id/artifacts/:artifactId/export', async (req, res) => {
+        const run = await store.getRecord('agent_runs', req.params.id);
+        const artifact = run?.artifacts?.find((item) => item.id === req.params.artifactId);
+        if (!artifact) {
+            res.status(404).json({ message: 'Artifact not found' });
+            return;
+        }
+        const format = req.query.format === 'json' ? 'json' : 'markdown';
+        const content = typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content, null, 2);
+        const exportRecord = {
+            id: `export-${crypto.randomUUID()}`,
+            format,
+            filename: `${artifact.type}-${artifact.id}.${format === 'json' ? 'json' : 'md'}`,
+            exportedAt: now(),
+            exportedBy: req.user._id
+        };
+        const artifacts = (run.artifacts || []).map((item) => (
+            item.id === artifact.id
+                ? { ...item, exports: [exportRecord, ...(item.exports || [])].slice(0, 20) }
+                : item
+        ));
+        const log = auditLog('artifact', `Artifact 导出：${artifact.title}`, {
+            artifactId: artifact.id,
+            format,
+            filename: exportRecord.filename
+        });
+        const nextRun = await store.updateRecord('agent_runs', run._id, {
+            artifacts,
+            logs: [...(run.logs || []), log]
+        });
+        res.json({
+            filename: `${artifact.type}-${artifact.id}.${format === 'json' ? 'json' : 'md'}`,
+            format,
+            run: nextRun,
+            content: format === 'json'
+                ? JSON.stringify(artifact, null, 2)
+                : `# ${artifact.title}\n\n> version: ${artifact.version || 1} / status: ${artifact.status || 'draft'}\n\n${content}`
+        });
+    });
+
+    router.post('/runs/:id/control', async (req, res) => {
+        const run = await store.getRecord('agent_runs', req.params.id);
+        if (!run) {
+            res.status(404).json({ message: 'Agent run not found' });
+            return;
+        }
+        const action = req.body.action || 'pause';
+        let controlPatch;
+        try {
+            controlPatch = buildRunControlPatch(run, {
+                action,
+                actorId: req.user._id,
+                reason: req.body.reason || ''
+            });
+        } catch (error) {
+            res.status(error.statusCode || 500).json({ message: error.message });
+            return;
+        }
+        const { artifacts: rollbackArtifacts, log, patch, status } = controlPatch;
+        const nextTrace = upsertTraceStage(run.trace || [], 'control', {
+            name: '运行治理控制',
+            status: action === 'rollback' ? 'warning' : 'success',
+            input: { action, reason: req.body.reason || '' },
+            output: { nextStatus: status, affectedArtifacts: rollbackArtifacts.length }
+        });
+        const quality = scoreRunQuality({ ...run, artifacts: rollbackArtifacts, trace: nextTrace });
+        const nextRun = await store.updateRecord('agent_runs', run._id, {
+            ...patch,
+            artifacts: rollbackArtifacts,
+            trace: nextTrace,
+            quality,
+            logs: [...(run.logs || []), log]
+        });
+        res.json({ run: nextRun, log });
+    });
+
+    router.post('/runs/:id/replay', async (req, res) => {
+        const run = await store.getRecord('agent_runs', req.params.id);
+        if (!run) {
+            res.status(404).json({ message: 'Agent run not found' });
+            return;
+        }
+        const replayRun = await store.createRecord('agent_runs', createReplayRunDraft(run, {
+            actorId: req.user._id,
+            reason: req.body.reason || 'AgentOps failure replay'
+        }));
+        const log = auditLog('replay', `创建失败回放 Run：${replayRun.runId}`, {
+            sourceRunId: run._id,
+            replayRunId: replayRun._id,
+            operatorId: req.user._id,
+            reason: req.body.reason || ''
+        });
+        await store.updateRecord('agent_runs', run._id, {
+            logs: [...(run.logs || []), log],
+            replayHistory: [
+                {
+                    id: `replay-${crypto.randomUUID()}`,
+                    replayRunId: replayRun._id,
+                    reason: req.body.reason || '',
+                    operatorId: req.user._id,
+                    createdAt: now()
+                },
+                ...(run.replayHistory || [])
+            ]
+        });
+        res.json({ run: replayRun, sourceRunId: run._id, log });
+    });
+
+    router.post('/eval-cases/:id/score', async (req, res) => {
+        const runs = await store.listRecords('agent_runs', 100);
+        const run = runs.find((item) => item.evalCaseId === req.params.id || item._id === req.body.runId);
+        if (!run) {
+            res.status(404).json({ message: 'No run found for eval case' });
+            return;
+        }
+        const quality = scoreRunQuality(run);
+        const evalResult = await persistEvalResult(store, { ...run, quality });
+        const nextRun = await store.updateRecord('agent_runs', run._id, {
+            quality,
+            evalResult,
+            logs: [...(run.logs || []), auditLog('eval', `Eval 质量评分：${quality.score}%`, { evalCaseId: req.params.id, quality })]
+        });
+        res.json({ run: nextRun, evalResult });
+    });
+
+    router.post('/sessions/:id/runs/stream', async (req, res) => {
+        initSse(res);
+        const session = await store.getRecord('agent_sessions', req.params.id);
+        if (!session) {
+            sendEvent(res, 'error', { message: 'Session not found' });
+            closeSse(res);
+            return;
+        }
+
+        const prompt = String(req.body.message || '').trim();
+        const commandOptions = req.body.commandOptions && typeof req.body.commandOptions === 'object' ? req.body.commandOptions : {};
+        const modelConfig = req.body.model && typeof req.body.model === 'object' ? req.body.model : {};
+        const provider = getProviderStatus(modelConfig);
+        let intent = inferIntent(prompt);
+        if (Array.isArray(commandOptions.scopes) && commandOptions.scopes.length) {
+            intent = { ...intent, scopes: commandOptions.scopes };
+        }
+        const requestedCapability = agentCapabilities.find((capability) => (
+            capability.id === commandOptions.agentId || capability.id === commandOptions.skillId
+        ));
+        const selectedSkill = requestedCapability || selectCapability(intent);
+        if (requestedCapability && requestedCapability.id !== intent.id) {
+            intent = {
+                ...intent,
+                id: requestedCapability.id,
+                label: requestedCapability.name,
+                goal: requestedCapability.description,
+                signals: [...(intent.signals || []), 'command_center_selected']
+            };
+        }
+        let plan = buildAgentPlan(intent);
+        const runId = `run-${crypto.randomUUID()}`;
+        const logs = [
+            auditLog('info', 'Agent Run 已创建', { runId, promptPreview: prompt.slice(0, 80) })
+        ];
+        const trace = [];
+        let runRecord = await store.createRecord('agent_runs', {
+            runId,
+            sessionId: session._id,
+            status: 'created',
+            prompt,
+            intent,
+            selectedSkill,
+            plan,
+            sources: [],
+            artifacts: [],
+            trace,
+            logs,
+            answer: '',
+            provider,
+            quality: null,
+            evalCaseId: req.body.evalCaseId,
+            commandOptions,
+            createdBy: req.user._id,
+            stateTransitions: [
+                createStateTransition({
+                    from: 'none',
+                    to: 'created',
+                    label: '创建 Agent Run',
+                    actorId: req.user._id,
+                    meta: { sessionId: session._id }
+                })
+            ],
+            reviewHistory: [],
+            controlHistory: []
+        });
+        const persistRun = async (patch = {}) => {
+            runRecord = await store.updateRecord('agent_runs', runRecord._id, {
+                intent,
+                selectedSkill,
+                plan,
+                trace,
+                logs,
+                ...patch
+            });
+            return runRecord;
+        };
+        const emitStatus = async (status, label, extra = {}) => {
+            let transitionPatch;
+            try {
+                transitionPatch = transitionRunPatch(runRecord, status, {
+                    label,
+                    actorId: req.user._id,
+                    meta: extra
+                });
+            } catch (error) {
+                transitionPatch = { status };
+                logs.push(auditLog('error', error.message, { from: runRecord.status, to: status }));
+            }
+            await persistRun(transitionPatch);
+            sendEvent(res, 'run_status', { runDbId: runRecord._id, runId, status, label, at: now(), intent, selectedSkill, plan, ...extra });
+        };
+        const emitStep = async (payload) => {
+            trace.push(payload);
+            await persistRun({ trace });
+            sendEvent(res, 'trace', payload);
+            await sleep(110);
+        };
+
+        await emitStatus('intent_detected', '识别自然语言意图', { runId, intent, selectedSkill, plan });
+        await emitStep(step('intent', '意图理解', 'success', {
+            input: { prompt },
+            output: intent,
+            tokenUsage: tokenCount(prompt)
+        }));
+        logs.push(auditLog('info', `意图识别完成：${intent.label}`, { intent }));
+        await persistRun({ logs });
+
+        plan = updatePlan(plan, 'select-skill', 'success', { output: { skillId: selectedSkill.id, tools: selectedSkill.tools } });
+        await emitStatus('skill_selected', '选择 Agent Skill', { skillId: selectedSkill.id });
+        await persistRun({ plan });
+        sendEvent(res, 'plan', { plan, selectedSkill, intent });
+        await emitStep(step('skill', 'Skill 自动选择', 'success', {
+            input: { intent: intent.id },
+            output: selectedSkill,
+            tokenUsage: tokenCount(JSON.stringify(selectedSkill))
+        }));
+        logs.push(auditLog('info', `自动选择 Skill：${selectedSkill.name}`, { skillId: selectedSkill.id }));
+        await persistRun({ logs });
+
+        await emitStatus('retrieving', '检索知识库上下文', { scopes: intent.scopes });
+        const retrievalStartedAt = Date.now();
+        const rag = await retrieveKnowledge({ store, query: `${intent.goal}\n${prompt}`, scopes: intent.scopes, limit: 5 });
+        const sources = rag.sources || [];
+        sendEvent(res, 'sources', { sources, rag: rag.status, latencyMs: Date.now() - retrievalStartedAt, scopes: intent.scopes });
+        plan = updatePlan(plan, 'retrieve-context', 'success', { output: { hits: sources.length, backend: rag.status?.retrievalBackend || rag.status?.backend } });
+        await persistRun({ status: 'retrieving', sources, plan });
+        sendEvent(res, 'plan', { plan, selectedSkill, intent });
+        await emitStep(step('rag', 'RAG 上下文检索', 'success', {
+            tool: 'retrieveKnowledge',
+            input: { query: prompt, scopes: intent.scopes },
+            output: sources.map((source) => ({ title: source.documentTitle, score: source.score, backend: source.retrievalBackend })),
+            tokenUsage: tokenCount(JSON.stringify(sources))
+        }));
+        logs.push(auditLog('tool', `RAG 检索完成，命中 ${sources.length} 个 chunk`, {
+            tool: 'retrieveKnowledge',
+            hitCount: sources.length
+        }));
+        await persistRun({ logs, sources });
+
+        await emitStatus('tool_running', '规划产研测交付路径');
+        const artifacts = attachArtifactWorkflow(buildDeliveryArtifacts({ intent, prompt, sources }), 'tool', sources);
+        plan = updatePlan(plan, 'run-tools', 'success', { output: { artifacts: artifacts.map((artifact) => artifact.type) } });
+        await persistRun({ artifacts, plan });
+        sendEvent(res, 'plan', { plan, selectedSkill, intent });
+        await emitStep(step('tool', '产研测计划生成', 'success', {
+            tool: 'planDelivery',
+            output: {
+                artifacts: artifacts.map((artifact) => ({ id: artifact.id, title: artifact.title, sourceIds: artifact.sourceIds })),
+                riskLevel: intent.riskLevel,
+                sourceRefs: sources.map(normalizeSourceRef)
+            },
+            tokenUsage: tokenCount(JSON.stringify(artifacts))
+        }));
+        sendEvent(res, 'artifacts', { artifacts });
+        logs.push(auditLog('tool', `工具生成 ${artifacts.length} 个 Artifact`, {
+            tool: 'planDelivery',
+            artifacts: artifacts.map((artifact) => artifact.title)
+        }));
+        await persistRun({ logs, artifacts });
+
+        await emitStatus('streaming', '调用 LLM Provider 流式生成');
+        plan = updatePlan(plan, 'stream-result', 'running');
+        await persistRun({ status: 'streaming', plan });
+        sendEvent(res, 'plan', { plan, selectedSkill, intent });
+        await emitStep(step('llm', 'LLM 流式生成', 'running', {
+            input: { provider: provider.provider, model: provider.requestedModel || provider.model }
+        }));
+
+        const fallback = buildFallbackAnswer({ prompt, intent, sources, artifacts });
+        let answer = fallback;
+        let streamed = false;
+        try {
+            const generated = await streamLlmAnswer({
+                systemPrompt: '你是企业级 AI Agent 产品专家，输出要围绕产研测交付闭环、自然语言交互、RAG 引用、Artifact、Trace 和人工确认。',
+                prompt,
+                sources,
+                toolResults: { intent, artifacts: artifacts.map((artifact) => ({ type: artifact.type, title: artifact.title })) },
+                modelConfig,
+                onDelta: (text) => sendEvent(res, 'delta', { text })
+            });
+            if (generated.text?.trim()) {
+                answer = generated.text;
+                streamed = generated.streamed;
+            } else {
+                const completed = await generateLlmAnswer({
+                    systemPrompt: '你是企业级 AI Agent 产品专家。',
+                    prompt,
+                    sources,
+                    toolResults: { intent, artifacts },
+                    modelConfig,
+                    fallback
+                });
+                answer = completed.text;
+            }
+            await emitStep(step('llm', 'LLM 流式生成', 'success', {
+                output: { mode: generated.provider.mode, streaming: generated.streamed },
+                tokenUsage: tokenCount(answer)
+            }));
+            plan = updatePlan(plan, 'stream-result', 'success', { output: { provider: generated.provider.provider, model: generated.provider.model } });
+            logs.push(auditLog('llm', 'LLM Provider 调用成功', { provider: generated.provider }));
+            await persistRun({ answer, plan, logs, provider: generated.provider });
+        } catch (error) {
+            await emitStep(step('llm', 'LLM 流式生成', 'failed', { error: error.message }));
+            answer = `${fallback}\n\n### Provider fallback\n真实模型调用失败，已降级到 deterministic Agent Runtime。错误：${error.message}`;
+            plan = updatePlan(plan, 'stream-result', 'failed', { error: error.message });
+            logs.push(auditLog('error', 'LLM Provider 调用失败，已降级 fallback', { error: error.message }));
+            await persistRun({ answer, plan, logs, provider });
+        }
+        sendEvent(res, 'plan', { plan, selectedSkill, intent });
+
+        if (!streamed) {
+            for (let index = 0; index < answer.length; index += 20) {
+                sendEvent(res, 'delta', { text: answer.slice(index, index + 20) });
+                await sleep(14);
+            }
+        }
+
+        await emitStatus('review_required', '等待人工确认');
+        plan = updatePlan(plan, 'human-review', 'waiting', { output: { humanRequired: intent.riskLevel === 'high' } });
+        await persistRun({ status: 'review_required', answer, plan });
+        sendEvent(res, 'plan', { plan, selectedSkill, intent });
+        await emitStep(step('review', '人工确认节点', 'waiting', {
+            humanRequired: intent.riskLevel === 'high',
+            output: { policy: '高风险交付物需确认后进入执行' }
+        }));
+        logs.push(auditLog('review', '进入人工确认节点', { humanRequired: intent.riskLevel === 'high' }));
+        await persistRun({ logs });
+
+        const quality = scoreRunQuality({ sources, artifacts, trace, provider, intent });
+        const evalResult = await persistEvalResult(store, {
+            ...runRecord,
+            sources,
+            artifacts,
+            trace,
+            provider,
+            intent,
+            quality,
+            evalCaseId: req.body.evalCaseId
+        });
+        const run = await persistRun({
+            status: 'review_required',
+            prompt,
+            intent,
+            selectedSkill,
+            plan,
+            sources,
+            artifacts,
+            trace,
+            logs,
+            answer,
+            provider,
+            quality,
+            evalResult,
+            evalCaseId: req.body.evalCaseId,
+            commandOptions,
+            createdBy: req.user._id
+        });
+        const userMessage = { id: `user-${Date.now()}`, role: 'user', content: prompt, createdAt: now() };
+        const assistantMessage = { id: `assistant-${Date.now()}`, role: 'assistant', content: answer, runId: run._id, sources, trace, createdAt: now() };
+        const messages = [...(session.messages || []), userMessage, assistantMessage];
+        await store.updateRecord('agent_sessions', session._id, {
+            messages,
+            activeAgentId: intent.id,
+            title: session.title === '新的 Agent 会话' ? prompt.slice(0, 24) || session.title : session.title
+        });
+
+        sendEvent(res, 'review', { runId: run._id, required: intent.riskLevel === 'high', status: 'pending' });
+        sendEvent(res, 'run_status', {
+            runDbId: run._id,
+            runId,
+            status: 'completed',
+            label: 'Agent 运行完成，等待交付确认',
+            at: now(),
+            intent,
+            selectedSkill,
+            plan
+        });
+        sendEvent(res, 'final', { run, message: assistantMessage });
+        closeSse(res);
+    });
+
+    return router;
 }
