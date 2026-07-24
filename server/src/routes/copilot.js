@@ -228,7 +228,27 @@ const seedKnowledge = [
         tags: ['copilot', 'architecture', 'standards'],
         content:
             '上下文工程应区分系统指令、用户意图、会话记忆、RAG 引用、工具结果和安全约束。上下文拼接需要定义优先级、token 预算、压缩策略、去重策略、引用保真和敏感信息隔离。'
+    },
+    {
+        title: '需求到交付 Agent 产品设计指南',
+        tags: ['copilot', 'architecture', 'ai-native', 'standards'],
+        content: `需求到交付 Agent 是面向产研团队的 AI 工作流产品。
+                核心功能：需求澄清 → RAG 上下文检索 → PRD 生成 → 页面原型设计 → BFF API 协议 → 研发任务拆解 → 测试策略 → 上线风险评估 → 人工确认。
+                页面结构：需求输入区、AI 流式分析区、Artifact 工作台、审计栏。
+                BFF API：POST /api/delivery/run（创建交付流）、GET /api/delivery/runs/:id（查询状态）、POST /api/delivery/runs/:id/approve（审批）。
+                测试策略：意图识别准确率、RAG 引用命中率、Artifact 完整度、Provider 可用性、HITL 审批流转。
+                上线风险：LLM 幻觉、知识库过期、权限越界、成本失控。`
+    },
+    {
+        title: 'B 端 SaaS 产品 PRD 设计规范',
+        tags: ['copilot', 'architecture', 'standards'],
+        content: `B 端 SaaS PRD 应包含：产品定位、目标用户、核心场景、功能模块、权限模型、数据模型、接口协议、非功能需求、验收标准。
+                页面结构遵循：列表-详情-设置三段式，支持多角色视图切换。
+                API 设计遵循 RESTful 或 RPC 风格，需有版本管理、限流、审计。
+                测试策略：单元测试、集成测试、E2E、性能测试、安全测试。
+                上线风险：数据迁移、权限割接、灰度发布、回滚预案。`
     }
+
 ];
 
 const knowledgeTemplates = seedKnowledge.map((item, index) => ({

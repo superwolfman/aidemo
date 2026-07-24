@@ -650,7 +650,7 @@ export function agentStudioRouter (store) {
         await persistRun({ logs, sources });
 
         await emitStatus('tool_running', '规划产研测交付路径');
-        const artifacts = attachArtifactWorkflow(buildDeliveryArtifacts({ intent, prompt, sources }), 'tool', sources);
+        const artifacts = attachArtifactWorkflow(await buildDeliveryArtifacts({ intent, prompt, sources }), 'tool', sources);
         plan = updatePlan(plan, 'run-tools', 'success', { output: { artifacts: artifacts.map((artifact) => artifact.type) } });
         await persistRun({ artifacts, plan });
         sendEvent(res, 'plan', { plan, selectedSkill, intent });
@@ -683,7 +683,15 @@ export function agentStudioRouter (store) {
         let streamed = false;
         try {
             const generated = await streamLlmAnswer({
-                systemPrompt: '你是企业级 AI Agent 产品专家，输出要围绕产研测交付闭环、自然语言交互、RAG 引用、Artifact、Trace 和人工确认。',
+                // systemPrompt: '你是企业级 AI Agent 产品专家，输出要围绕产研测交付闭环、自然语言交互、RAG 引用、Artifact、Trace 和人工确认。',
+                systemPrompt: `你是企业级 AI Agent 产品专家。
+                输出约束：
+                1. 只能引用 sources 中实际存在的 chunk，禁止编造引用编号
+                2. 引用必须用 [1], [2], [3] 这种格式，编号与 sources 顺序一致
+                3. 如果 sources 没有覆盖某个问题，明确说"未在知识库中找到相关资料"
+                4. 不要编造"工具结果"或"参考来源"等模糊引用
+                5. 引用列表只包含 sources 中实际提供的文档标题
+                `,
                 prompt,
                 sources,
                 toolResults: { intent, artifacts: artifacts.map((artifact) => ({ type: artifact.type, title: artifact.title })) },
