@@ -289,69 +289,87 @@ export default function DeliveryCopilot() {
                 onSelectArtifact={selectArtifact}
             />
 
-            <main className="delivery-workspace">
-                <SkillSelector
-                    taskModes={deliveryTaskModes}
-                    taskModeId={taskModeId}
-                    onTaskModeChange={setTaskModeId}
-                    requirement={requirement}
-                    audience={audience}
-                    deadline={deadline}
-                    constraints={constraints}
-                    onRequirementChange={setRequirement}
-                    onAudienceChange={setAudience}
-                    onDeadlineChange={setDeadline}
-                    onConstraintsChange={setConstraints}
-                    cases={cases}
-                    selectedEvalCaseId={selectedEvalCaseId}
-                    onLoadCase={loadCase}
-                    running={running}
-                    onRun={() => run()}
-                    onStop={stop}
-                    onRerun={() => run(prompt)}
-                />
-
-                <section className="delivery-chat" style={{ display: 'grid', gap: 10, marginBottom: 12 }}>
-                    <div className="chat-message user">
-                        <div className="chat-role">U</div>
-                        <div className="markdown-body">{requirement || '（未填写需求）'}</div>
-                    </div>
-                    {answer ? (
-                        <div className="chat-message assistant">
-                            <div className="chat-role">AI</div>
-                            <div className="markdown-body">{answer}</div>
-                        </div>
-                    ) : null}
+            {/* 主三列：需求输入 | 区域1+区域2 | 区域3(Trace) */}
+            <main className="delivery-workspace delivery-workspace-v2">
+                {/* 左：需求输入模块 */}
+                <section className="delivery-workspace-col delivery-workspace-left">
+                    <SkillSelector
+                        taskModes={deliveryTaskModes}
+                        taskModeId={taskModeId}
+                        onTaskModeChange={setTaskModeId}
+                        requirement={requirement}
+                        audience={audience}
+                        deadline={deadline}
+                        constraints={constraints}
+                        onRequirementChange={setRequirement}
+                        onAudienceChange={setAudience}
+                        onDeadlineChange={setDeadline}
+                        onConstraintsChange={setConstraints}
+                        cases={cases}
+                        selectedEvalCaseId={selectedEvalCaseId}
+                        onLoadCase={loadCase}
+                        running={running}
+                        onRun={() => run()}
+                        onStop={stop}
+                        onRerun={() => run(prompt)}
+                    />
                 </section>
 
-                <StreamPanel
-                    status={status}
-                    running={running}
-                    trace={trace}
-                    answer={answer}
-                    outputRef={outputRef}
-                />
+                {/* 中：区域1 IM + 区域2 流程分析，上下 4:6 */}
+                <section className="delivery-workspace-col delivery-workspace-center">
+                    <section className="delivery-im-region">
+                        <div className="chat-message user">
+                            <div className="chat-role">U</div>
+                            <div className="markdown-body">{requirement || '（未填写需求）'}</div>
+                        </div>
+                        {answer ? (
+                            <div className="chat-message assistant">
+                                <div className="chat-role">AI</div>
+                                <div className="markdown-body">{answer}</div>
+                            </div>
+                        ) : null}
+                    </section>
 
-                <TraceTimeline trace={trace} status={status} />
+                    <section className="delivery-stream-region">
+                        <StreamPanel
+                            status={status}
+                            running={running}
+                            trace={trace}
+                            answer={answer}
+                            outputRef={outputRef}
+                        />
+                    </section>
+                </section>
 
-                <KnowledgeContext
-                    ragLive={ragLive}
-                    ragRuntime={ragRuntime}
-                    retrievalView={retrievalView}
-                    prompt={prompt}
-                    requirement={requirement}
-                    sources={sources}
-                    trace={trace}
-                />
-
-                <ApprovalPanel
-                    activeRun={activeRun}
-                    activeArtifact={activeArtifact}
-                    artifactSummary={artifactSummary}
-                    onSelectArtifact={selectArtifact}
-                    onConfirmArtifact={confirmArtifact}
-                />
+                {/* 右：区域3 Trace Timeline */}
+                <section className="delivery-workspace-col delivery-workspace-right">
+                    <TraceTimeline trace={trace} status={status} />
+                </section>
             </main>
+
+            {/* 底部一行：区域4 引用与确认 | 区域5 人工确认 */}
+            <section className="delivery-bottom-row">
+                <section className="delivery-region-4">
+                    <KnowledgeContext
+                        ragLive={ragLive}
+                        ragRuntime={ragRuntime}
+                        retrievalView={retrievalView}
+                        prompt={prompt}
+                        requirement={requirement}
+                        sources={sources}
+                        trace={trace}
+                    />
+                </section>
+                <section className="delivery-region-5">
+                    <ApprovalPanel
+                        activeRun={activeRun}
+                        activeArtifact={activeArtifact}
+                        artifactSummary={artifactSummary}
+                        onSelectArtifact={selectArtifact}
+                        onConfirmArtifact={confirmArtifact}
+                    />
+                </section>
+            </section>
 
             <ArtifactWorkbench
                 artifacts={artifacts}

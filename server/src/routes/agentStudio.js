@@ -651,7 +651,7 @@ export function agentStudioRouter (store) {
         await persistRun({ logs, sources });
 
         await emitStatus('tool_running', '规划产研测交付路径');
-        const artifacts = attachArtifactWorkflow(await buildDeliveryArtifacts({ intent, prompt, sources }), 'tool', sources);
+        const artifacts = attachArtifactWorkflow(await buildDeliveryArtifacts({ intent, prompt, sources }), 'tool', sources, runRecord.evalCaseId);
         plan = updatePlan(plan, 'run-tools', 'success', { output: { artifacts: artifacts.map((artifact) => artifact.type) } });
         await persistRun({ artifacts, plan });
         sendEvent(res, 'plan', { plan, selectedSkill, intent });
