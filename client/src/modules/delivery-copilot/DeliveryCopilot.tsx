@@ -311,6 +311,19 @@ export default function DeliveryCopilot() {
                     onRerun={() => run(prompt)}
                 />
 
+                <section className="delivery-chat" style={{ display: 'grid', gap: 10, marginBottom: 12 }}>
+                    <div className="chat-message user">
+                        <div className="chat-role">U</div>
+                        <div className="markdown-body">{requirement || '（未填写需求）'}</div>
+                    </div>
+                    {answer ? (
+                        <div className="chat-message assistant">
+                            <div className="chat-role">AI</div>
+                            <div className="markdown-body">{answer}</div>
+                        </div>
+                    ) : null}
+                </section>
+
                 <StreamPanel
                     status={status}
                     running={running}
