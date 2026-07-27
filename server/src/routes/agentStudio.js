@@ -500,7 +500,11 @@ export function agentStudioRouter (store) {
             res.status(404).json({ message: 'No run found for eval case' });
             return;
         }
-        const quality = scoreRunQuality(run);
+        // ← 关键：取该 case 的 expected 维度，传入评分
+        // const evalCase = buildEvalCases().find((c) => c.id === req.params.id);
+        // const quality = scoreRunQuality(run, { expected: evalCase?.expected });
+        const evalCase = buildEvalCases().find((c) => c.id === run.evalCaseId);
+        const quality = scoreRunQuality(run, { expected: evalCase?.expected });
         const evalResult = await persistEvalResult(store, { ...run, quality });
         const nextRun = await store.updateRecord('agent_runs', run._id, {
             quality,

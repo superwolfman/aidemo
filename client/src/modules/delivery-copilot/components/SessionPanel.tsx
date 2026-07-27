@@ -28,6 +28,11 @@ export function SessionPanel({ blueprint, ragRuntime, ragLive, quality }: Props)
                 <article>
                     <strong>{quality ? `${quality.score}%` : 'pending'}</strong>
                     <span>quality</span>
+                    {quality?.capabilities ? (
+                        <small className={quality.capabilities.realVector && quality.capabilities.realProvider ? 'env-ok' : 'env-warn'}>
+                            {quality.capabilities.realVector ? 'Atlas' : 'fallback'} · {quality.capabilities.realProvider ? 'live' : 'mock'}
+                        </small>
+                    ) : null}
                 </article>
             </div>
         </section>

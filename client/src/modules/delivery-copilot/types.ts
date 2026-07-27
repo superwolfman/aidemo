@@ -50,8 +50,13 @@ export type RunQuality = {
     passed: number;
     total: number;
     verdict: string;
-};
-
+    capabilities?: {
+        realVector: boolean;
+        realProvider: boolean;
+        fallbackRetrieval: boolean;
+        retrievalBackends: string[];
+    };
+}
 export type AgentRun = {
     _id: string;
     runId: string;
