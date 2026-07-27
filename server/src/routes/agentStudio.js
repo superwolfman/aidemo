@@ -356,7 +356,8 @@ export function agentStudioRouter (store) {
         const artifacts = (run.artifacts || []).map((artifact) => {
             if (artifact.id !== req.params.artifactId) return artifact;
             return applyArtifactReview(artifact, {
-                action: 'confirm',
+                // action: 'confirm',
+                action: req.body.action === 'review' ? 'review' : 'confirm',
                 note: req.body.note || '',
                 operatorId: req.user._id
             });
