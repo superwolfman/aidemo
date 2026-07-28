@@ -1,6 +1,6 @@
 import { MongoClient, ObjectId } from 'mongodb';
 import { config } from '../config.js';
-import { cosineSimilarity, embedText, keywordOverlap, splitIntoChunks } from '../utils/embedding.js';
+import { cosineSimilarity, embedText, embedTextReal, keywordOverlap, splitIntoChunks } from '../utils/embedding.js';
 import { hashPassword } from '../utils/password.js';
 
 function now () {
@@ -135,19 +135,23 @@ export class MongoStore {
         const inserted = { ...document, _id: result.insertedId };
 
         if (chunks.length) {
-            await this.db.collection('chunks').insertMany(
-                chunks.map((chunk, index) => ({
+            const embedded = [];
+            for (const chunk of chunks) {
+                embedded.push({
                     documentId: result.insertedId,
                     documentTitle: title,
                     tags,
                     sourceType,
                     sourcePath,
                     content: chunk,
-                    chunkIndex: index,
-                    embedding: embedText(chunk),
+                    chunkIndex: embedded.length,
+                    embedding: config.ragBackend === 'mongodb-atlas'
+                        ? await embedTextReal(chunk, { useReal: true })
+                        : embedText(chunk),
                     createdAt: now()
-                }))
-            );
+                });
+            }
+            await this.db.collection('chunks').insertMany(embedded);
         }
 
         return serialize(inserted);
@@ -160,7 +164,8 @@ export class MongoStore {
 
     async searchChunks (question, limit = 5) {
         const chunks = await this.db.collection('chunks').find().toArray();
-        const queryEmbedding = embedText(question);
+        // const queryEmbedding = embedText(question);
+        const queryEmbedding = await embedTextReal(question, { useReal: true });
         return chunks
             .map((chunk) => {
                 const vectorScore = cosineSimilarity(queryEmbedding, chunk.embedding);
@@ -176,7 +181,8 @@ export class MongoStore {
     }
 
     async searchVectorChunks (question, { scopes = [], limit = 5, numCandidates = 80 } = {}) {
-        const queryEmbedding = embedText(question);
+        // const queryEmbedding = embedText(question);
+        const queryEmbedding = await embedTextReal(question, { useReal: true });
         const pipeline = [
             {
                 $vectorSearch: {

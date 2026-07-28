@@ -3,182 +3,191 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import express from 'express';
 import { config } from '../config.js';
-import { generateLlmAnswer, getModelPresets, getProviderStatus, streamLlmAnswer } from '../services/llmProvider.js';
+
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
 import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
+// ↓ 新增：从 service 引入，移除 route 内联定义
+import {
+    agentCapabilities, getAgentCapability,
+    skillDefinitions, getSkillById, validateSkill,
+    getAllowedTools, getKnowledgeScopes
+} from '../services/skillRegistry.js';
+import { generateLlmAnswer, getModelPresets, getProviderStatus, streamLlmAnswer } from '../services/llmProvider.js';
 
 const CWD = process.cwd();
 const PROJECT_ROOT = path.basename(CWD) === 'server' ? path.resolve(CWD, '..') : CWD;
 
-const skills = [
-    {
-        id: 'product-workflow',
-        name: 'AI 产品工作流 Skill',
-        version: '1.0.0',
-        description: '把业务需求转成需求摘要、用户流程、页面原型、接口协议、研发任务和待确认问题。',
-        systemPrompt: '你是 AI 产品前端交付专家，必须从业务需求出发，输出可落地的 PRD 摘要、页面模块、用户流程、接口协议、状态流转、研发任务拆解、风险和待确认问题。',
-        inputSchema: {
-            type: 'object',
-            required: ['businessRequirement', 'targetUsers', 'deliveryGoal'],
-            properties: {
-                businessRequirement: { type: 'string', minLength: 20 },
-                targetUsers: { type: 'string' },
-                deliveryGoal: { type: 'string' },
-                constraints: { type: 'string' }
-            }
-        },
-        outputSchema: {
-            type: 'object',
-            required: ['requirementSummary', 'userFlow', 'pagePrototype', 'apiContract', 'taskBreakdown', 'openQuestions'],
-            properties: {
-                requirementSummary: { type: 'array', items: { type: 'string' } },
-                userFlow: { type: 'array', items: { type: 'string' } },
-                pagePrototype: { type: 'array', items: { type: 'string' } },
-                apiContract: { type: 'array', items: { type: 'string' } },
-                taskBreakdown: { type: 'array', items: { type: 'string' } },
-                openQuestions: { type: 'array', items: { type: 'string' } }
-            }
-        },
-        allowedTools: ['searchKnowledge', 'generateProductWorkflowArtifacts'],
-        knowledgeScopes: ['architecture', 'standards', 'ai-native', 'frontend']
-    },
-    {
-        id: 'engineering-productivity',
-        name: '研发提效 Skill',
-        version: '1.1.0',
-        description: '面向前端团队研发流程，生成代码脚手架、测试策略、文档草稿和 PR 检查建议。',
-        systemPrompt: '你是 AI 研发效能专家，必须围绕代码生成、测试辅助、文档生成、PR 审查和团队落地规范输出可执行方案。',
-        inputSchema: {
-            type: 'object',
-            required: ['workflowGoal', 'targetStack'],
-            properties: {
-                workflowGoal: { type: 'string' },
-                targetStack: { type: 'string' },
-                qualityGate: { type: 'string' }
-            }
-        },
-        outputSchema: {
-            type: 'object',
-            required: ['automationPlan', 'testPlan', 'codeArtifacts', 'adoptionMetrics'],
-            properties: {
-                automationPlan: { type: 'array', items: { type: 'string' } },
-                testPlan: { type: 'array', items: { type: 'string' } },
-                codeArtifacts: { type: 'array', items: { type: 'string' } },
-                adoptionMetrics: { type: 'array', items: { type: 'string' } }
-            }
-        },
-        allowedTools: ['searchKnowledge', 'analyzeRepository', 'generateEngineeringArtifacts'],
-        knowledgeScopes: ['standards', 'sdk', 'architecture']
-    },
-    {
-        id: 'requirement-analysis',
-        name: '需求分析 Skill',
-        version: '1.0.0',
-        description: '把业务输入拆成目标、约束、风险、验收标准和待确认问题。',
-        systemPrompt: '你是资深架构需求分析师，必须输出结构化需求分析，标出不确定项和验收标准。',
-        inputSchema: {
-            type: 'object',
-            required: ['businessGoal', 'constraints'],
-            properties: {
-                businessGoal: { type: 'string', minLength: 10 },
-                constraints: { type: 'array', items: { type: 'string' } }
-            }
-        },
-        outputSchema: {
-            type: 'object',
-            required: ['summary', 'acceptanceCriteria', 'risks', 'openQuestions'],
-            properties: {
-                summary: { type: 'string' },
-                acceptanceCriteria: { type: 'array', items: { type: 'string' } },
-                risks: { type: 'array', items: { type: 'string' } },
-                openQuestions: { type: 'array', items: { type: 'string' } }
-            }
-        },
-        allowedTools: ['searchKnowledge'],
-        knowledgeScopes: ['standards', 'sdk', 'architecture']
-    },
-    {
-        id: 'architecture-review',
-        name: '架构评审 Skill',
-        version: '1.0.0',
-        description: '审查前端架构、BFF、RAG、Agent、可观测性和发布风险。',
-        systemPrompt: '你是企业级前端架构评审专家，必须基于引用资料和工程约束给出可执行评审意见。',
-        inputSchema: {
-            type: 'object',
-            required: ['proposal', 'targetSystem'],
-            properties: {
-                proposal: { type: 'string' },
-                targetSystem: { type: 'string' }
-            }
-        },
-        outputSchema: {
-            type: 'object',
-            required: ['decision', 'tradeoffs', 'guardrails', 'nextActions'],
-            properties: {
-                decision: { type: 'string', enum: ['approve', 'revise', 'reject'] },
-                tradeoffs: { type: 'array', items: { type: 'string' } },
-                guardrails: { type: 'array', items: { type: 'string' } },
-                nextActions: { type: 'array', items: { type: 'string' } }
-            }
-        },
-        allowedTools: ['searchKnowledge', 'analyzeRepository', 'generateArchitectureDocument'],
-        knowledgeScopes: ['architecture', 'micro-frontend', 'im', 'lowcode']
-    },
-    {
-        id: 'code-review',
-        name: '代码审查 Skill',
-        version: '1.0.0',
-        description: '面向 PR 的代码审查，关注风险、测试、性能、可维护性和工程规范。',
-        systemPrompt: '你是严谨的 Code Review Agent，先给风险，再给建议，必须指出测试缺口。',
-        inputSchema: {
-            type: 'object',
-            required: ['diffSummary', 'riskLevel'],
-            properties: {
-                diffSummary: { type: 'string' },
-                riskLevel: { type: 'string', enum: ['low', 'medium', 'high'] }
-            }
-        },
-        outputSchema: {
-            type: 'object',
-            required: ['findings', 'testGaps', 'recommendation'],
-            properties: {
-                findings: { type: 'array', items: { type: 'string' } },
-                testGaps: { type: 'array', items: { type: 'string' } },
-                recommendation: { type: 'string' }
-            }
-        },
-        allowedTools: ['analyzeRepository', 'searchKnowledge'],
-        knowledgeScopes: ['standards', 'sdk']
-    },
-    {
-        id: 'context-engineering',
-        name: '上下文工程 Skill',
-        version: '1.0.0',
-        description: '为 Agent 任务设计 Prompt、上下文分层、RAG 拼接、压缩、隔离和引用策略。',
-        systemPrompt: '你是 Context Engineering 专家，必须说明上下文来源、优先级、压缩策略、引用策略、工具状态和幻觉防护。',
-        inputSchema: {
-            type: 'object',
-            required: ['agentGoal', 'contextSources'],
-            properties: {
-                agentGoal: { type: 'string' },
-                contextSources: { type: 'array', items: { type: 'string' } },
-                riskControl: { type: 'string' }
-            }
-        },
-        outputSchema: {
-            type: 'object',
-            required: ['promptContract', 'contextLayers', 'compressionPolicy', 'guardrails'],
-            properties: {
-                promptContract: { type: 'string' },
-                contextLayers: { type: 'array', items: { type: 'string' } },
-                compressionPolicy: { type: 'array', items: { type: 'string' } },
-                guardrails: { type: 'array', items: { type: 'string' } }
-            }
-        },
-        allowedTools: ['searchKnowledge', 'composeContextPack'],
-        knowledgeScopes: ['architecture', 'standards', 'sdk']
-    }
-];
+// const skills = [
+//     {
+//         id: 'product-workflow',
+//         name: 'AI 产品工作流 Skill',
+//         version: '1.0.0',
+//         description: '把业务需求转成需求摘要、用户流程、页面原型、接口协议、研发任务和待确认问题。',
+//         systemPrompt: '你是 AI 产品前端交付专家，必须从业务需求出发，输出可落地的 PRD 摘要、页面模块、用户流程、接口协议、状态流转、研发任务拆解、风险和待确认问题。',
+//         inputSchema: {
+//             type: 'object',
+//             required: ['businessRequirement', 'targetUsers', 'deliveryGoal'],
+//             properties: {
+//                 businessRequirement: { type: 'string', minLength: 20 },
+//                 targetUsers: { type: 'string' },
+//                 deliveryGoal: { type: 'string' },
+//                 constraints: { type: 'string' }
+//             }
+//         },
+//         outputSchema: {
+//             type: 'object',
+//             required: ['requirementSummary', 'userFlow', 'pagePrototype', 'apiContract', 'taskBreakdown', 'openQuestions'],
+//             properties: {
+//                 requirementSummary: { type: 'array', items: { type: 'string' } },
+//                 userFlow: { type: 'array', items: { type: 'string' } },
+//                 pagePrototype: { type: 'array', items: { type: 'string' } },
+//                 apiContract: { type: 'array', items: { type: 'string' } },
+//                 taskBreakdown: { type: 'array', items: { type: 'string' } },
+//                 openQuestions: { type: 'array', items: { type: 'string' } }
+//             }
+//         },
+//         allowedTools: ['searchKnowledge', 'generateProductWorkflowArtifacts'],
+//         knowledgeScopes: ['architecture', 'standards', 'ai-native', 'frontend']
+//     },
+//     {
+//         id: 'engineering-productivity',
+//         name: '研发提效 Skill',
+//         version: '1.1.0',
+//         description: '面向前端团队研发流程，生成代码脚手架、测试策略、文档草稿和 PR 检查建议。',
+//         systemPrompt: '你是 AI 研发效能专家，必须围绕代码生成、测试辅助、文档生成、PR 审查和团队落地规范输出可执行方案。',
+//         inputSchema: {
+//             type: 'object',
+//             required: ['workflowGoal', 'targetStack'],
+//             properties: {
+//                 workflowGoal: { type: 'string' },
+//                 targetStack: { type: 'string' },
+//                 qualityGate: { type: 'string' }
+//             }
+//         },
+//         outputSchema: {
+//             type: 'object',
+//             required: ['automationPlan', 'testPlan', 'codeArtifacts', 'adoptionMetrics'],
+//             properties: {
+//                 automationPlan: { type: 'array', items: { type: 'string' } },
+//                 testPlan: { type: 'array', items: { type: 'string' } },
+//                 codeArtifacts: { type: 'array', items: { type: 'string' } },
+//                 adoptionMetrics: { type: 'array', items: { type: 'string' } }
+//             }
+//         },
+//         allowedTools: ['searchKnowledge', 'analyzeRepository', 'generateEngineeringArtifacts'],
+//         knowledgeScopes: ['standards', 'sdk', 'architecture']
+//     },
+//     {
+//         id: 'requirement-analysis',
+//         name: '需求分析 Skill',
+//         version: '1.0.0',
+//         description: '把业务输入拆成目标、约束、风险、验收标准和待确认问题。',
+//         systemPrompt: '你是资深架构需求分析师，必须输出结构化需求分析，标出不确定项和验收标准。',
+//         inputSchema: {
+//             type: 'object',
+//             required: ['businessGoal', 'constraints'],
+//             properties: {
+//                 businessGoal: { type: 'string', minLength: 10 },
+//                 constraints: { type: 'array', items: { type: 'string' } }
+//             }
+//         },
+//         outputSchema: {
+//             type: 'object',
+//             required: ['summary', 'acceptanceCriteria', 'risks', 'openQuestions'],
+//             properties: {
+//                 summary: { type: 'string' },
+//                 acceptanceCriteria: { type: 'array', items: { type: 'string' } },
+//                 risks: { type: 'array', items: { type: 'string' } },
+//                 openQuestions: { type: 'array', items: { type: 'string' } }
+//             }
+//         },
+//         allowedTools: ['searchKnowledge'],
+//         knowledgeScopes: ['standards', 'sdk', 'architecture']
+//     },
+//     {
+//         id: 'architecture-review',
+//         name: '架构评审 Skill',
+//         version: '1.0.0',
+//         description: '审查前端架构、BFF、RAG、Agent、可观测性和发布风险。',
+//         systemPrompt: '你是企业级前端架构评审专家，必须基于引用资料和工程约束给出可执行评审意见。',
+//         inputSchema: {
+//             type: 'object',
+//             required: ['proposal', 'targetSystem'],
+//             properties: {
+//                 proposal: { type: 'string' },
+//                 targetSystem: { type: 'string' }
+//             }
+//         },
+//         outputSchema: {
+//             type: 'object',
+//             required: ['decision', 'tradeoffs', 'guardrails', 'nextActions'],
+//             properties: {
+//                 decision: { type: 'string', enum: ['approve', 'revise', 'reject'] },
+//                 tradeoffs: { type: 'array', items: { type: 'string' } },
+//                 guardrails: { type: 'array', items: { type: 'string' } },
+//                 nextActions: { type: 'array', items: { type: 'string' } }
+//             }
+//         },
+//         allowedTools: ['searchKnowledge', 'analyzeRepository', 'generateArchitectureDocument'],
+//         knowledgeScopes: ['architecture', 'micro-frontend', 'im', 'lowcode']
+//     },
+//     {
+//         id: 'code-review',
+//         name: '代码审查 Skill',
+//         version: '1.0.0',
+//         description: '面向 PR 的代码审查，关注风险、测试、性能、可维护性和工程规范。',
+//         systemPrompt: '你是严谨的 Code Review Agent，先给风险，再给建议，必须指出测试缺口。',
+//         inputSchema: {
+//             type: 'object',
+//             required: ['diffSummary', 'riskLevel'],
+//             properties: {
+//                 diffSummary: { type: 'string' },
+//                 riskLevel: { type: 'string', enum: ['low', 'medium', 'high'] }
+//             }
+//         },
+//         outputSchema: {
+//             type: 'object',
+//             required: ['findings', 'testGaps', 'recommendation'],
+//             properties: {
+//                 findings: { type: 'array', items: { type: 'string' } },
+//                 testGaps: { type: 'array', items: { type: 'string' } },
+//                 recommendation: { type: 'string' }
+//             }
+//         },
+//         allowedTools: ['analyzeRepository', 'searchKnowledge'],
+//         knowledgeScopes: ['standards', 'sdk']
+//     },
+//     {
+//         id: 'context-engineering',
+//         name: '上下文工程 Skill',
+//         version: '1.0.0',
+//         description: '为 Agent 任务设计 Prompt、上下文分层、RAG 拼接、压缩、隔离和引用策略。',
+//         systemPrompt: '你是 Context Engineering 专家，必须说明上下文来源、优先级、压缩策略、引用策略、工具状态和幻觉防护。',
+//         inputSchema: {
+//             type: 'object',
+//             required: ['agentGoal', 'contextSources'],
+//             properties: {
+//                 agentGoal: { type: 'string' },
+//                 contextSources: { type: 'array', items: { type: 'string' } },
+//                 riskControl: { type: 'string' }
+//             }
+//         },
+//         outputSchema: {
+//             type: 'object',
+//             required: ['promptContract', 'contextLayers', 'compressionPolicy', 'guardrails'],
+//             properties: {
+//                 promptContract: { type: 'string' },
+//                 contextLayers: { type: 'array', items: { type: 'string' } },
+//                 compressionPolicy: { type: 'array', items: { type: 'string' } },
+//                 guardrails: { type: 'array', items: { type: 'string' } }
+//             }
+//         },
+//         allowedTools: ['searchKnowledge', 'composeContextPack'],
+//         knowledgeScopes: ['architecture', 'standards', 'sdk']
+//     }
+// ];
+
+const skills = skillDefinitions;
 
 const seedKnowledge = [
     {
@@ -1039,7 +1048,13 @@ export function copilotRouter (store) {
     });
 
     router.get('/skills', (req, res) => {
-        res.json({ skills, provider: getProviderStatus(), rag: getRagStatus({ storeKind: store.kind, error: store.connectionError }) });
+        const validated = skills.map((skill) => ({ ...skill, validation: validateSkill(skill) }));
+        res.json({
+            skills: validated,
+            provider: getProviderStatus(),
+            rag: getRagStatus({ storeKind: store.kind, error: store.connectionError })
+        });
+        // res.json({ skills, provider: getProviderStatus(), rag: getRagStatus({ storeKind: store.kind, error: store.connectionError }) });
     });
 
     router.get('/runtime', (req, res) => {

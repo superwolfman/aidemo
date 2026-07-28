@@ -50,7 +50,12 @@ export function getRagStatus (extra = {}) {
         index: isAtlas ? config.ragVectorIndex : undefined,
         vectorPath: isAtlas ? config.ragVectorPath : undefined,
         dimensions: isAtlas ? config.ragVectorDimensions : undefined,
-        embeddingProvider: 'local-deterministic-embedding',
+        // embeddingProvider: 'local-deterministic-embedding',
+        embeddingProvider: config.ragBackend === 'mongodb-atlas'
+            ? (config.embeddingProvider && config.embeddingProvider !== 'local'
+                ? config.embeddingProvider
+                : `dashscope-${config.embeddingModel}`)
+            : 'local-deterministic-embedding',
         storeKind: extra.storeKind,
         connected: realStoreConnected,
         vectorSearchReady,
