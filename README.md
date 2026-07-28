@@ -1,5 +1,50 @@
 # AI Architecture Copilot
 
+## RAG 检索链路：真实 LLM + 真实 Atlas Vector Search + 真实 Embedding
+
+当前 `ailab-product-workflow` 分支的主 RAG 链路已经切换为真实链路，不再把本地 `local-deterministic` / `local-hash` 当作主路径。
+
+```text
+用户需求 / Query
+  -> DashScope text-embedding-v3 生成 1024 维向量
+  -> MongoDB Atlas Vector Search
+     backend: mongodb-atlas
+     index: chunks_vector_index
+     path: embedding
+     dims: 1024
+  -> 返回 chunk / score / citation / sourcePath
+  -> Skill-scoped Context Pack
+  -> DashScope OpenAI-compatible LLM 流式生成
+  -> Artifact / Trace / Eval / Approval
+```
+
+### 运行态验收
+
+- `GET /api/agent-studio/blueprint` 的 `runtime.llm` 应显示 `provider=dashscope`、`mode=live`、`model=qwen-turbo`。
+- `runtime.rag` 应显示 `backend=mongodb-atlas`、`retrievalBackend=mongodb-atlas-vector-search`、`embeddingProvider=dashscope`、`dimensions=1024`、`vectorSearchReady=true`、`productionReady=true`。
+- Copilot 交付工作台顶部应显示 `live vector store · mongodb-atlas-vector-search · chunks_vector_index`。
+- `local-hash-fallback` / `local-deterministic` 只作为降级路径保留；当 Atlas、索引或 embedding 调用失败时，前端必须明确展示 fallback 原因，不能伪装成 live。
+
+### 关键配置
+
+```env
+LLM_PROVIDER=dashscope
+LLM_MODEL=qwen-turbo
+DASHSCOPE_API_KEY=...
+
+RAG_BACKEND=mongodb-atlas
+RAG_EMBEDDING_PROVIDER=dashscope
+RAG_EMBEDDING_MODEL=text-embedding-v3
+RAG_VECTOR_DIMENSIONS=1024
+RAG_VECTOR_INDEX=chunks_vector_index
+RAG_VECTOR_PATH=embedding
+MONGODB_ATLAS_URI=mongodb+srv://...
+```
+
+### 产品化意义
+
+这条链路让 RAG 不再是“本地 hash demo”：检索结果来自 Atlas `$vectorSearch`，向量来自真实 embedding provider，回答过程能够展示真实 score、citation 和 sourcePath，并进入 Artifact、Trace、Eval 与人工确认闭环。
+
 AI Architecture Copilot is an AI product delivery and AgentOps workbench for frontend architecture, AI application engineering, and internal R&D workflow automation.
 
 It is not a generic chatbot. The project focuses on a concrete product scenario:
@@ -558,4 +603,61 @@ Current status:
 - **Human-in-the-loop by default**: high-risk outputs require review.
 - **Fallback is visible**: local fallback is allowed, but never disguised as live AI.
 - **Frontend owns AI UX**: streaming, cancellation, retry, source linking, approval, and replay are product features, not decoration.
+
+# Agent Runtime 状态机服务化
+
+> 状态：基本完成（commit `38e0096`）。再修 `server/src/routes/agentStudio.js:784` 一处重复直写即可视为 100% 收口。
+
+## 已实现
+
+Agent Run 的状态迁移已从路由层下沉为统一的服务化事件日志，所有合法迁移都经过 `applyTransition()` 校验、生成事件并原子落库。
+
+| 能力 | 实现位置 | 说明 |
+|---|---|---|
+| 状态迁移表 | `server/src/services/agentRuntimeService.js:3-20` | `none → created → intent_detected → skill_selected → retrieving → tool_running → streaming → review_required → confirmed/rejected/rolled_back` 全链定义 |
+| 迁移合法性校验 | `agentRuntimeService.js:52-55` | `canTransition(from, to)`，非法迁移抛 409 |
+| 事件对象构造 | `agentRuntimeService.js:57-68` | `createStateTransition()` 生成带 `id/from/to/label/actorId/reason/at/meta` 的事件 |
+| 统一落库入口 | `agentRuntimeService.js:84-97` | `applyTransition(store, run, to, {...})` = 校验 + 事件 + 原子 `store.updateRecord` 三合一 |
+| SSE 主链路接入 | `server/src/routes/agentStudio.js:613-625` | `emitStatus()` 内部调用 `applyTransition`，`:633/:643/:654/:674/:695/:761` 全部走该入口 |
+| 运行控制接入 | `server/src/routes/agentStudio.js:445-449` | `/runs/:id/control` 的 pause/resume/rollback/cancel 走 `applyTransition` |
+
+## 验证证据
+
+一次完整 Run 的 `stateTransitions` 数组已完整包含：
+
+```text
+none → created → intent_detected → skill_selected → retrieving → tool_running → streaming → review_required
+```
+
+下图为实际 Run 的状态事件链，证明上述迁移在 `38e0096` 已真实落库、可被前端读取展示：
+
+![Agent Run 状态迁移链](./agent-run-state-transitions.png)
+
+（截图来自 AgentOps 控制台的 Run Detail，可见 7 个连续状态事件，均带时间戳与触发原因。）
+
+## 收尾待办（唯一缺口）
+
+`server/src/routes/agentStudio.js:784-801` 非流式分支在生成 Run 时直接写了：
+
+```js
+const run = await persistRun({
+    status: 'review_required',
+    prompt,
+    intent,
+    // ...
+});
+```
+
+但 `:761` 已经通过 `emitStatus('review_required', ...)` 完成迁移并落库，此处 `status` 直写属于**重复绕过统一入口**。修复方式：删除 `:784` 这次 `persistRun` 里的 `status: 'review_required'`，仅保留 `quality / evalResult / artifacts` 等业务字段即可。
+
+> 人工审批路由（`:276-296`）使用 `transitionRunPatch` + 手动 `store.updateRecord`，功能正确，仅风格不一，可后续统一为 `applyTransition`，不阻塞收口。
+
+## 这样做的好处
+
+1. **可审计** —— 每个迁移都记录 `actorId`（谁）、`reason`（为什么）、`at`（何时）、`meta`（上下文），天然形成审计日志。
+2. **可回放** —— `createReplayRunDraft()` 已把原 Run 的 `stateTransitions` 整体带出，失败回放能复现完整状态链。
+3. **防非法迁移** —— `canTransition` 在后端拦截 `confirmed → retrieving` 这类乱迁，返回 409，而非静默写坏数据。
+4. **并发安全** —— `applyTransition` 内部为单次原子 `store.updateRecord`，避免多客户端并发改 `status` 导致状态冲突。
+5. **路由只发指令** —— `agentStudio.js` 不再自己拼 `status + stateTransitions`，业务规则下沉到 service。
+6. **为 P2 打底** —— 后续「谁对 Run 做了什么」「SLA 耗时」「失败率统计」「权限审计」均可直接消费 `stateTransitions` 事件流，无需返工补埋点。
 

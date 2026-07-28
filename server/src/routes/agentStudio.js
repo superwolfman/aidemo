@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import express from 'express';
-import { auditLog, buildRunControlPatch, createReplayRunDraft, createStateTransition, now, step, tokenCount, transitionRunPatch } from '../services/agentRuntimeService.js';
+import { applyTransition, auditLog, buildRunControlPatch, createReplayRunDraft, createStateTransition, now, step, tokenCount, transitionRunPatch } from '../services/agentRuntimeService.js';
 import { applyArtifactReview, attachArtifactWorkflow, normalizeSourceRef } from '../services/artifactService.js';
 import { buildEvalCases, persistEvalResult, scoreRunQuality } from '../services/evalService.js';
 import { generateLlmAnswer, getProviderStatus, streamLlmAnswer } from '../services/llmProvider.js';
@@ -434,8 +434,16 @@ export function agentStudioRouter (store) {
         const action = req.body.action || 'pause';
         let controlPatch;
         try {
-            controlPatch = buildRunControlPatch(run, {
-                action,
+            controlPatch = buildRunControlPatch(run, { action, actorId: req.user._id, reason: req.body.reason || '' });
+        } catch (error) {
+            res.status(error.statusCode || 500).json({ message: error.message });
+            return;
+        }
+        const { artifacts: rollbackArtifacts, log, status } = controlPatch;
+        let transitioned;
+        try {
+            transitioned = await applyTransition(store, run, status, {
+                label: `运行控制：${action}`,
                 actorId: req.user._id,
                 reason: req.body.reason || ''
             });
@@ -443,20 +451,30 @@ export function agentStudioRouter (store) {
             res.status(error.statusCode || 500).json({ message: error.message });
             return;
         }
-        const { artifacts: rollbackArtifacts, log, patch, status } = controlPatch;
         const nextTrace = upsertTraceStage(run.trace || [], 'control', {
             name: '运行治理控制',
             status: action === 'rollback' ? 'warning' : 'success',
             input: { action, reason: req.body.reason || '' },
             output: { nextStatus: status, affectedArtifacts: rollbackArtifacts.length }
         });
-        const quality = scoreRunQuality({ ...run, artifacts: rollbackArtifacts, trace: nextTrace });
+        const quality = scoreRunQuality({ ...transitioned, artifacts: rollbackArtifacts, trace: nextTrace });
         const nextRun = await store.updateRecord('agent_runs', run._id, {
-            ...patch,
             artifacts: rollbackArtifacts,
             trace: nextTrace,
             quality,
-            logs: [...(run.logs || []), log]
+            logs: [...(run.logs || []), log],
+            controlState: {
+                action,
+                status,
+                reason: req.body.reason || '',
+                updatedAt: now(),
+                operatorId: req.user._id,
+                previousStatus: run.status
+            },
+            controlHistory: [
+                { id: `control-${crypto.randomUUID()}`, action, status, reason: req.body.reason || '', operatorId: req.user._id, createdAt: now() },
+                ...(run.controlHistory || [])
+            ]
         });
         res.json({ run: nextRun, log });
     });
@@ -568,6 +586,7 @@ export function agentStudioRouter (store) {
             evalCaseId: req.body.evalCaseId,
             commandOptions,
             createdBy: req.user._id,
+            status: 'created',
             stateTransitions: [
                 createStateTransition({
                     from: 'none',
@@ -592,18 +611,16 @@ export function agentStudioRouter (store) {
             return runRecord;
         };
         const emitStatus = async (status, label, extra = {}) => {
-            let transitionPatch;
             try {
-                transitionPatch = transitionRunPatch(runRecord, status, {
+                runRecord = await applyTransition(store, runRecord, status, {
                     label,
                     actorId: req.user._id,
                     meta: extra
                 });
             } catch (error) {
-                transitionPatch = { status };
                 logs.push(auditLog('error', error.message, { from: runRecord.status, to: status }));
+                throw error;
             }
-            await persistRun(transitionPatch);
             sendEvent(res, 'run_status', { runDbId: runRecord._id, runId, status, label, at: now(), intent, selectedSkill, plan, ...extra });
         };
         const emitStep = async (payload) => {
@@ -640,7 +657,7 @@ export function agentStudioRouter (store) {
         const sources = rag.sources || [];
         sendEvent(res, 'sources', { sources, rag: rag.status, latencyMs: Date.now() - retrievalStartedAt, scopes: intent.scopes });
         plan = updatePlan(plan, 'retrieve-context', 'success', { output: { hits: sources.length, backend: rag.status?.retrievalBackend || rag.status?.backend } });
-        await persistRun({ status: 'retrieving', sources, plan });
+        await persistRun({ sources, plan })
         sendEvent(res, 'plan', { plan, selectedSkill, intent });
         await emitStep(step('rag', 'RAG 上下文检索', 'success', {
             tool: 'retrieveKnowledge',
@@ -677,7 +694,8 @@ export function agentStudioRouter (store) {
 
         await emitStatus('streaming', '调用 LLM Provider 流式生成');
         plan = updatePlan(plan, 'stream-result', 'running');
-        await persistRun({ status: 'streaming', plan });
+        // await persistRun({ status: 'streaming', plan });
+        await persistRun({ plan });
         sendEvent(res, 'plan', { plan, selectedSkill, intent });
         await emitStep(step('llm', 'LLM 流式生成', 'running', {
             input: { provider: provider.provider, model: provider.requestedModel || provider.model }
@@ -742,7 +760,8 @@ export function agentStudioRouter (store) {
 
         await emitStatus('review_required', '等待人工确认');
         plan = updatePlan(plan, 'human-review', 'waiting', { output: { humanRequired: intent.riskLevel === 'high' } });
-        await persistRun({ status: 'review_required', answer, plan });
+        // await persistRun({ status: 'review_required', answer, plan });
+        await persistRun({ answer, plan })
         sendEvent(res, 'plan', { plan, selectedSkill, intent });
         await emitStep(step('review', '人工确认节点', 'waiting', {
             humanRequired: intent.riskLevel === 'high',
