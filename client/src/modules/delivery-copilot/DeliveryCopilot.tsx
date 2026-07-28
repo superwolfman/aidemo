@@ -37,6 +37,7 @@ export default function DeliveryCopilot() {
     const [running, setRunning] = useState(false);
     const abortRef = useRef<AbortController | null>(null);
     const outputRef = useRef<HTMLDivElement | null>(null);
+    const [confirming, setConfirming] = useState(false);
 
     const session = useSession();
     const agentRun = useAgentRun('delivery');
@@ -74,12 +75,19 @@ export default function DeliveryCopilot() {
     ].join('\n'), [activeTaskMode.promptSuffix, audience, constraints, deadline, requirement]);
 
     const load = useCallback(async () => {
+        // 先读本地缓存，避免 fallback 闪烁
+        const cachedBlueprint = localStorage.getItem('aidemo.blueprint');
+        if (cachedBlueprint) {
+            try { setBlueprint(JSON.parse(cachedBlueprint)); } catch { }
+        }
+
         const [blueprintResult, sessionResult, caseResult] = await Promise.all([
             getAgentStudioBlueprint(),
             sessionService.listAgentStudioSessions(),
             loadEvalCases()
         ]);
         setBlueprint(blueprintResult);
+        localStorage.setItem('aidemo.blueprint', JSON.stringify(blueprintResult));
         setCases(caseResult.cases || []);
         if (sessionResult.sessions?.[0]) {
             setActive(sessionResult.sessions[0]);
@@ -174,9 +182,17 @@ export default function DeliveryCopilot() {
         syncRun(result);
     }
     async function confirmArtifact() {
-        if (!activeRun?._id || !activeArtifact) return;
-        const result = await artifact.confirm(activeRun._id, activeArtifact, 'Copilot 交付工作台确认该 Artifact 可进入下一阶段。');
-        syncRun(result);
+        // if (!activeRun?._id || !activeArtifact) return;
+        // const result = await artifact.confirm(activeRun._id, activeArtifact, 'Copilot 交付工作台确认该 Artifact 可进入下一阶段。');
+        // syncRun(result);
+        if (!activeRun?._id || !activeArtifact || confirming) return;
+        setConfirming(true);
+        try {
+            const result = await artifact.confirm(activeRun._id, activeArtifact, 'Copilot 交付工作台确认该 Artifact 可进入下一阶段。');
+            syncRun(result);
+        } finally {
+            setConfirming(false);
+        }
     }
     async function reviewArtifact() {
         if (!activeRun?._id || !activeArtifact) return;

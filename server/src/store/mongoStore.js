@@ -2,6 +2,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import { config } from '../config.js';
 import { cosineSimilarity, embedText, embedTextReal, keywordOverlap, splitIntoChunks } from '../utils/embedding.js';
 import { hashPassword } from '../utils/password.js';
+import { getRagStatus } from '../services/ragEngine.js';
 
 function now () {
     return new Date();
@@ -14,8 +15,35 @@ function serialize (document) {
 
 export class MongoStore {
     constructor(uri) {
+        // this.uri = uri;
+        // this.kind = 'mongo';
         this.uri = uri;
         this.kind = 'mongo';
+        this.ragStatusCache = null;
+        this.ragStatusCacheAt = 0;
+    }
+
+    async refreshRagStatusCache (force = false) {
+        const now = Date.now();
+        if (!force && this.ragStatusCache && now - this.ragStatusCacheAt < 30_000) {
+            return this.ragStatusCache;
+        }
+        try {
+            const vs = await this.checkVectorSearch();
+            if (vs.ok) {
+                this.ragStatusCache = getRagStatus({ storeKind: this.kind, mode: 'live', vectorSearchReady: true });
+            } else {
+                this.ragStatusCache = getRagStatus({ storeKind: this.kind, mode: 'fallback', vectorSearchReady: false, error: vs.error });
+            }
+        } catch (e) {
+            this.ragStatusCache = getRagStatus({ storeKind: this.kind, error: e.message });
+        }
+        this.ragStatusCacheAt = now;
+        return this.ragStatusCache;
+    }
+
+    getCachedRagStatus () {
+        return this.ragStatusCache || getRagStatus({ storeKind: this.kind, error: 'RAG status not ready yet' });
     }
 
     async init () {
@@ -36,9 +64,13 @@ export class MongoStore {
         await this.db.collection('tasks').createIndex({ createdAt: -1 });
         await this.db.collection('telemetry').createIndex({ createdAt: -1 });
         await this.db.collection('telemetry').createIndex({ traceId: 1 });
+        await this.db.collection('agent_sessions').createIndex({ createdAt: -1 });
+        await this.db.collection('agent_runs').createIndex({ createdAt: -1 });
         await this.ensureVectorIndex();
 
         await this.seed();
+        // 后台异步预探测，不阻塞 init
+        this.refreshRagStatusCache(true).catch(() => { });
     }
 
     async ensureVectorIndex () {
@@ -183,6 +215,7 @@ export class MongoStore {
     async searchVectorChunks (question, { scopes = [], limit = 5, numCandidates = 80 } = {}) {
         // const queryEmbedding = embedText(question);
         const queryEmbedding = await embedTextReal(question, { useReal: true });
+
         const pipeline = [
             {
                 $vectorSearch: {
@@ -337,8 +370,9 @@ export class MongoStore {
         return serialize(await this.db.collection(collection).findOne({ _id: result.insertedId }));
     }
 
-    async listRecords (collection, limit = 100) {
-        const records = await this.db.collection(collection).find().sort({ createdAt: -1 }).limit(limit).toArray();
+    async listRecords (collection, limit = 100, projection = null) {
+        const options = projection ? { projection } : {};
+        const records = await this.db.collection(collection).find({}, options).sort({ createdAt: -1 }).limit(limit).toArray();
         return records.map(serialize);
     }
 

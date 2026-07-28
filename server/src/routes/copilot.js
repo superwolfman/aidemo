@@ -1089,7 +1089,8 @@ export function copilotRouter (store) {
     });
 
     router.get('/sessions', async (req, res) => {
-        const sessions = await store.listRecords('copilot_sessions', 50);
+        // 列表接口不返回 messages，详情接口再返回
+        const sessions = await store.listRecords('copilot_sessions', 50, { messages: 0 });
         res.json({ sessions: normalizeSessions(sessions) });
     });
 

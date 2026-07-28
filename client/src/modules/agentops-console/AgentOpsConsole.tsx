@@ -178,6 +178,7 @@ export default function AgentOpsConsole() {
     const agentRun = useAgentRun('agent-studio');
     const { sessions, setSessions, active, setActive, load: loadSession, create: createSessionSvc } = session;
     const { running, setRunning, start, abortRef } = agentRun;
+    const [acting, setActing] = useState(false);
 
     const [blueprint, setBlueprint] = useState<any>(null);
     const [activeRunId, setActiveRunId] = useState('');
@@ -230,15 +231,36 @@ export default function AgentOpsConsole() {
 
     useEffect(() => { load().catch(console.error); }, [load]);
 
+    // async function control(action: string) {
+    //     if (!activeRunMemo?._id) return;
+    //     const result = await agentRunService.controlRun(activeRunMemo._id, action, controlNote);
+    //     setRuns((items) => items.map((item) => item._id === result.run._id ? result.run : item));
+    // }
+    // async function review(action: string) {
+    //     if (!activeRunMemo?._id) return;
+    //     const result = await agentRunService.reviewRun(activeRunMemo._id, action, controlNote);
+    //     setRuns((items) => items.map((item) => item._id === result.run._id ? result.run : item));
+    // }
     async function control(action: string) {
-        if (!activeRunMemo?._id) return;
-        const result = await agentRunService.controlRun(activeRunMemo._id, action, controlNote);
-        setRuns((items) => items.map((item) => item._id === result.run._id ? result.run : item));
+        if (!activeRunMemo?._id || acting) return;
+        setActing(true);
+        try {
+            const result = await agentRunService.controlRun(activeRunMemo._id, action, controlNote);
+            setRuns((items) => items.map((item) => item._id === result.run._id ? result.run : item));
+        } finally {
+            setActing(false);
+        }
     }
+
     async function review(action: string) {
-        if (!activeRunMemo?._id) return;
-        const result = await agentRunService.reviewRun(activeRunMemo._id, action, controlNote);
-        setRuns((items) => items.map((item) => item._id === result.run._id ? result.run : item));
+        if (!activeRunMemo?._id || acting) return;
+        setActing(true);
+        try {
+            const result = await agentRunService.reviewRun(activeRunMemo._id, action, controlNote);
+            setRuns((items) => items.map((item) => item._id === result.run._id ? result.run : item));
+        } finally {
+            setActing(false);
+        }
     }
     async function runCommand(nextCommand = command) {
         if (!active || running || !nextCommand.trim()) return;
@@ -278,7 +300,8 @@ export default function AgentOpsConsole() {
                     <StateMachinePanel stateSteps={stateSteps} activeTrace={activeTrace} trendPath={trendPath} onSelectTrace={setActiveTraceId} />
                     <TraceAuditPanel trace={trace} activeTrace={activeTrace} onSelectTrace={setActiveTraceId} />
                 </section>
-                <RunDetailDock activeRun={activeRunMemo} controlNote={controlNote} onControlNoteChange={setControlNote} onReview={review} />
+                {/* <RunDetailDock activeRun={activeRunMemo} controlNote={controlNote} onControlNoteChange={setControlNote} onReview={review} /> */}
+                <RunDetailDock activeRun={activeRunMemo} controlNote={controlNote} onControlNoteChange={setControlNote} onReview={review} disabled={acting} />
             </main>
             <RunDetailDrawer open={detailOpen} activeRun={activeRunMemo} blueprint={blueprint} detailTab={detailTab} onTabChange={setDetailTab} onClose={() => setDetailOpen(false)} />
         </div>

@@ -146,10 +146,15 @@ function normalizeSession (session) {
 }
 
 function normalizeRun (run) {
+    // if (!run) return run;
+    // return {
+    //     ...run,
+    //     quality: scoreRunQuality(run)
+    // };
     if (!run) return run;
     return {
         ...run,
-        quality: scoreRunQuality(run)
+        quality: run.quality || null   // ← 评分已在创建/更新时持久化，不再实时计算
     };
 }
 
@@ -167,6 +172,11 @@ export function agentStudioRouter (store) {
             }
         } catch (e) {
             ragStatus = getRagStatus({ storeKind: store.kind, error: e.message });
+        }
+
+        // 如果缓存未命中，同步刷新一次（仅首次）
+        if (!store.getCachedRagStatus || !store.getCachedRagStatus().vectorSearchReady) {
+            await store.refreshRagStatusCache().catch(() => { });
         }
 
         res.json({
@@ -189,26 +199,63 @@ export function agentStudioRouter (store) {
     });
 
     router.get('/sessions', async (req, res) => {
-        const sessions = await store.listRecords('agent_sessions', 50);
+        // 列表接口不返回 messages（可能非常大），详情接口再返回
+        const sessions = await store.listRecords('agent_sessions', 50, { messages: 0 });
         res.json({ sessions: sessions.map(normalizeSession) });
     });
 
     router.get('/runs', async (req, res) => {
-        const runs = await store.listRecords('agent_runs', 50);
+        // 列表接口不返回超大嵌套字段，详情接口再返回
+        const runs = await store.listRecords('agent_runs', 50, { trace: 0, artifacts: 0, logs: 0, stateTransitions: 0, reviewHistory: 0, controlHistory: 0, evalResult: 0 });
         res.json({ runs: runs.map(normalizeRun) });
     });
 
     router.get('/eval-cases', async (req, res) => {
-        const runs = (await store.listRecords('agent_runs', 100)).map(normalizeRun);
+        // const runs = (await store.listRecords('agent_runs', 100)).map(normalizeRun);
+        // const evalResults = await store.listRecords('agent_eval_results', 100);
+        // res.json({
+        //     cases: buildEvalCases().map((item) => ({
+        //         ...item,
+        //         status: 'ready',
+        //         lastRunId: runs.find((run) => run.evalCaseId === item.id)?._id,
+        //         lastResult: runs.find((run) => run.evalCaseId === item.id)?.quality,
+        //         evalHistory: evalResults.filter((result) => result.evalCaseId === item.id).slice(0, 5)
+        //     }))
+        // });
+        // 列表接口只需要 _id/evalCaseId/quality，避免拉取整个大文档
+        const runs = (await store.listRecords('agent_runs', 100, { _id: 1, evalCaseId: 1, quality: 1 })).map((run) => ({
+            _id: run._id,
+            evalCaseId: run.evalCaseId,
+            quality: run.quality || null   // 评分已在写入时持久化
+        }));
+
+        // O(N) Map 索引
+        const runByEvalCase = new Map();
+        for (const run of runs) {
+            if (run.evalCaseId && !runByEvalCase.has(run.evalCaseId)) {
+                runByEvalCase.set(run.evalCaseId, run);
+            }
+        }
+
         const evalResults = await store.listRecords('agent_eval_results', 100);
+        const historyByCase = new Map();
+        for (const result of evalResults) {
+            const list = historyByCase.get(result.evalCaseId) || [];
+            list.push(result);
+            historyByCase.set(result.evalCaseId, list);
+        }
+
         res.json({
-            cases: buildEvalCases().map((item) => ({
-                ...item,
-                status: 'ready',
-                lastRunId: runs.find((run) => run.evalCaseId === item.id)?._id,
-                lastResult: runs.find((run) => run.evalCaseId === item.id)?.quality,
-                evalHistory: evalResults.filter((result) => result.evalCaseId === item.id).slice(0, 5)
-            }))
+            cases: buildEvalCases().map((item) => {
+                const run = runByEvalCase.get(item.id);
+                return {
+                    ...item,
+                    status: 'ready',
+                    lastRunId: run?._id,
+                    lastResult: run?.quality,
+                    evalHistory: (historyByCase.get(item.id) || []).slice(0, 5)
+                };
+            })
         });
     });
 
@@ -284,15 +331,26 @@ export function agentStudioRouter (store) {
             res.status(error.statusCode || 500).json({ message: error.message });
             return;
         }
-        const quality = scoreRunQuality({ ...run, artifacts: nextArtifacts, trace: nextTrace });
+        // const quality = scoreRunQuality({ ...run, artifacts: nextArtifacts, trace: nextTrace });
+        // const nextRun = await store.updateRecord('agent_runs', run._id, {
+        //     ...transitionPatch,
+        //     review,
+        //     reviewHistory: [review, ...(run.reviewHistory || [])],
+        //     artifacts: nextArtifacts,
+        //     trace: nextTrace,
+        //     quality,
+        //     logs: [...(run.logs || []), log]
+        // });
+        // 在 updateRecord 前计算 quality
+        const quality = scoreRunQuality({ ...run, artifacts, trace, provider: run.provider || {}, intent: run.intent || {}, prompt: run.prompt || '' });
+
         const nextRun = await store.updateRecord('agent_runs', run._id, {
-            ...transitionPatch,
-            review,
-            reviewHistory: [review, ...(run.reviewHistory || [])],
-            artifacts: nextArtifacts,
+            artifacts,
             trace: nextTrace,
-            quality,
-            logs: [...(run.logs || []), log]
+            logs: [...(run.logs || []), log],
+            status: 'confirmed',
+            updatedAt: now(),
+            quality   // ← 持久化
         });
         res.json({ review, run: nextRun });
     });
