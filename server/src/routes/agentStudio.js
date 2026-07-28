@@ -694,7 +694,6 @@ export function agentStudioRouter (store) {
 
         await emitStatus('streaming', '调用 LLM Provider 流式生成');
         plan = updatePlan(plan, 'stream-result', 'running');
-        // await persistRun({ status: 'streaming', plan });
         await persistRun({ plan });
         sendEvent(res, 'plan', { plan, selectedSkill, intent });
         await emitStep(step('llm', 'LLM 流式生成', 'running', {
@@ -760,7 +759,6 @@ export function agentStudioRouter (store) {
 
         await emitStatus('review_required', '等待人工确认');
         plan = updatePlan(plan, 'human-review', 'waiting', { output: { humanRequired: intent.riskLevel === 'high' } });
-        // await persistRun({ status: 'review_required', answer, plan });
         await persistRun({ answer, plan })
         sendEvent(res, 'plan', { plan, selectedSkill, intent });
         await emitStep(step('review', '人工确认节点', 'waiting', {
@@ -782,7 +780,6 @@ export function agentStudioRouter (store) {
             evalCaseId: req.body.evalCaseId
         });
         const run = await persistRun({
-            status: 'review_required',
             prompt,
             intent,
             selectedSkill,
