@@ -8,9 +8,10 @@ type Props = {
   controlNote: string;
   onControlNoteChange: (value: string) => void;
   onReview: (action: string) => void;
+  disabled?: boolean;
 };
 
-export function RunDetailDock({ activeRun, controlNote, onControlNoteChange, onReview }: Props) {
+export function RunDetailDock({ activeRun, controlNote, onControlNoteChange, onReview, disabled }: Props) {
   return (
     <aside className="panel ops-detail-dock">
       <div className="section-head">
@@ -22,9 +23,9 @@ export function RunDetailDock({ activeRun, controlNote, onControlNoteChange, onR
       </div>
       <textarea value={controlNote} onChange={(event) => onControlNoteChange(event.target.value)} />
       <div className="ops-review-actions">
-        <button className="primary-button" onClick={() => onReview('confirm')} disabled={!activeRun}><CheckCircle2 size={14} />确认</button>
-        <button className="secondary-button" onClick={() => onReview('revise')} disabled={!activeRun}>修改</button>
-        <button className="danger-button" onClick={() => onReview('reject')} disabled={!activeRun}><AlertTriangle size={14} />拒绝</button>
+        <button className="primary-button" onClick={() => onReview('confirm')} disabled={!activeRun || disabled}><CheckCircle2 size={14} />确认</button>
+        <button className="secondary-button" onClick={() => onReview('revise')} disabled={!activeRun || disabled}>修改</button>
+        <button className="danger-button" onClick={() => onReview('reject')} disabled={!activeRun || disabled}><AlertTriangle size={14} />拒绝</button>
       </div>
       <div className="ops-detail-block">
         <strong>Artifacts</strong>

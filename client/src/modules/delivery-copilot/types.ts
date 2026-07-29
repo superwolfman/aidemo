@@ -17,6 +17,13 @@ export type Source = {
     filterReason?: string;
 };
 
+export type FilteredChunk = {
+    id?: string;
+    title?: string;
+    score?: number;
+    reason?: string;
+};
+
 export type Artifact = {
     id: string;
     type: string;
@@ -63,6 +70,7 @@ export type AgentRun = {
     status: string;
     answer?: string;
     sources?: Source[];
+    filteredChunks?: FilteredChunk[];
     artifacts?: Artifact[];
     trace?: TraceStep[];
     quality?: RunQuality;

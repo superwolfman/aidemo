@@ -1,17 +1,19 @@
 import type { RefObject } from 'react';
 import type { TraceStep } from '../types';
+import { CitationText } from './CitationText';
 
 type StreamPanelProps = {
   status: string;
   running: boolean;
   trace: TraceStep[];
   answer: string;
+  sourceCount?: number;
   outputRef: RefObject<HTMLDivElement | null>;
 };
 
 const flowSteps = ['需求校验', 'RAG 检索', '工具产物', '流式总结', '人工确认'];
 
-export function StreamPanel({ status, running, trace, answer, outputRef }: StreamPanelProps) {
+export function StreamPanel({ status, running, trace, answer, sourceCount = 0, outputRef }: StreamPanelProps) {
   return (
     <section className="panel delivery-stream">
       <div className="section-head">
@@ -30,7 +32,7 @@ export function StreamPanel({ status, running, trace, answer, outputRef }: Strea
         ))}
       </div>
       <div className="delivery-output" ref={outputRef}>
-        {answer ? <pre>{answer}</pre> : <div className="runtime-empty">点击生成后，这里会展示真实 SSE 流式分析过程。</div>}
+        {answer ? <pre><CitationText text={answer} sourceCount={sourceCount} /></pre> : <div className="runtime-empty">点击生成后，这里会展示真实 SSE 流式分析过程。</div>}
       </div>
     </section>
   );

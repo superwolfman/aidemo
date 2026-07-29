@@ -1,6 +1,6 @@
 import { Database, ShieldCheck } from 'lucide-react';
 import { RagDebugPanel } from './RagDebugPanel';
-import type { RagRuntime, RetrievalView, Source, TraceStep } from '../types';
+import type { FilteredChunk, RagRuntime, RetrievalView, Source, TraceStep } from '../types';
 
 type KnowledgeContextProps = {
   ragLive: boolean;
@@ -9,6 +9,7 @@ type KnowledgeContextProps = {
   prompt: string;
   requirement: string;
   sources: Source[];
+  filteredChunks?: FilteredChunk[];
   trace: TraceStep[];
 };
 
@@ -19,6 +20,7 @@ export function KnowledgeContext({
   prompt,
   requirement,
   sources,
+  filteredChunks,
   trace
 }: KnowledgeContextProps) {
   return (
@@ -54,6 +56,7 @@ export function KnowledgeContext({
         sources={sources}
         ragRuntime={ragRuntime}
         retrievalView={retrievalView}
+        filteredChunks={filteredChunks}
       />
       <div className="delivery-review-box">
         <ShieldCheck size={18} />
@@ -64,8 +67,8 @@ export function KnowledgeContext({
       </div>
       <div className="delivery-mini-trace">
         <strong>真实 Trace</strong>
-        {trace.slice(0, 6).map((item) => (
-          <span key={item.id}>{item.name} · {item.status} · {item.durationMs || 0}ms</span>
+        {trace.slice(0, 6).map((item, index) => (
+          <span key={item.id ? `${item.id}-${index}` : `trace-${index}`}>{item.name} · {item.status} · {item.durationMs || 0}ms</span>
         ))}
         {!trace.length ? <p>运行后展示 Agent 状态流转。</p> : null}
       </div>

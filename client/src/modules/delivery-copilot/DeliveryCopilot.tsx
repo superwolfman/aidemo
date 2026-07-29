@@ -8,6 +8,7 @@ import { SessionPanel } from './components/SessionPanel';
 import { SkillSelector } from './components/SkillSelector';
 import { StreamPanel } from './components/StreamPanel';
 import { TraceTimeline } from './components/TraceTimeline';
+import { CitationText } from './components/CitationText';
 import type { AgentRun, AgentSession, Artifact, EvalCase, RunQuality, RuntimeBlueprint, Source, TraceStep } from './types';
 import { downloadFile, getRetrievalView, stringify } from './utils';
 import { useAgentRun } from '../../hooks/useAgentRun';
@@ -45,7 +46,7 @@ export default function DeliveryCopilot() {
     const artifact = useArtifact();
 
     const { setActive, load: loadSession, active } = session;
-    const { status, setStatus, answer, setAnswer, trace, setTrace, sources, setSources, artifacts, setArtifacts, quality, setQuality, activeRun, setActiveRun, start, abortRef: runAbort } = agentRun;
+    const { status, setStatus, answer, setAnswer, trace, setTrace, sources, setSources, filteredChunks, setFilteredChunks, artifacts, setArtifacts, quality, setQuality, activeRun, setActiveRun, start, abortRef: runAbort } = agentRun;
     const { cases, setCases, load: loadEvalCases, refresh: refreshEval, score } = evalCase;
 
     const activeArtifact = useMemo(() => artifacts.find((item) => item.id === activeArtifactId) || artifacts[0], [activeArtifactId, artifacts]);
@@ -107,6 +108,7 @@ export default function DeliveryCopilot() {
         setRunning(true);
         setAnswer('');
         setSources([]);
+        setFilteredChunks([]);
         setArtifacts([]);
         setTrace([]);
         setQuality(null);
@@ -119,13 +121,17 @@ export default function DeliveryCopilot() {
             }, {
                 run_status: (payload) => setStatus(payload.status || 'running'),
                 trace: (payload) => setTrace((items) => [...items.filter((item) => item.id !== payload.id), payload]),
-                sources: (payload) => setSources(payload.sources || []),
+                sources: (payload) => {
+                    setSources(payload.sources || []);
+                    setFilteredChunks(payload.filteredChunks || []);
+                },
                 artifacts: (payload) => { setArtifacts(payload.artifacts || []); setActiveArtifactId(payload.artifacts?.[0]?.id || ''); setArtifactDraft(stringify(payload.artifacts?.[0]?.content || '')); },
                 delta: (payload) => setAnswer((current) => current + payload.text),
                 final: (payload: { run: AgentRun }) => {
                     setStatus(payload.run?.status || 'review_required');
                     setAnswer(payload.run?.answer || '');
                     setSources(payload.run?.sources || []);
+                    setFilteredChunks(payload.run?.filteredChunks || []);
                     setArtifacts(payload.run?.artifacts || []);
                     setTrace(payload.run?.trace || []);
                     setQuality(payload.run?.quality || null);
@@ -219,10 +225,10 @@ export default function DeliveryCopilot() {
                 <section className="delivery-workspace-col delivery-workspace-center">
                     <section className="delivery-im-region">
                         <div className="chat-message user"><div className="chat-role">U</div><div className="markdown-body">{requirement || '（未填写需求）'}</div></div>
-                        {answer ? (<div className="chat-message assistant"><div className="chat-role">AI</div><div className="markdown-body">{answer}</div></div>) : null}
+                        {answer ? (<div className="chat-message assistant"><div className="chat-role">AI</div><div className="markdown-body"><CitationText text={answer} sourceCount={sources.length} /></div></div>) : null}
                     </section>
                     <section className="delivery-stream-region">
-                        <StreamPanel status={status} running={running} trace={trace} answer={answer} outputRef={outputRef} />
+                        <StreamPanel status={status} running={running} trace={trace} answer={answer} sourceCount={sources.length} outputRef={outputRef} />
                     </section>
                 </section>
                 <section className="delivery-workspace-col delivery-workspace-right">
@@ -231,7 +237,7 @@ export default function DeliveryCopilot() {
             </main>
             <section className="delivery-bottom-row">
                 <section className="delivery-region-4">
-                    <KnowledgeContext ragLive={ragLive} ragRuntime={ragRuntime} retrievalView={retrievalView} prompt={prompt} requirement={requirement} sources={sources} trace={trace} />
+                    <KnowledgeContext ragLive={ragLive} ragRuntime={ragRuntime} retrievalView={retrievalView} prompt={prompt} requirement={requirement} sources={sources} filteredChunks={filteredChunks} trace={trace} />
                 </section>
                 <section className="delivery-region-5">
                     <ApprovalPanel activeRun={activeRun} activeArtifact={activeArtifact} artifactSummary={artifactSummary} onSelectArtifact={selectArtifact} onConfirmArtifact={confirmArtifact} />

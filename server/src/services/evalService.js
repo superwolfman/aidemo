@@ -228,7 +228,12 @@ function buildScoreContext ({ sources = [], artifacts = [], trace = [], provider
     while ((m = citationPattern.exec(allArtifactText)) !== null) citedNumbers.push(parseInt(m[1], 10));
     const maxSourceIndex = sources.length;
     const hasFabricatedCitations = citedNumbers.some((n) => n > maxSourceIndex);
-    const citationConsistencyPassed = !hasFabricatedCitations && (citedNumbers.length === 0 || citedNumbers.length <= maxSourceIndex * 3);
+    // 引用堆砌检测：sources 有多条，但正文 3 次以上引用全部指向同一条 → citation 沦为装饰
+    const distinctCited = [...new Set(citedNumbers)];
+    const hasCitationStacking = maxSourceIndex >= 2 && citedNumbers.length >= 3 && distinctCited.length === 1;
+    // source 利用率：正文实际引用了几条不同的 source
+    const sourceUtilization = maxSourceIndex > 0 ? Number((distinctCited.length / maxSourceIndex).toFixed(4)) : 0;
+    const citationConsistencyPassed = !hasFabricatedCitations && !hasCitationStacking && (citedNumbers.length === 0 || citedNumbers.length <= maxSourceIndex * 3);
 
     return {
         sources, artifacts, trace, provider, intent, prompt,
@@ -236,6 +241,7 @@ function buildScoreContext ({ sources = [], artifacts = [], trace = [], provider
         retrievalBackends, hasFallbackSource, hasRealVector, providerLive,
         prdText, apiText, avgCitationScore, traceReplayable,
         relevanceScore, citationConsistencyPassed,
+        hasCitationStacking, sourceUtilization, distinctCitedCount: distinctCited.length,
         promptKeywords, matchedKeywords
     };
 }
@@ -297,7 +303,10 @@ export function scoreRunQuality (run, opts = {}) {
         relevanceScore: Number(c.relevanceScore.toFixed(4)),
         matchedKeywordCount: c.matchedKeywords.length,
         totalKeywordCount: c.promptKeywords.length,
-        hasFabricatedCitations: !c.citationConsistencyPassed,
+        citationConsistencyPassed: c.citationConsistencyPassed,
+        hasCitationStacking: c.hasCitationStacking,
+        sourceUtilization: c.sourceUtilization,
+        distinctCitedCount: c.distinctCitedCount,
         capabilities, // ← 新增：环境能力独立字段
         checks,
         verdict: score >= 90 ? 'ready_for_review' : score >= 70 ? 'needs_minor_review' : 'needs_revision'

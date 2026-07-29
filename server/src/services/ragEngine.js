@@ -86,13 +86,25 @@ export async function retrieveKnowledge ({ store, query, scopes, limit = 5 }) {
                 numCandidates: Math.max(limit * 16, 80)
             });
 
+            const filtered = await store.searchVectorChunks(`${query} ${scopes.join(' ')}`, {
+                scopes: ['__none__'],
+                limit: 5,
+                numCandidates: Math.max(limit * 16, 80)
+            }).catch(() => []);
+
             return {
                 status: getRagStatus({ mode: 'live', storeKind: store.kind, vectorSearchReady: true }),
                 sources: enrichSources(sources, {
                     backend: 'mongodb-atlas-vector-search',
                     strategy: 'atlas-vector-score',
                     scopes
-                })
+                }),
+                filteredChunks: (filtered || []).map((c) => ({
+                    id: c._id,
+                    title: c.documentTitle,
+                    score: c.score,
+                    reason: '被当前 Skill scope 过滤，未进入召回候选'
+                }))
             };
         } catch (error) {
             const fallback = await retrieveLocalKnowledge({ store, query, scopes, limit });

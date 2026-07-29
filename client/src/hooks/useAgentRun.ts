@@ -7,6 +7,7 @@ export function useAgentRun(_kind: 'agent-studio' | 'delivery' = 'agent-studio')
     const [answer, setAnswer] = useState('');
     const [trace, setTrace] = useState<any[]>([]);
     const [sources, setSources] = useState<any[]>([]);
+    const [filteredChunks, setFilteredChunks] = useState<any[]>([]);
     const [artifacts, setArtifacts] = useState<any[]>([]);
     const [plan, setPlan] = useState<any[]>([]);
     const [logs, setLogs] = useState<any[]>([]);
@@ -25,6 +26,7 @@ export function useAgentRun(_kind: 'agent-studio' | 'delivery' = 'agent-studio')
         setAnswer('');
         setTrace([]);
         setSources([]);
+        setFilteredChunks([]);
         setArtifacts([]);
         setPlan([]);
         setLogs([]);
@@ -56,7 +58,10 @@ export function useAgentRun(_kind: 'agent-studio' | 'delivery' = 'agent-studio')
             },
             sources: (payload: any) => {
                 handlers.sources?.(payload);
-                if (!handlers.sources) setSources(payload.sources || []);
+                if (!handlers.sources) {
+                    setSources(payload.sources || []);
+                    setFilteredChunks(payload.filteredChunks || []);
+                }
             },
             artifacts: (payload: any) => {
                 handlers.artifacts?.(payload);
@@ -95,7 +100,7 @@ export function useAgentRun(_kind: 'agent-studio' | 'delivery' = 'agent-studio')
 
     return {
         status, setStatus, runState, setRunState, answer, setAnswer, trace, setTrace,
-        sources, setSources, artifacts, setArtifacts, plan, setPlan, logs, setLogs,
+        sources, setSources, filteredChunks, setFilteredChunks, artifacts, setArtifacts, plan, setPlan, logs, setLogs,
         activeRun, setActiveRun, quality, setQuality, running, setRunning,
         abortRef, start, control, review, replay, stop
     };

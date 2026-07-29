@@ -190,7 +190,7 @@ export default function AgentOpsConsole() {
     const [selectedScopes, setSelectedScopes] = useState<string[]>(['architecture', 'standards', 'ai-native', 'frontend']);
     const [controlNote, setControlNote] = useState('运行治理确认：保留审计日志后进入下一步。');
     const [detailOpen, setDetailOpen] = useState(false);
-    const [detailTab, setDetailTab] = useState<'overview' | 'trace' | 'artifacts' | 'raw'>('overview');
+    const [detailTab, setDetailTab] = useState<'overview' | 'trace' | 'artifacts' | 'sources' | 'raw'>('overview');
     const [runs, setRuns] = useState<AgentRun[]>([]);
 
 

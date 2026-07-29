@@ -9269,27 +9269,59 @@ kbd {
     top: 0;
     z-index: 1;
     display: flex;
-    gap: 8px;
+    flex-wrap: nowrap;
+    gap: 4px;
     border-bottom: 1px solid #e1eaf2;
-    padding: 14px 0;
+    padding: 0;
     background: rgba(248, 251, 255, .94);
     backdrop-filter: blur(14px);
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.agentops-drawer-tabs::-webkit-scrollbar {
+    display: none;
 }
 
 .agentops-drawer-tabs button {
-    min-height: 34px;
-    border: 1px solid #dce7f0;
-    border-radius: 8px;
-    padding: 0 14px;
-    color: #52667a;
-    font-weight: 850;
-    background: #fff;
+    position: relative;
+    flex: 0 0 auto;
+    min-width: 64px;
+    min-height: 44px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    padding: 0 16px;
+    white-space: nowrap;
+    color: #64748b;
+    font-size: 14px;
+    font-weight: 600;
+    background: transparent;
+    cursor: pointer;
+    transition: color 150ms ease, background 150ms ease;
+}
+
+.agentops-drawer-tabs button:hover {
+    color: #334155;
+    background: rgba(15, 118, 110, .06);
 }
 
 .agentops-drawer-tabs button.active {
-    border-color: var(--ops-teal);
-    color: #fff;
-    background: var(--ops-teal);
+    color: var(--ops-teal, #0f766e);
+    font-weight: 700;
+    background: transparent;
+}
+
+.agentops-drawer-tabs button.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 12px;
+    right: 12px;
+    height: 2px;
+    background: var(--ops-teal, #0f766e);
+    border-radius: 2px 2px 0 0;
 }
 
 .agentops-drawer-grid {
@@ -10139,6 +10171,55 @@ kbd {
 
 .agentops-quality-checks em {
     color: #64748b;
+}
+
+/* ===== Answer citation：[n] 可点击引用标记 ===== */
+.citation-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    margin: 0 2px;
+    border: 1px solid rgba(37, 99, 235, 0.35);
+    border-radius: 9px;
+    background: rgba(37, 99, 235, 0.10);
+    color: #2563eb;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    vertical-align: super;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.citation-link:hover {
+    background: #2563eb;
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+/* 点击 citation 后，被定位 source 卡片的高亮反馈 */
+.citation-target-highlight {
+    animation: citation-flash 1.6s ease;
+}
+
+@keyframes citation-flash {
+    0% {
+        background: rgba(37, 99, 235, 0.22);
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.45);
+    }
+
+    60% {
+        background: rgba(37, 99, 235, 0.12);
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+    }
+
+    100% {
+        background: transparent;
+        box-shadow: none;
+    }
 }
 
 @media (max-width: 1360px) {

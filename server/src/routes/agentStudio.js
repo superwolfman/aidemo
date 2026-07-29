@@ -720,9 +720,9 @@ export function agentStudioRouter (store) {
         const retrievalStartedAt = Date.now();
         const rag = await retrieveKnowledge({ store, query: `${intent.goal}\n${prompt}`, scopes: intent.scopes, limit: 5 });
         const sources = rag.sources || [];
-        sendEvent(res, 'sources', { sources, rag: rag.status, latencyMs: Date.now() - retrievalStartedAt, scopes: intent.scopes });
+        sendEvent(res, 'sources', { sources, filteredChunks: rag.filteredChunks || [], rag: rag.status, latencyMs: Date.now() - retrievalStartedAt, scopes: intent.scopes });
         plan = updatePlan(plan, 'retrieve-context', 'success', { output: { hits: sources.length, backend: rag.status?.retrievalBackend || rag.status?.backend } });
-        await persistRun({ sources, plan })
+        await persistRun({ sources, filteredChunks: rag.filteredChunks || [], plan })
         sendEvent(res, 'plan', { plan, selectedSkill, intent });
         await emitStep(step('rag', 'RAG 上下文检索', 'success', {
             tool: 'retrieveKnowledge',
@@ -775,9 +775,12 @@ export function agentStudioRouter (store) {
                 输出约束：
                 1. 只能引用 sources 中实际存在的 chunk，禁止编造引用编号
                 2. 引用必须用 [1], [2], [3] 这种格式，编号与 sources 顺序一致
-                3. 如果 sources 没有覆盖某个问题，明确说"未在知识库中找到相关资料"
-                4. 不要编造"工具结果"或"参考来源"等模糊引用
-                5. 引用列表只包含 sources 中实际提供的文档标题
+                3. 引用标记必须内联在正文中：每当某句结论依据了某条 source，就在该句末尾紧跟对应 [n]，例如"涉及真实预算消耗的动作必须人工确认 [3]。"；不要只在文末罗列引用
+                4. 每个 [n] 必须指向真正支持该句的那条 source；不同结论各自引用对应来源，禁止把多条结论都堆在同一个编号上（citation stacking）
+                5. 属于通用最佳实践、你自己的建议、非 sources 原文支持的句子，一律不带引用标记
+                6. 如果 sources 没有覆盖某个问题，明确说"未在知识库中找到相关资料"，且该句不得带引用标记
+                7. 不要编造"工具结果"或"参考来源"等模糊引用
+                8. 文末可附"引用来源"列表，但只包含正文中实际引用过的 sources 文档标题
                 `,
                 prompt,
                 sources,
@@ -790,7 +793,7 @@ export function agentStudioRouter (store) {
                 streamed = generated.streamed;
             } else {
                 const completed = await generateLlmAnswer({
-                    systemPrompt: '你是企业级 AI Agent 产品专家。',
+                    systemPrompt: '你是企业级 AI Agent 产品专家。引用 sources 时必须在正文相关句末内联 [n] 标记（编号与 sources 顺序一致），禁止编造引用编号；未覆盖的问题明确说"未在知识库中找到相关资料"。',
                     prompt,
                     sources,
                     toolResults: { intent, artifacts },
@@ -850,6 +853,7 @@ export function agentStudioRouter (store) {
             selectedSkill,
             plan,
             sources,
+            filteredChunks: rag.filteredChunks || [],
             artifacts,
             trace,
             logs,

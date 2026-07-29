@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Database } from 'lucide-react';
+import type { FilteredChunk } from '../types';
 
 type Source = {
     _id?: string;
@@ -39,6 +40,7 @@ type Props = {
     sources: Source[];
     ragRuntime?: RagRuntime;
     retrievalView: RetrievalView;
+    filteredChunks?: FilteredChunk[];
 };
 
 function shortText(value = '', size = 160) {
@@ -59,7 +61,7 @@ function ExpandableText({ value, size = 160 }: { value: string; size?: number })
     );
 }
 
-export function RagDebugPanel({ query, sources, ragRuntime, retrievalView }: Props) {
+export function RagDebugPanel({ query, sources, ragRuntime, retrievalView, filteredChunks }: Props) {
     const filteredReason = sources.length
         ? '已按当前 Skill scope、topK 和 score 阈值返回候选 chunk。'
         : '未命中引用；请检查知识域、向量索引或上传文档。';
@@ -102,7 +104,7 @@ export function RagDebugPanel({ query, sources, ragRuntime, retrievalView }: Pro
             </div>
             <div className="rag-debug-results">
                 {sources.map((source, index) => (
-                    <article key={source._id || `${source.documentTitle}-${index}`}>
+                    <article id={`src-${index}`} key={source._id || `${source.documentTitle}-${index}`}>
                         <header>
                             <strong>[{index + 1}] {source.documentTitle || 'Untitled source'}</strong>
                             <span>score {Number(source.score || 0).toFixed(4)}</span>
@@ -119,6 +121,21 @@ export function RagDebugPanel({ query, sources, ragRuntime, retrievalView }: Pro
                     </article>
                 ))}
                 {!sources.length ? <div className="runtime-empty">运行后展示 query、chunk、score、citation 和过滤原因。</div> : null}
+                <div className="rag-debug-filtered">
+                    <details>
+                        <summary>被过滤来源（{filteredChunks?.length || 0}）</summary>
+                        {(filteredChunks || []).map((chunk, index) => (
+                            <article key={chunk.id || index}>
+                                <header>
+                                    <strong>{chunk.title || 'Untitled'}</strong>
+                                    <span>score {Number(chunk.score || 0).toFixed(4)}</span>
+                                </header>
+                                <p>{chunk.reason}</p>
+                            </article>
+                        ))}
+                        {!filteredChunks?.length ? <div className="runtime-empty">无被过滤来源。</div> : null}
+                    </details>
+                </div>
             </div>
         </section>
     );
