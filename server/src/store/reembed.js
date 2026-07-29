@@ -25,6 +25,14 @@ async function main () {
         console.error('MONGODB_ATLAS_URI is not set. Aborting.');
         process.exit(1);
     }
+
+    // 新增：reembed 是"真实向量"脚本，没 key 不能继续
+    if (!config.embeddingApiKey) {
+        console.error('EMBEDDING_API_KEY / DASHSCOPE_API_KEY is not set. reembed requires a real embedding provider.');
+        process.exit(1);
+    }
+
+    const expectedDim = config.ragVectorDimensions;
     const client = new MongoClient(config.mongodbAtlasUri);
     await client.connect();
     const db = client.db();
@@ -50,6 +58,15 @@ async function main () {
         });
         const payload = [];
         for (const chunk of parts) {
+            const vector = await embedTextReal(chunk, { useReal: true });
+
+            // 新增：写入前校验维度，防止 provider/key 异常导致静默降级
+            if (!Array.isArray(vector) || vector.length !== expectedDim) {
+                throw new Error(
+                    `Dimension mismatch for chunk in "${doc.title}": expected ${expectedDim}, got ${vector?.length}. ` +
+                    'Check RAG_VECTOR_DIMENSIONS and embedding provider.'
+                );
+            }
             payload.push({
                 documentId: inserted.insertedId,
                 documentTitle: doc.title,
