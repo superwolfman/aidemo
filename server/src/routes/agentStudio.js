@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import express from 'express';
 import { applyTransition, auditLog, buildRunControlPatch, createReplayRunDraft, createStateTransition, now, step, tokenCount, transitionRunPatch } from '../services/agentRuntimeService.js';
-import { applyArtifactReview, attachArtifactWorkflow, normalizeSourceRef } from '../services/artifactService.js';
+import { applyArtifactReview, attachArtifactWorkflow, normalizeSourceRef, exportArtifact } from '../services/artifactService.js';
 import { buildEvalCases, persistEvalResult, scoreRunQuality } from '../services/evalService.js';
 import { generateLlmAnswer, getProviderStatus, streamLlmAnswer } from '../services/llmProvider.js';
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
@@ -438,44 +438,56 @@ export function agentStudioRouter (store) {
         res.json({ artifact: updatedArtifact, run: nextRun });
     });
 
+    // router.get('/runs/:id/artifacts/:artifactId/export', async (req, res) => {
+    //     const run = await store.getRecord('agent_runs', req.params.id);
+    //     const artifact = run?.artifacts?.find((item) => item.id === req.params.artifactId);
+    //     if (!artifact) {
+    //         res.status(404).json({ message: 'Artifact not found' });
+    //         return;
+    //     }
+    //     const format = req.query.format === 'json' ? 'json' : 'markdown';
+    //     const content = typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content, null, 2);
+    //     const exportRecord = {
+    //         id: `export-${crypto.randomUUID()}`,
+    //         format,
+    //         filename: `${artifact.type}-${artifact.id}.${format === 'json' ? 'json' : 'md'}`,
+    //         exportedAt: now(),
+    //         exportedBy: req.user._id
+    //     };
+    //     const artifacts = (run.artifacts || []).map((item) => (
+    //         item.id === artifact.id
+    //             ? { ...item, exports: [exportRecord, ...(item.exports || [])].slice(0, 20) }
+    //             : item
+    //     ));
+    //     const log = auditLog('artifact', `Artifact 导出：${artifact.title}`, {
+    //         artifactId: artifact.id,
+    //         format,
+    //         filename: exportRecord.filename
+    //     });
+    //     const nextRun = await store.updateRecord('agent_runs', run._id, {
+    //         artifacts,
+    //         logs: [...(run.logs || []), log]
+    //     });
+    //     res.json({
+    //         filename: `${artifact.type}-${artifact.id}.${format === 'json' ? 'json' : 'md'}`,
+    //         format,
+    //         run: nextRun,
+    //         content: format === 'json'
+    //             ? JSON.stringify(artifact, null, 2)
+    //             : `# ${artifact.title}\n\n> version: ${artifact.version || 1} / status: ${artifact.status || 'draft'}\n\n${content}`
+    //     });
+    // });
+
     router.get('/runs/:id/artifacts/:artifactId/export', async (req, res) => {
-        const run = await store.getRecord('agent_runs', req.params.id);
-        const artifact = run?.artifacts?.find((item) => item.id === req.params.artifactId);
-        if (!artifact) {
-            res.status(404).json({ message: 'Artifact not found' });
-            return;
+        try {
+            const result = await exportArtifact(store, req.params.id, req.params.artifactId, {
+                format: req.query.format,
+                actorId: req.user?._id
+            });
+            res.json(result);
+        } catch (err) {
+            res.status(err.statusCode || 500).json({ message: err.message });
         }
-        const format = req.query.format === 'json' ? 'json' : 'markdown';
-        const content = typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content, null, 2);
-        const exportRecord = {
-            id: `export-${crypto.randomUUID()}`,
-            format,
-            filename: `${artifact.type}-${artifact.id}.${format === 'json' ? 'json' : 'md'}`,
-            exportedAt: now(),
-            exportedBy: req.user._id
-        };
-        const artifacts = (run.artifacts || []).map((item) => (
-            item.id === artifact.id
-                ? { ...item, exports: [exportRecord, ...(item.exports || [])].slice(0, 20) }
-                : item
-        ));
-        const log = auditLog('artifact', `Artifact 导出：${artifact.title}`, {
-            artifactId: artifact.id,
-            format,
-            filename: exportRecord.filename
-        });
-        const nextRun = await store.updateRecord('agent_runs', run._id, {
-            artifacts,
-            logs: [...(run.logs || []), log]
-        });
-        res.json({
-            filename: `${artifact.type}-${artifact.id}.${format === 'json' ? 'json' : 'md'}`,
-            format,
-            run: nextRun,
-            content: format === 'json'
-                ? JSON.stringify(artifact, null, 2)
-                : `# ${artifact.title}\n\n> version: ${artifact.version || 1} / status: ${artifact.status || 'draft'}\n\n${content}`
-        });
     });
 
     router.post('/runs/:id/control', async (req, res) => {

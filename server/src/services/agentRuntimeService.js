@@ -226,3 +226,18 @@ export function createReplayRunDraft (run, { actorId, reason = '' } = {}) {
         quality: null
     };
 }
+
+export function buildRunSummary (run = {}) {
+    return {
+        id: run._id || run.runId,
+        intent: run.intent?.label || run.skill || 'unknown',
+        status: run.status || 'created',
+        transitions: (run.stateTransitions || []).length,
+        artifacts: (run.artifacts || []).length,
+        approvals: (run.reviewHistory || []).length,
+        tokens: run.tokenCount || 0,
+        durationMs: run.durationMs || 0,
+        sources: (run.sources || []).length,
+        updatedAt: run.updatedAt || null
+    };
+}

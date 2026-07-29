@@ -1,4 +1,5 @@
-import { now } from './agentRuntimeService.js';
+import crypto from 'node:crypto';
+import { now, auditLog } from './agentRuntimeService.js';
 
 export function normalizeSourceRef (source, index) {
     return {
@@ -69,5 +70,42 @@ export function applyArtifactReview (artifact, { action = 'confirm', note = '', 
             approval,
             ...(artifact.approvals || [])
         ].slice(0, 20)
+    };
+}
+
+export async function exportArtifact (store, runId, artifactId, { format = 'markdown', actorId } = {}) {
+    const run = await store.getRecord('agent_runs', runId);
+    const artifact = run?.artifacts?.find((item) => item.id === artifactId);
+    if (!artifact) {
+        const err = new Error('Artifact not found');
+        err.statusCode = 404;
+        throw err;
+    }
+    const fmt = format === 'json' ? 'json' : 'markdown';
+    const content = typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content, null, 2);
+    const exportRecord = {
+        id: `export-${crypto.randomUUID()}`,
+        format: fmt,
+        filename: `${artifact.type}-${artifact.id}.${fmt === 'json' ? 'json' : 'md'}`,
+        exportedAt: now(),
+        exportedBy: actorId
+    };
+    const artifacts = (run.artifacts || []).map((item) =>
+        item.id === artifact.id
+            ? { ...item, exports: [exportRecord, ...(item.exports || [])].slice(0, 20) }
+            : item
+    );
+    const log = auditLog('artifact', `Artifact 导出：${artifact.title}`, { artifactId, format: fmt });
+    const nextRun = await store.updateRecord('agent_runs', run._id, {
+        artifacts,
+        logs: [...(run.logs || []), log]
+    });
+    return {
+        filename: exportRecord.filename,
+        format: fmt,
+        run: nextRun,
+        content: fmt === 'json'
+            ? JSON.stringify(artifact, null, 2)
+            : `# ${artifact.title}\n\n> version: ${artifact.version || 1} / status: ${artifact.status || 'draft'}\n\n${content}`
     };
 }
