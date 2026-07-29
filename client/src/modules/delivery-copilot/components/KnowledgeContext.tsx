@@ -40,6 +40,13 @@ export function KnowledgeContext({
             ? `Index ${ragRuntime?.index || 'default'} · Path ${ragRuntime?.vectorPath || 'embedding'} · ${ragRuntime?.dimensions || 0} dims`
             : (retrievalView.warning || ragRuntime?.error || '当前未启用真实向量库，使用 local deterministic embedding。')}
         </p>
+        {ragRuntime?.embeddingProvider ? (
+          <p>
+            <small className={ragRuntime.embeddingProvider.startsWith('local-fallback') ? 'env-warn' : 'env-ok'}>
+              embedding provider: {ragRuntime.embeddingProvider}
+            </small>
+          </p>
+        ) : null}
         <em>{retrievalView.backend} · {ragRuntime?.connection || (ragRuntime?.connected ? 'connected' : 'not connected')}</em>
       </div>
       <RagDebugPanel

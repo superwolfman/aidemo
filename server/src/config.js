@@ -7,11 +7,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../.env'), override: true });
 dotenv.config();
 
-const ragBackend = process.env.RAG_BACKEND || 'local-hash';
+// const ragBackend = process.env.RAG_BACKEND || 'local-hash';
 const defaultMongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/growth_ai_assistant';
 const mongodbAtlasUri = process.env.MONGODB_ATLAS_URI || '';
 const atlasCandidateUri = mongodbAtlasUri || (defaultMongoUri.startsWith('mongodb+srv://') ? defaultMongoUri : '');
-const selectedMongoUri = ragBackend === 'mongodb-atlas' && atlasCandidateUri ? atlasCandidateUri : defaultMongoUri;
+// const selectedMongoUri = ragBackend === 'mongodb-atlas' && atlasCandidateUri ? atlasCandidateUri : defaultMongoUri;
+
+// 有 Atlas URI 即默认启用真实向量库（显式 RAG_BACKEND=local-hash 可强制关闭）
+const ragBackend = process.env.RAG_BACKEND || (atlasCandidateUri ? 'mongodb-atlas' : 'local-hash');
+const isAtlas = ragBackend === 'mongodb-atlas';
+const selectedMongoUri = isAtlas && atlasCandidateUri ? atlasCandidateUri : defaultMongoUri;
 
 function redactConnection (uri) {
     if (!uri) return 'not configured';
@@ -54,11 +59,12 @@ export const config = {
     ragBackend,
     ragVectorIndex: process.env.RAG_VECTOR_INDEX || 'chunks_vector_index',
     ragVectorPath: process.env.RAG_VECTOR_PATH || 'embedding',
-    ragVectorDimensions: Number(process.env.RAG_VECTOR_DIMENSIONS || 96),
-    embeddingProvider: process.env.EMBEDDING_PROVIDER || 'local',
+    // atlas 时自动切 1024 维 + 真实 provider + 自动建索引，消除 G1
+    ragVectorDimensions: Number(process.env.RAG_VECTOR_DIMENSIONS || (isAtlas ? 1024 : 96)),
+    embeddingProvider: process.env.EMBEDDING_PROVIDER || (isAtlas ? 'dashscope' : 'local'),
     embeddingModel: process.env.EMBEDDING_MODEL || 'text-embedding-v3',
     embeddingBaseUrl: process.env.EMBEDDING_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     embeddingApiKey: process.env.EMBEDDING_API_KEY || process.env.DASHSCOPE_API_KEY || process.env.LLM_API_KEY || '',
-    ragCreateVectorIndex: process.env.RAG_CREATE_VECTOR_INDEX === 'true',
+    ragCreateVectorIndex: process.env.RAG_CREATE_VECTOR_INDEX === 'true' || isAtlas,
     redactedMongoUri: redactConnection(selectedMongoUri)
 };

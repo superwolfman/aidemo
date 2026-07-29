@@ -888,7 +888,11 @@ export default function CopilotWorkbench() {
                                     </details>
                                 ) : null}
                                 {!runtime.rag.productionReady && !vectorHealth ? (
-                                    <p>当前没有连接真实向量库。配置 `RAG_BACKEND=mongodb-atlas`、`MONGODB_ATLAS_URI` 和 Atlas Vector Search Index 后，点击检测会执行 `$vectorSearch`，并在检索结果中展示 `mongodb-atlas-vector-search`。</p>
+                                    runtime.rag.vectorSearchReady && runtime.rag.embeddingProvider?.startsWith('local-fallback') ? (
+                                        <p>embedding fallback — not production ready。Atlas 向量检索已连通，但 embedding 使用本地回退（未配置 API key）。配置 `DASHSCOPE_API_KEY`（或 `EMBEDDING_API_KEY`）后即恢复真实语义向量。</p>
+                                    ) : (
+                                        <p>当前没有连接真实向量库。配置 `RAG_BACKEND=mongodb-atlas`、`MONGODB_ATLAS_URI` 和 Atlas Vector Search Index 后，点击检测会执行 `$vectorSearch`，并在检索结果中展示 `mongodb-atlas-vector-search`。</p>
+                                    )
                                 ) : null}
                             </div>
                         ) : null}

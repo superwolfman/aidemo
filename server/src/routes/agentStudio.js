@@ -279,80 +279,75 @@ export function agentStudioRouter (store) {
     });
 
     router.post('/runs/:id/review', async (req, res) => {
-        const run = await store.getRecord('agent_runs', req.params.id);
-        if (!run) {
-            res.status(404).json({ message: 'Agent run not found' });
-            return;
-        }
-        const action = req.body.action || 'confirm';
-        const nextStatusMap = {
-            confirm: 'confirmed',
-            reject: 'rejected',
-            revise: 'revision_requested'
-        };
-        const nextStatus = nextStatusMap[action] || 'confirmed';
-        const review = await store.createRecord('agent_reviews', {
-            runId: run._id,
-            action,
-            note: req.body.note || '',
-            reviewerId: req.user._id,
-            previousStatus: run.status,
-            nextStatus
-        });
-        const log = auditLog('review', `审批动作：${action}`, {
-            action,
-            reviewerId: req.user._id,
-            note: req.body.note || ''
-        });
-        const nextArtifacts = action === 'confirm'
-            ? (run.artifacts || []).map((artifact) => ({
-                ...artifact,
-                status: artifact.status === 'confirmed' ? artifact.status : 'reviewed',
-                reviewStatus: artifact.reviewStatus === 'confirmed' ? artifact.reviewStatus : 'reviewed'
-            }))
-            : run.artifacts || [];
-        const nextTrace = upsertTraceStage(run.trace || [], 'review', {
-            name: '人工审批决策',
-            status: action === 'reject' ? 'failed' : action === 'revise' ? 'waiting' : 'success',
-            output: {
+        try {
+            const run = await store.getRecord('agent_runs', req.params.id);
+            if (!run) {
+                res.status(404).json({ message: 'Agent run not found' });
+                return;
+            }
+            const action = req.body.action || 'confirm';
+            const nextStatusMap = {
+                confirm: 'confirmed',
+                reject: 'rejected',
+                revise: 'revision_requested'
+            };
+            const nextStatus = nextStatusMap[action] || 'confirmed';
+            const review = await store.createRecord('agent_reviews', {
+                runId: run._id,
                 action,
                 note: req.body.note || '',
-                policy: action === 'confirm' ? '审批通过，允许进入下一阶段' : '审批未通过，需要修订或终止'
-            }
-        });
-        let transitionPatch;
-        try {
-            transitionPatch = transitionRunPatch(run, nextStatus, {
+                reviewerId: req.user._id,
+                previousStatus: run.status,
+                nextStatus
+            });
+            const log = auditLog('review', `审批动作：${action}`, {
+                action,
+                reviewerId: req.user._id,
+                note: req.body.note || ''
+            });
+            const nextArtifacts = action === 'confirm'
+                ? (run.artifacts || []).map((artifact) => ({
+                    ...artifact,
+                    status: artifact.status === 'confirmed' ? artifact.status : 'reviewed',
+                    reviewStatus: artifact.reviewStatus === 'confirmed' ? artifact.reviewStatus : 'reviewed'
+                }))
+                : run.artifacts || [];
+            const nextTrace = upsertTraceStage(run.trace || [], 'review', {
+                name: '人工审批决策',
+                status: action === 'reject' ? 'failed' : action === 'revise' ? 'waiting' : 'success',
+                output: {
+                    action,
+                    note: req.body.note || '',
+                    policy: action === 'confirm' ? '审批通过，允许进入下一阶段' : '审批未通过，需要修订或终止'
+                }
+            });
+            const transitionPatch = transitionRunPatch(run, nextStatus, {
                 label: `人工审批：${action}`,
                 actorId: req.user._id,
                 reason: req.body.note || ''
             });
+            const quality = scoreRunQuality({
+                ...run,
+                artifacts: nextArtifacts,
+                trace: nextTrace,
+                provider: run.provider || {},
+                intent: run.intent || {},
+                prompt: run.prompt || ''
+            });
+            const nextRun = await store.updateRecord('agent_runs', run._id, {
+                ...transitionPatch,
+                artifacts: nextArtifacts,
+                trace: nextTrace,
+                reviewHistory: [review, ...(run.reviewHistory || [])],
+                logs: [...(run.logs || []), log],
+                quality,
+                updatedAt: now()
+            });
+            res.json({ review, run: nextRun });
         } catch (error) {
-            res.status(error.statusCode || 500).json({ message: error.message });
-            return;
+            console.error('Review endpoint error:', error);
+            res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
         }
-        // const quality = scoreRunQuality({ ...run, artifacts: nextArtifacts, trace: nextTrace });
-        // const nextRun = await store.updateRecord('agent_runs', run._id, {
-        //     ...transitionPatch,
-        //     review,
-        //     reviewHistory: [review, ...(run.reviewHistory || [])],
-        //     artifacts: nextArtifacts,
-        //     trace: nextTrace,
-        //     quality,
-        //     logs: [...(run.logs || []), log]
-        // });
-        // 在 updateRecord 前计算 quality
-        const quality = scoreRunQuality({ ...run, artifacts, trace, provider: run.provider || {}, intent: run.intent || {}, prompt: run.prompt || '' });
-
-        const nextRun = await store.updateRecord('agent_runs', run._id, {
-            artifacts,
-            trace: nextTrace,
-            logs: [...(run.logs || []), log],
-            status: 'confirmed',
-            updatedAt: now(),
-            quality   // ← 持久化
-        });
-        res.json({ review, run: nextRun });
     });
 
     router.patch('/runs/:id/artifacts/:artifactId', async (req, res) => {

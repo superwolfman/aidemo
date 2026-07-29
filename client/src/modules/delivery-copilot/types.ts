@@ -93,6 +93,7 @@ export type RuntimeBlueprint = {
             connection?: string;
             connected?: boolean;
             vectorSearchReady?: boolean;
+            embeddingProvider?: string;
         };
     };
 };

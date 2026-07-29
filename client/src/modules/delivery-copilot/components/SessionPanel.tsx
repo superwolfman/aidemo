@@ -24,6 +24,11 @@ export function SessionPanel({ blueprint, ragRuntime, ragLive, quality }: Props)
                 <article className={ragLive ? 'live' : 'warning'}>
                     <strong>{ragLive ? 'live vector store' : 'fallback retrieval'}</strong>
                     <span>{ragRuntime?.retrievalBackend || ragRuntime?.backend || 'loading'} · {ragRuntime?.index || 'chunks_vector_index'}</span>
+                    {ragRuntime?.embeddingProvider ? (
+                        <small className={ragRuntime.embeddingProvider.startsWith('local-fallback') ? 'env-warn' : 'env-ok'}>
+                            embedding: {ragRuntime.embeddingProvider}
+                        </small>
+                    ) : null}
                 </article>
                 <article>
                     <strong>{quality ? `${quality.score}%` : 'pending'}</strong>

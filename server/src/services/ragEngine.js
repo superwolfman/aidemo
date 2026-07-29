@@ -11,6 +11,20 @@ function redactConnection (uri) {
     }
 }
 
+// 如实解析 embedding 实际生效的 provider：
+// 配了真实 provider（如 dashscope）但缺 API key 时，embedTextReal 会静默回退到本地哈希，
+// 因此状态必须显示 local-fallback，不能谎称 dashscope / openai。
+function resolveEffectiveEmbeddingProvider () {
+    const isAtlas = config.ragBackend === 'mongodb-atlas';
+    if (!isAtlas) return 'local-deterministic-embedding';
+    const provider = config.embeddingProvider;
+    const hasKey = Boolean(config.embeddingApiKey);
+    if (!provider || provider === 'local' || !hasKey) {
+        return `local-fallback(${config.embeddingModel})`;
+    }
+    return provider;
+}
+
 export function getRagStatus (extra = {}) {
     const backend = config.ragBackend;
     const isAtlas = backend === 'mongodb-atlas';
@@ -24,8 +38,12 @@ export function getRagStatus (extra = {}) {
             : realStoreConnected
                 ? 'configured'
                 : 'unavailable');
+    const effectiveEmbeddingProvider = resolveEffectiveEmbeddingProvider();
+    // productionReady 不仅要求 Atlas 向量索引可连，还要求 embedding 真实可用（有 key）。
+    // 否则只是“本地哈希 + Atlas 向量库”的伪生产态，不应标为 productionReady。
+    const embeddingLive = !effectiveEmbeddingProvider.startsWith('local-fallback');
     const productionReady = isAtlas
-        ? vectorSearchReady === true
+        ? vectorSearchReady === true && embeddingLive
         : requestedRealVector && realStoreConnected && mode === 'live';
 
     return {
@@ -50,12 +68,8 @@ export function getRagStatus (extra = {}) {
         index: isAtlas ? config.ragVectorIndex : undefined,
         vectorPath: isAtlas ? config.ragVectorPath : undefined,
         dimensions: isAtlas ? config.ragVectorDimensions : undefined,
-        // embeddingProvider: 'local-deterministic-embedding',
-        embeddingProvider: config.ragBackend === 'mongodb-atlas'
-            ? (config.embeddingProvider && config.embeddingProvider !== 'local'
-                ? config.embeddingProvider
-                : `dashscope-${config.embeddingModel}`)
-            : 'local-deterministic-embedding',
+        // 如实反映 embedding 真实状态：配了 dashscope 但无 key → 显示 local-fallback，不再谎称 dashscope
+        embeddingProvider: effectiveEmbeddingProvider,
         storeKind: extra.storeKind,
         connected: realStoreConnected,
         vectorSearchReady,
