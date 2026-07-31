@@ -9,6 +9,31 @@ import { agentCapabilities, getAgentCapability } from '../services/skillRegistry
 import { buildDeliveryArtifacts, buildFallbackAnswer } from '../services/toolExecutor.js';
 import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
 
+// 判断是否为可重试的瞬时 Mongo 错误（网络超时/连接重置/服务选择失败等）
+function isTransientMongoError (err) {
+    if (!err) return false;
+    const text = `${err.name || ''} ${err.message || ''} ${err.code || ''}`;
+    return /timeout|network|ECONNRESET|ENOTFOUND|EAI_AGAIN|server selection|MongoNetwork|MongoServerSelection|connection .* timed out/i.test(text);
+}
+
+// 对 Mongo 写操作做有限次重试；仍失败则抛出由调用方决定降级
+async function withMongoRetry (fn, { retries = 2, baseDelayMs = 250 } = {}) {
+    let lastErr;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+            return await fn();
+        } catch (err) {
+            lastErr = err;
+            if (attempt < retries && isTransientMongoError(err)) {
+                await new Promise((r) => setTimeout(r, baseDelayMs * (attempt + 1)));
+                continue;
+            }
+            throw err;
+        }
+    }
+    throw lastErr;
+}
+
 function upsertTraceStage (trace = [], stageId, patch = {}) {
     let updated = false;
     const nextTrace = trace.map((item) => {
@@ -665,26 +690,32 @@ export function agentStudioRouter (store) {
             controlHistory: []
         });
         const persistRun = async (patch = {}) => {
-            runRecord = await store.updateRecord('agent_runs', runRecord._id, {
-                intent,
-                selectedSkill,
-                plan,
-                trace,
-                logs,
-                ...patch
-            });
+            try {
+                runRecord = await withMongoRetry(() => store.updateRecord('agent_runs', runRecord._id, {
+                    intent,
+                    selectedSkill,
+                    plan,
+                    trace,
+                    logs,
+                    ...patch
+                }));
+            } catch (error) {
+                // Mongo 写超时等：不中断主流程，降级跳过持久化（LLM 已生成的内容仍会返回）
+                logs.push(auditLog('error', 'run 持久化失败(已降级跳过)', { error: error.message }));
+                console.error('[persistRun] skipped:', error.message);
+            }
             return runRecord;
         };
         const emitStatus = async (status, label, extra = {}) => {
             try {
-                runRecord = await applyTransition(store, runRecord, status, {
+                runRecord = await withMongoRetry(() => applyTransition(store, runRecord, status, {
                     label,
                     actorId: req.user._id,
                     meta: extra
-                });
+                }));
             } catch (error) {
-                logs.push(auditLog('error', error.message, { from: runRecord.status, to: status }));
-                throw error;
+                logs.push(auditLog('error', `状态流转失败(已降级跳过): ${error.message}`, { from: runRecord.status, to: status }));
+                console.error('[emitStatus] skipped:', error.message);
             }
             sendEvent(res, 'run_status', { runDbId: runRecord._id, runId, status, label, at: now(), intent, selectedSkill, plan, ...extra });
         };
@@ -837,16 +868,22 @@ export function agentStudioRouter (store) {
         await persistRun({ logs });
 
         const quality = scoreRunQuality({ sources, artifacts, trace, provider, intent });
-        const evalResult = await persistEvalResult(store, {
-            ...runRecord,
-            sources,
-            artifacts,
-            trace,
-            provider,
-            intent,
-            quality,
-            evalCaseId: req.body.evalCaseId
-        });
+        let evalResult = null;
+        try {
+            evalResult = await persistEvalResult(store, {
+                ...runRecord,
+                sources,
+                artifacts,
+                trace,
+                provider,
+                intent,
+                quality,
+                evalCaseId: req.body.evalCaseId
+            });
+        } catch (error) {
+            logs.push(auditLog('error', 'eval 持久化失败(已降级跳过)', { error: error.message }));
+            console.error('[persistEvalResult] skipped:', error.message);
+        }
         const run = await persistRun({
             prompt,
             intent,
@@ -868,11 +905,16 @@ export function agentStudioRouter (store) {
         const userMessage = { id: `user-${Date.now()}`, role: 'user', content: prompt, createdAt: now() };
         const assistantMessage = { id: `assistant-${Date.now()}`, role: 'assistant', content: answer, runId: run._id, sources, trace, createdAt: now() };
         const messages = [...(session.messages || []), userMessage, assistantMessage];
-        await store.updateRecord('agent_sessions', session._id, {
-            messages,
-            activeAgentId: intent.id,
-            title: session.title === '新的 Agent 会话' ? prompt.slice(0, 24) || session.title : session.title
-        });
+        try {
+            await withMongoRetry(() => store.updateRecord('agent_sessions', session._id, {
+                messages,
+                activeAgentId: intent.id,
+                title: session.title === '新的 Agent 会话' ? prompt.slice(0, 24) || session.title : session.title
+            }));
+        } catch (error) {
+            logs.push(auditLog('error', '会话持久化失败(已降级跳过)', { error: error.message }));
+            console.error('[session persist] skipped:', error.message);
+        }
 
         sendEvent(res, 'review', { runId: run._id, required: intent.riskLevel === 'high', status: 'pending' });
         sendEvent(res, 'run_status', {
