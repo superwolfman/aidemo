@@ -10,14 +10,6 @@ import { authRouter } from './routes/auth.js';
 import { copilotRouter } from './routes/copilot.js';
 import { agentStudioRouter } from './routes/agentStudio.js';
 
-// 进程级兜底：Mongo 写超时等未捕获异常不再崩溃进程，仅记录（主流程已生成的内容仍可返回）
-process.on('unhandledRejection', (reason) => {
-    console.error('[fatal] UnhandledRejection:', reason?.message || reason);
-});
-process.on('uncaughtException', (err) => {
-    console.error('[fatal] UncaughtException:', err?.message || err);
-});
-
 const store = await createStore();
 const app = express();
 const auth = requireAuth(store);
