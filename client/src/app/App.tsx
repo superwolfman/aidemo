@@ -6,7 +6,7 @@ import { Header } from '../components/ui';
 import { eventBus, AppEvents } from '../platform/events';
 import { MicroAppContainer } from '../platform/microFrontend';
 import { useShellRouter } from '../platform/router';
-import { getSubApp, visibleSubApps } from '../platform/subapps';
+import { getSubApp, subApps, visibleSubApps } from '../platform/subapps';
 import type { ShellContext } from '../platform/subapps';
 import { i18n } from '../platform/i18n';
 
@@ -55,10 +55,17 @@ function Shell({ user, onLogout }: { user: any; onLogout: () => void }) {
   const router = useShellRouter();
   const app = getSubApp(router.appId);
   const [collapsed, setCollapsed] = useState(false);
+  const [mountedAppIds, setMountedAppIds] = useState(() => new Set([app.id]));
   const [, forceI18nRender] = useState(0);
   const context = useMemo<ShellContext>(() => ({ user, eventBus, navigate: router.navigate, app }), [user, router.navigate, app]);
 
   useEffect(() => i18n.subscribe(() => forceI18nRender((value) => value + 1)), []);
+  useEffect(() => {
+    setMountedAppIds((current) => {
+      if (current.has(app.id)) return current;
+      return new Set(current).add(app.id);
+    });
+  }, [app.id]);
 
   return (
     <div className={`app-shell ${collapsed ? 'app-shell-collapsed' : ''}`}>
@@ -94,7 +101,22 @@ function Shell({ user, onLogout }: { user: any; onLogout: () => void }) {
         </div>
       </aside>
       <main className="workspace">
-        <MicroAppContainer app={app} context={context} />
+        {subApps.filter((item) => item.id === app.id || mountedAppIds.has(item.id)).map((mountedApp) => {
+          const active = mountedApp.id === app.id;
+          return (
+            <section
+              key={mountedApp.id}
+              className="micro-app-pane"
+              hidden={!active}
+              aria-hidden={!active}
+            >
+              <MicroAppContainer
+                app={mountedApp}
+                context={{ ...context, app: mountedApp }}
+              />
+            </section>
+          );
+        })}
       </main>
     </div>
   );
