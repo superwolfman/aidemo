@@ -465,13 +465,13 @@ function classifyAtlasConnectionFailure (errorMessage = '') {
     };
 }
 
-async function inspectVectorStore (store) {
+async function inspectVectorStore (store, context) {
     const checks = {
         requestedBackend: config.ragBackend,
         expectedVectorStore: getRagStatus({ storeKind: store.kind }).vectorStore,
         storeKind: store.kind,
         mongoConnected: store.kind === 'mongo',
-        chunks: typeof store.countChunks === 'function' ? await store.countChunks() : undefined,
+        chunks: typeof store.countChunks === 'function' ? await store.countChunks(context) : undefined,
         index: config.ragBackend === 'mongodb-atlas' ? config.ragVectorIndex : undefined,
         vectorPath: config.ragBackend === 'mongodb-atlas' ? config.ragVectorPath : undefined,
         dimensions: config.ragVectorDimensions
@@ -578,6 +578,7 @@ async function readProjectKnowledgeFiles () {
             documents.push({
                 title: item.title,
                 tags: item.tags,
+                scopes: item.tags,
                 content,
                 sourceType: 'project-file',
                 sourcePath: item.relativePath,
@@ -590,23 +591,25 @@ async function readProjectKnowledgeFiles () {
     return documents;
 }
 
-async function ensureKnowledge (store) {
-    const docs = await store.listDocuments();
+async function ensureKnowledge (store, context) {
+    const docs = await store.listDocuments(context);
     const titles = new Set(docs.map((doc) => doc.title));
     const projectDocs = await readProjectKnowledgeFiles();
     for (const doc of projectDocs) {
         if (!titles.has(doc.title)) {
-            await store.createDocument(doc);
+            await store.createDocument(context, doc);
             titles.add(doc.title);
         }
     }
     for (const doc of seedKnowledge) {
-        if (!titles.has(doc.title)) await store.createDocument({ ...doc, sourceType: 'template' });
+        if (!titles.has(doc.title)) {
+            await store.createDocument(context, { ...doc, scopes: doc.tags, sourceType: 'template' });
+        }
     }
 }
 
-async function searchKnowledgeWithStatus (store, query, scopes) {
-    return retrieveKnowledge({ store, query, scopes, limit: 5 });
+async function searchKnowledgeWithStatus (store, context, query, scopes) {
+    return retrieveKnowledge({ store, context, query, scopes, limit: 5 });
 }
 
 async function analyzeRepository ({ skillId, mode }) {
@@ -1039,12 +1042,22 @@ function normalizeForm (form = {}) {
         .join('\n');
 }
 
+function asyncRoute (handler) {
+    return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+}
+
 export function copilotRouter (store) {
     const router = express.Router();
 
     router.use(async (req, res, next) => {
-        await ensureKnowledge(store);
-        next();
+        try {
+            if (req.auth.allowedKnowledgeScopes.includes('*')) {
+                await ensureKnowledge(store, req.auth);
+            }
+            next();
+        } catch (error) {
+            next(error);
+        }
     });
 
     router.get('/skills', (req, res) => {
@@ -1070,7 +1083,7 @@ export function copilotRouter (store) {
     });
 
     router.get('/vector-store/health', async (req, res) => {
-        res.json(await inspectVectorStore(store));
+        res.json(await inspectVectorStore(store, req.auth));
     });
 
     router.get('/models', (req, res) => {
@@ -1109,7 +1122,7 @@ export function copilotRouter (store) {
         res.json({ session: normalizeSession(session) });
     });
 
-    router.post('/knowledge/upload', async (req, res) => {
+    router.post('/knowledge/upload', asyncRoute(async (req, res) => {
         const { filename, content, mimeType, scopes = ['architecture'] } = req.body;
         const extension = String(filename || '').split('.').pop()?.toLowerCase();
         const normalizedType = extension === 'pdf' ? 'pdf' : extension === 'md' || extension === 'markdown' ? 'markdown' : 'txt';
@@ -1117,18 +1130,19 @@ export function copilotRouter (store) {
             normalizedType === 'pdf' && !content
                 ? `PDF 文档 ${filename} 已上传。MVP 模式记录文件元数据；生产环境接入 PDF parser 后抽取正文。`
                 : content;
-        const document = await store.createDocument({
+        const document = await store.createDocument(req.auth, {
             title: filename || `architecture-note-${Date.now()}.${normalizedType}`,
-            tags: ['copilot', normalizedType, ...scopes],
+            tags: ['copilot', normalizedType],
+            scopes,
             sourceType: 'upload',
             sourcePath: filename,
             content: text || '空文档'
         });
         res.json({ document });
-    });
+    }));
 
-    router.post('/knowledge/project/import', async (req, res) => {
-        const docs = await store.listDocuments();
+    router.post('/knowledge/project/import', asyncRoute(async (req, res) => {
+        const docs = await store.listDocuments(req.auth);
         const titles = new Set(docs.map((doc) => doc.title));
         const projectDocs = await readProjectKnowledgeFiles();
         const imported = [];
@@ -1138,7 +1152,7 @@ export function copilotRouter (store) {
                 skipped.push(doc);
                 continue;
             }
-            const created = await store.createDocument(doc);
+            const created = await store.createDocument(req.auth, doc);
             imported.push(created);
             titles.add(doc.title);
         }
@@ -1147,25 +1161,26 @@ export function copilotRouter (store) {
             skipped: skipped.map((doc) => ({ title: doc.title, sourcePath: doc.sourcePath })),
             totalProjectFiles: projectDocs.length
         });
-    });
+    }));
 
-    router.post('/knowledge/templates/:id/import', async (req, res) => {
+    router.post('/knowledge/templates/:id/import', asyncRoute(async (req, res) => {
         const template = knowledgeTemplates.find((item) => item.id === req.params.id);
         if (!template) {
             res.status(404).json({ message: 'Knowledge template not found' });
             return;
         }
-        const document = await store.createDocument({
+        const document = await store.createDocument(req.auth, {
             title: template.title,
             tags: template.tags,
+            scopes: template.tags,
             sourceType: 'template',
             content: template.content
         });
         res.json({ document });
-    });
+    }));
 
-    router.get('/knowledge', async (req, res) => {
-        const documents = uniqueByTitle((await store.listDocuments()).filter((doc) => (doc.tags || []).includes('copilot')))
+    router.get('/knowledge', asyncRoute(async (req, res) => {
+        const documents = uniqueByTitle((await store.listDocuments(req.auth)).filter((doc) => (doc.tags || []).includes('copilot')))
             .sort((a, b) => {
                 const rank = { 'project-file': 0, upload: 1, template: 2, manual: 3 };
                 return (rank[a.sourceType] ?? 4) - (rank[b.sourceType] ?? 4);
@@ -1179,15 +1194,16 @@ export function copilotRouter (store) {
                 chunks: documents.reduce((sum, doc) => sum + (doc.chunkCount || 0), 0)
             }
         });
-    });
+    }));
 
-    router.post('/knowledge/search', async (req, res) => {
+    router.post('/knowledge/search', asyncRoute(async (req, res) => {
         const query = String(req.body.query || '').trim();
         const scopes = Array.isArray(req.body.scopes) && req.body.scopes.length ? req.body.scopes : ['architecture', 'standards'];
         const limit = Number(req.body.limit || 5);
         const startedAt = Date.now();
         const result = await retrieveKnowledge({
             store,
+            context: req.auth,
             query: query || scopes.join(' '),
             scopes,
             limit: Number.isFinite(limit) ? limit : 5
@@ -1199,7 +1215,7 @@ export function copilotRouter (store) {
             latencyMs: Date.now() - startedAt,
             sources: result.sources
         });
-    });
+    }));
 
     router.post('/sessions/:id/messages/stream', async (req, res) => {
         initSse(res);
@@ -1244,7 +1260,7 @@ export function copilotRouter (store) {
         emitRunStatus('retrieving', '检索 RAG 上下文', { scopes: skill.knowledgeScopes });
         await emitStep(step('context', '加载上下文', 'running', { output: { knowledgeScopes: skill.knowledgeScopes } }));
         const knowledgeStartedAt = Date.now();
-        const knowledgeResult = await searchKnowledgeWithStatus(store, prompt, skill.knowledgeScopes);
+        const knowledgeResult = await searchKnowledgeWithStatus(store, req.auth, prompt, skill.knowledgeScopes);
         const knowledgeLatencyMs = Date.now() - knowledgeStartedAt;
         const sources = knowledgeResult.sources;
         await emitStep(step('knowledge', '调用知识库 searchKnowledge', 'success', {

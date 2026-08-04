@@ -21,7 +21,7 @@ export function authRouter(store, auth) {
 
     const safeUser = publicUser(user);
     const token = jwt.sign(
-      { sub: safeUser._id, email: safeUser.email, role: safeUser.role },
+      { sub: safeUser._id, email: safeUser.email, role: safeUser.role, tid: safeUser.tenantId },
       config.jwtSecret,
       { expiresIn: '8h' }
     );

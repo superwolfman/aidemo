@@ -44,6 +44,11 @@ export const config = {
     // 只负责读取配置，不在这里隐藏生产环境配置错误。
     allowFileStoreFallback:
         process.env.ALLOW_FILE_STORE_FALLBACK === 'true',
+    mcpTenantId:
+        process.env.MCP_TENANT_ID || (nodeEnv === 'development' ? 'tenant-demo' : ''),
+    mcpAllowedKnowledgeScopes: (
+        process.env.MCP_ALLOWED_KNOWLEDGE_SCOPES || '*'
+    ).split(',').map((scope) => scope.trim()).filter(Boolean),
     clientOrigin:
         process.env.CLIENT_ORIGIN ||
         'http://localhost:5173',
@@ -89,7 +94,7 @@ export const config = {
     ragBackend,
     ragVectorIndex:
         process.env.RAG_VECTOR_INDEX ||
-        'chunks_vector_index',
+        'chunks_vector_index_v2',
     ragVectorPath:
         process.env.RAG_VECTOR_PATH ||
         'embedding',
@@ -112,8 +117,7 @@ export const config = {
         process.env.LLM_API_KEY ||
         '',
     ragCreateVectorIndex:
-        process.env.RAG_CREATE_VECTOR_INDEX === 'true' ||
-        isAtlas,
+        process.env.RAG_CREATE_VECTOR_INDEX === 'true',
     redactedMongoUri: redactConnection(selectedMongoUri)
 };
 // 必须在所有字段构建完成后调用。

@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { authorizeKnowledgeScopes, requireTenantContext } from '../security/tenantContext.js';
 
 function redactConnection (uri) {
     if (!uri) return 'not configured';
@@ -77,80 +78,69 @@ export function getRagStatus (extra = {}) {
     };
 }
 
-export async function retrieveKnowledge ({ store, query, scopes, limit = 5 }) {
+export async function retrieveKnowledge ({ store, context, query, scopes, limit = 5 }) {
+    requireTenantContext(context);
+    const authorizedScopes = authorizeKnowledgeScopes(context, scopes);
     if (config.ragBackend === 'mongodb-atlas' && typeof store.searchVectorChunks === 'function') {
         try {
-            const sources = await store.searchVectorChunks(`${query} ${scopes.join(' ')}`, {
-                scopes,
+            const sources = await store.searchVectorChunks(context, query, {
+                scopes: authorizedScopes,
                 limit,
                 numCandidates: Math.max(limit * 16, 80)
             });
-
-            const filtered = await store.searchVectorChunks(`${query} ${scopes.join(' ')}`, {
-                scopes: ['__none__'],
-                limit: 5,
-                numCandidates: Math.max(limit * 16, 80)
-            }).catch(() => []);
 
             return {
                 status: getRagStatus({ mode: 'live', storeKind: store.kind, vectorSearchReady: true }),
                 sources: enrichSources(sources, {
                     backend: 'mongodb-atlas-vector-search',
-                    strategy: 'atlas-vector-score',
-                    scopes
+                    strategy: 'atlas-vector-prefilter',
+                    scopes: authorizedScopes
                 }),
-                filteredChunks: (filtered || []).map((c) => ({
-                    id: c._id,
-                    title: c.documentTitle,
-                    score: c.score,
-                    reason: '被当前 Skill scope 过滤，未进入召回候选'
-                }))
+                filter: { tenantApplied: true, scopeApplied: true },
+                filteredChunks: []
             };
         } catch (error) {
-            const fallback = await retrieveLocalKnowledge({ store, query, scopes, limit });
+            const fallback = await retrieveLocalKnowledge({ store, context, query, scopes: authorizedScopes, limit });
             return {
                 status: getRagStatus({ mode: 'fallback', storeKind: store.kind, vectorSearchReady: false, error: error.message }),
                 sources: enrichSources(fallback.sources, {
                     backend: 'local-hash-fallback',
-                    strategy: 'local-score-desc-scope-filter',
-                    scopes,
+                    strategy: 'local-tenant-scope-prefilter',
+                    scopes: authorizedScopes,
                     fallbackReason: error.message
-                })
+                }),
+                filter: { tenantApplied: true, scopeApplied: true },
+                filteredChunks: []
             };
         }
     }
 
-    return retrieveLocalKnowledge({ store, query, scopes, limit });
+    return retrieveLocalKnowledge({ store, context, query, scopes: authorizedScopes, limit });
 }
 
-async function retrieveLocalKnowledge ({ store, query, scopes, limit = 5 }) {
-    const chunks = await store.searchChunks(`${query} ${scopes.join(' ')}`, Math.max(limit, 8));
-    const filtered = chunks.filter((chunk) => {
-        const tags = chunk.tags || [];
-        return !tags.length || tags.some((tag) => scopes.includes(tag) || tag === 'copilot');
+async function retrieveLocalKnowledge ({ store, context, query, scopes, limit = 5 }) {
+    const chunks = await store.searchChunks(context, query, {
+        scopes,
+        limit: Math.max(limit, 8)
     });
 
     return {
         status: getRagStatus({ storeKind: store.kind, error: store.connectionError }),
-        sources: enrichSources((filtered.length ? filtered : chunks).slice(0, limit), {
+        sources: enrichSources(chunks.slice(0, limit), {
             backend: 'local-hash',
-            strategy: 'local-score-desc-scope-filter',
-            scopes,
-            usedFallbackPool: !filtered.length
-        })
+            strategy: 'local-tenant-scope-prefilter',
+            scopes
+        }),
+        filter: { tenantApplied: true, scopeApplied: true },
+        filteredChunks: []
     };
 }
 
-function enrichSources (sources, { backend, strategy, scopes = [], fallbackReason = '', usedFallbackPool = false } = {}) {
+function enrichSources (sources, { backend, strategy, scopes = [], fallbackReason = '' } = {}) {
     return sources.map((source, index) => {
         const score = Number(source.score || 0);
-        const tags = source.tags || [];
-        const matchedScopes = tags.filter((tag) => scopes.includes(tag) || tag === 'copilot');
-        const scopeReason = matchedScopes.length
-            ? `passed scope filter: ${matchedScopes.join(', ')}`
-            : usedFallbackPool
-                ? 'returned from fallback candidate pool because scoped chunks were empty'
-                : 'passed default untagged/candidate filter';
+        const matchedScopes = (source.scopes || []).filter((scope) => scopes.includes(scope));
+        const scopeReason = `tenant and scope prefilter passed: ${matchedScopes.join(', ')}`;
         return {
             ...source,
             retrievalBackend: source.retrievalBackend || backend,
@@ -164,7 +154,7 @@ function enrichSources (sources, { backend, strategy, scopes = [], fallbackReaso
     });
 }
 
-export async function checkVectorHealth ({ store }) {
+export async function checkVectorHealth ({ store, context }) {
     if (config.ragBackend !== 'mongodb-atlas') {
         return getRagStatus({ storeKind: store?.kind });
     }
@@ -180,7 +170,7 @@ export async function checkVectorHealth ({ store }) {
 
     try {
         // 真正执行 $vectorSearch 探测
-        await store.searchVectorChunks('health check probe', {
+        await store.searchVectorChunks(context, 'health check probe', {
             scopes: ['copilot'],
             limit: 1,
             numCandidates: 10

@@ -3,6 +3,14 @@ import { config } from '../config.js';
 import { cosineSimilarity, embedText, embedTextReal, keywordOverlap, splitIntoChunks } from '../utils/embedding.js';
 import { hashPassword } from '../utils/password.js';
 import { getRagStatus } from '../services/ragEngine.js';
+import {
+    DEFAULT_TENANT_ID,
+    allowedScopesForListing,
+    authorizeKnowledgeScopes,
+    createServiceTenantContext,
+    requireTenantContext,
+    tenantFilter
+} from '../security/tenantContext.js';
 
 function now () {
     return new Date();
@@ -11,6 +19,48 @@ function now () {
 function serialize (document) {
     if (!document) return null;
     return { ...document, _id: String(document._id) };
+}
+
+export function buildTenantVectorPipeline ({
+    context,
+    scopes,
+    queryEmbedding,
+    limit,
+    numCandidates
+}) {
+    requireTenantContext(context);
+    return [
+        {
+            $vectorSearch: {
+                index: config.ragVectorIndex,
+                path: config.ragVectorPath,
+                queryVector: queryEmbedding,
+                numCandidates: Math.max(numCandidates, limit * 8),
+                limit,
+                filter: {
+                    $and: [
+                        { tenantId: { $eq: context.tenantId } },
+                        { scopes: { $in: scopes } }
+                    ]
+                }
+            }
+        },
+        {
+            $project: {
+                documentId: 1,
+                documentTitle: 1,
+                tenantId: 1,
+                tags: 1,
+                scopes: 1,
+                sourceType: 1,
+                sourcePath: 1,
+                content: 1,
+                chunkIndex: 1,
+                createdAt: 1,
+                vectorScore: { $meta: 'vectorSearchScore' }
+            }
+        }
+    ];
 }
 
 export class MongoStore {
@@ -59,8 +109,10 @@ export class MongoStore {
         this.db = this.client.db();
 
         await this.db.collection('users').createIndex({ email: 1 }, { unique: true });
-        await this.db.collection('chunks').createIndex({ documentId: 1 });
-        await this.db.collection('chunks').createIndex({ tags: 1 });
+        await this.db.collection('documents').createIndex({ tenantId: 1, createdAt: -1 });
+        await this.db.collection('documents').createIndex({ tenantId: 1, sourceType: 1, title: 1 });
+        await this.db.collection('chunks').createIndex({ tenantId: 1, documentId: 1 });
+        await this.db.collection('chunks').createIndex({ tenantId: 1, scopes: 1 });
         await this.db.collection('tasks').createIndex({ createdAt: -1 });
         await this.db.collection('telemetry').createIndex({ createdAt: -1 });
         await this.db.collection('telemetry').createIndex({ traceId: 1 });
@@ -92,7 +144,11 @@ export class MongoStore {
                         },
                         {
                             type: 'filter',
-                            path: 'tags'
+                            path: 'tenantId'
+                        },
+                        {
+                            type: 'filter',
+                            path: 'scopes'
                         }
                     ]
                 }
@@ -105,35 +161,51 @@ export class MongoStore {
 
     async seed () {
         const users = this.db.collection('users');
-        const existingUser = await users.findOne({ email: 'removed-default-admin@example.invalid' });
+        let existingUser = await users.findOne({ email: 'removed-default-admin@example.invalid' });
         if (!existingUser) {
-            await users.insertOne({
+            const result = await users.insertOne({
                 name: '增长平台管理员',
                 email: 'removed-default-admin@example.invalid',
                 role: 'growth_admin',
+                tenantId: DEFAULT_TENANT_ID,
+                allowedKnowledgeScopes: ['*'],
                 department: '用户增长',
                 passwordHash: hashPassword('removed-public-password'),
                 createdAt: now()
             });
+            existingUser = await users.findOne({ _id: result.insertedId });
+        } else if (!existingUser.tenantId || !Array.isArray(existingUser.allowedKnowledgeScopes)) {
+            await users.updateOne(
+                { _id: existingUser._id },
+                { $set: { tenantId: DEFAULT_TENANT_ID, allowedKnowledgeScopes: ['*'] } }
+            );
+            existingUser = await users.findOne({ _id: existingUser._id });
         }
 
-        const documentsCount = await this.db.collection('documents').countDocuments();
+        const seedContext = createServiceTenantContext({
+            tenantId: existingUser.tenantId,
+            actorId: String(existingUser._id)
+        });
+        const documentsCount = await this.db.collection('documents').countDocuments({ tenantId: seedContext.tenantId });
         if (documentsCount === 0) {
-            await this.createDocument({
+            await this.createDocument(seedContext, {
                 title: '会员增长活动方法论',
                 tags: ['growth', 'campaign'],
+                scopes: ['growth', 'campaign'],
                 content:
                     '会员增长活动应围绕目标人群、权益刺激、渠道触达、转化路径和复购承接设计。高价值用户适合会员日和专属券，新用户适合首单礼和限时补贴，沉睡用户适合召回券和内容种草。核心指标包括曝光、点击、领取、核销、GMV、ROI 和次日留存。'
             });
-            await this.createDocument({
+            await this.createDocument(seedContext, {
                 title: '投放素材生产规范',
                 tags: ['creative', 'ads'],
+                scopes: ['creative', 'ads'],
                 content:
                     '投放素材需要明确人群痛点、利益点、行动指令和可信背书。短视频首 3 秒突出场景冲突，信息流图片控制在一个主卖点。A/B 测试至少覆盖标题、利益点、视觉风格和 CTA。素材复盘关注 CTR、CVR、CPA、ROI 和疲劳衰减。'
             });
-            await this.createDocument({
+            await this.createDocument(seedContext, {
                 title: '运营 Agent 工具边界',
                 tags: ['agent', 'workflow'],
+                scopes: ['agent', 'workflow'],
                 content:
                     '运营 Agent 可以自动生成方案、查询知识库、生成素材、读取归因数据、创建优惠券草稿和 Push 草稿。涉及真实预算消耗、用户触达、广告发布、券生效等动作必须进入人工确认。所有工具调用需要记录输入、输出、状态和回滚策略。'
             });
@@ -151,12 +223,17 @@ export class MongoStore {
         return serialize(safeUser);
     }
 
-    async createDocument ({ title, content, tags = [], sourceType = 'manual', sourcePath, sourceUpdatedAt }) {
+    async createDocument (context, { title, content, tags = [], scopes = [], sourceType = 'manual', sourcePath, sourceUpdatedAt }) {
+        requireTenantContext(context);
+        const authorizedScopes = authorizeKnowledgeScopes(context, scopes);
         const chunks = splitIntoChunks(content);
         const document = {
+            tenantId: context.tenantId,
+            createdBy: context.actorId,
             title,
             content,
             tags,
+            scopes: authorizedScopes,
             sourceType,
             sourcePath,
             sourceUpdatedAt,
@@ -170,9 +247,12 @@ export class MongoStore {
             const embedded = [];
             for (const chunk of chunks) {
                 embedded.push({
+                    tenantId: context.tenantId,
+                    createdBy: context.actorId,
                     documentId: result.insertedId,
                     documentTitle: title,
                     tags,
+                    scopes: authorizedScopes,
                     sourceType,
                     sourcePath,
                     content: chunk,
@@ -189,14 +269,21 @@ export class MongoStore {
         return serialize(inserted);
     }
 
-    async listDocuments () {
-        const docs = await this.db.collection('documents').find().sort({ createdAt: -1 }).toArray();
+    async listDocuments (context) {
+        const allowedScopes = allowedScopesForListing(context);
+        const filter = allowedScopes === null
+            ? tenantFilter(context)
+            : { tenantId: context.tenantId, scopes: { $in: allowedScopes } };
+        const docs = await this.db.collection('documents').find(filter).sort({ createdAt: -1 }).toArray();
         return docs.map(serialize);
     }
 
-    async searchChunks (question, limit = 5) {
-        const chunks = await this.db.collection('chunks').find().toArray();
-        // const queryEmbedding = embedText(question);
+    async searchChunks (context, question, { scopes = [], limit = 5 } = {}) {
+        const authorizedScopes = authorizeKnowledgeScopes(context, scopes);
+        const chunks = await this.db.collection('chunks').find({
+            tenantId: context.tenantId,
+            scopes: { $in: authorizedScopes }
+        }).toArray();
         const queryEmbedding = await embedTextReal(question, { useReal: true });
         return chunks
             .map((chunk) => {
@@ -212,43 +299,20 @@ export class MongoStore {
             .slice(0, limit);
     }
 
-    async searchVectorChunks (question, { scopes = [], limit = 5, numCandidates = 80 } = {}) {
-        // const queryEmbedding = embedText(question);
+    async searchVectorChunks (context, question, { scopes = [], limit = 5, numCandidates = 80 } = {}) {
+        const authorizedScopes = authorizeKnowledgeScopes(context, scopes);
         const queryEmbedding = await embedTextReal(question, { useReal: true });
 
-        const pipeline = [
-            {
-                $vectorSearch: {
-                    index: config.ragVectorIndex,
-                    path: config.ragVectorPath,
-                    queryVector: queryEmbedding,
-                    numCandidates: Math.max(numCandidates, limit * 8),
-                    limit: Math.max(limit * 3, limit)
-                }
-            },
-            {
-                $project: {
-                    documentId: 1,
-                    documentTitle: 1,
-                    tags: 1,
-                    sourceType: 1,
-                    sourcePath: 1,
-                    content: 1,
-                    chunkIndex: 1,
-                    createdAt: 1,
-                    vectorScore: { $meta: 'vectorSearchScore' }
-                }
-            }
-        ];
-
-        const chunks = await this.db.collection('chunks').aggregate(pipeline).toArray();
-        const allowedScopes = new Set([...scopes, 'copilot']);
-        const filtered = chunks.filter((chunk) => {
-            const tags = chunk.tags || [];
-            return !tags.length || tags.some((tag) => allowedScopes.has(tag));
+        const pipeline = buildTenantVectorPipeline({
+            context,
+            scopes: authorizedScopes,
+            queryEmbedding,
+            limit,
+            numCandidates
         });
 
-        return (filtered.length ? filtered : chunks).slice(0, limit).map((chunk) => serialize({
+        const chunks = await this.db.collection('chunks').aggregate(pipeline).toArray();
+        return chunks.map((chunk) => serialize({
             ...chunk,
             documentId: String(chunk.documentId),
             score: Number((chunk.vectorScore || 0).toFixed(4)),
@@ -256,8 +320,12 @@ export class MongoStore {
         }));
     }
 
-    async countChunks () {
-        return this.db.collection('chunks').countDocuments();
+    async countChunks (context) {
+        const allowedScopes = allowedScopesForListing(context);
+        const filter = allowedScopes === null
+            ? tenantFilter(context)
+            : { tenantId: context.tenantId, scopes: { $in: allowedScopes } };
+        return this.db.collection('chunks').countDocuments(filter);
     }
 
     // ==================== 修改开始 ====================
@@ -274,8 +342,12 @@ export class MongoStore {
 
         // 2. 检查是否有 embedding 字段
         const sampleChunk = await this.db.collection('chunks').findOne(
-            { embedding: { $exists: true, $type: 'array', $ne: [] } },
-            { projection: { embedding: 1 } }
+            {
+                embedding: { $exists: true, $type: 'array', $ne: [] },
+                tenantId: { $exists: true, $type: 'string', $ne: '' },
+                scopes: { $exists: true, $type: 'array', $ne: [] }
+            },
+            { projection: { embedding: 1, tenantId: 1, scopes: 1 } }
         );
         if (!sampleChunk) {
             return {
@@ -306,7 +378,13 @@ export class MongoStore {
                         path: config.ragVectorPath,
                         queryVector: sampleChunk.embedding,
                         numCandidates: Math.min(chunkCount, 16),
-                        limit: 1
+                        limit: 1,
+                        filter: {
+                            $and: [
+                                { tenantId: { $eq: sampleChunk.tenantId } },
+                                { scopes: { $in: sampleChunk.scopes } }
+                            ]
+                        }
                     }
                 },
                 { $project: { _id: 1, content: 1, vectorScore: { $meta: 'vectorSearchScore' } } }

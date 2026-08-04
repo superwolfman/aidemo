@@ -5,6 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { cosineSimilarity, embedText, keywordOverlap } from '../utils/embedding.js';
 import { hashPassword } from '../utils/password.js';
 import { getRagStatus } from '../services/ragEngine.js';
+import {
+    DEFAULT_TENANT_ID,
+    allowedScopesForListing,
+    authorizeKnowledgeScopes,
+    createServiceTenantContext,
+    isKnowledgeRecordVisible,
+    requireTenantContext
+} from '../security/tenantContext.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, '../../data');
@@ -61,6 +69,8 @@ function createDemoAdmin () {
         name: 'AI Copilot 管理员',
         email: 'removed-default-admin@example.invalid',
         role: 'ai_copilot_admin',
+        tenantId: DEFAULT_TENANT_ID,
+        allowedKnowledgeScopes: ['*'],
         department: 'AI 产品研发',
         passwordHash: DEMO_ADMIN_PASSWORD_HASH,
         createdAt: now()
@@ -74,6 +84,8 @@ async function ensureDemoAdmin (db) {
         const next = {
             name: 'AI Copilot 管理员',
             role: 'ai_copilot_admin',
+            tenantId: existing.tenantId || DEFAULT_TENANT_ID,
+            allowedKnowledgeScopes: Array.isArray(existing.allowedKnowledgeScopes) ? existing.allowedKnowledgeScopes : ['*'],
             department: 'AI 产品研发',
             passwordHash: DEMO_ADMIN_PASSWORD_HASH
         };
@@ -96,9 +108,15 @@ export class FileStore {
         this.cache = await readDb();
         let changed = false;
         changed = await ensureDemoAdmin(this.cache) || changed;
-        if (!this.cache.documents.length) {
+        const seedUser = this.cache.users.find((user) => user.email === 'removed-default-admin@example.invalid');
+        const seedContext = createServiceTenantContext({
+            tenantId: seedUser.tenantId,
+            actorId: seedUser._id
+        });
+        const tenantDocuments = this.cache.documents.filter((doc) => doc.tenantId === seedContext.tenantId);
+        if (!tenantDocuments.length) {
             for (const doc of seedDocs) {
-                const created = await this.createDocumentInMemory(this.cache, doc);
+                const created = await this.createDocumentInMemory(seedContext, doc);
                 this.cache.documents.push(created.document);
                 this.cache.chunks.push(...created.chunks);
             }
@@ -178,13 +196,18 @@ export class FileStore {
         return this.ragStatusCache || getRagStatus({ storeKind: this.kind, mode: 'fallback', vectorSearchReady: false, error: this.connectionError });
     }
 
-    async createDocumentInMemory (db, { title, content, tags = [], sourceType = 'manual', sourcePath, sourceUpdatedAt }) {
+    async createDocumentInMemory (context, { title, content, tags = [], scopes = tags, sourceType = 'manual', sourcePath, sourceUpdatedAt }) {
+        requireTenantContext(context);
+        const authorizedScopes = authorizeKnowledgeScopes(context, scopes);
         const docId = crypto.randomUUID();
         const document = {
             _id: docId,
+            tenantId: context.tenantId,
+            createdBy: context.actorId,
             title,
             content,
             tags,
+            scopes: authorizedScopes,
             sourceType,
             sourcePath,
             sourceUpdatedAt,
@@ -195,9 +218,12 @@ export class FileStore {
         const { splitIntoChunks } = await import('../utils/embedding.js');
         const chunks = splitIntoChunks(content).map((chunk, index) => ({
             _id: crypto.randomUUID(),
+            tenantId: context.tenantId,
+            createdBy: context.actorId,
             documentId: docId,
             documentTitle: title,
             tags,
+            scopes: authorizedScopes,
             sourceType,
             sourcePath,
             content: chunk,
@@ -222,24 +248,32 @@ export class FileStore {
         return publicUser(db.users.find((user) => user._id === id));
     }
 
-    async createDocument (payload) {
+    async createDocument (context, payload) {
+        requireTenantContext(context);
         const db = await readDb();
-        const created = await this.createDocumentInMemory(db, payload);
+        const created = await this.createDocumentInMemory(context, payload);
         db.documents.unshift(created.document);
         db.chunks.push(...created.chunks);
         await writeDb(db);
         return created.document;
     }
 
-    async listDocuments () {
+    async listDocuments (context) {
+        requireTenantContext(context);
+        const allowedScopes = allowedScopesForListing(context);
         const db = await readDb();
-        return db.documents;
+        return db.documents.filter((document) => (
+            document.tenantId === context.tenantId &&
+            (allowedScopes === null || (document.scopes || []).some((scope) => allowedScopes.includes(scope)))
+        ));
     }
 
-    async searchChunks (question, limit = 5) {
+    async searchChunks (context, question, { scopes = [], limit = 5 } = {}) {
+        const authorizedScopes = authorizeKnowledgeScopes(context, scopes);
         const db = await readDb();
         const queryEmbedding = embedText(question);
         return db.chunks
+            .filter((chunk) => isKnowledgeRecordVisible(context, chunk, authorizedScopes))
             .map((chunk) => {
                 const vectorScore = cosineSimilarity(queryEmbedding, chunk.embedding);
                 const lexicalScore = keywordOverlap(question, chunk.content);
@@ -250,6 +284,16 @@ export class FileStore {
             })
             .sort((a, b) => b.score - a.score)
             .slice(0, limit);
+    }
+
+    async countChunks (context) {
+        requireTenantContext(context);
+        const allowedScopes = allowedScopesForListing(context);
+        const db = await readDb();
+        return db.chunks.filter((chunk) => (
+            chunk.tenantId === context.tenantId &&
+            (allowedScopes === null || (chunk.scopes || []).some((scope) => allowedScopes.includes(scope)))
+        )).length;
     }
 
     async createTask (task) {

@@ -21,8 +21,8 @@ const seedDocs = [
 ];
 
 async function main () {
-    if (!config.mongodbAtlasUri) {
-        console.error('MONGODB_ATLAS_URI is not set. Aborting.');
+    if (!config.mongodbUri?.startsWith('mongodb+srv://')) {
+        console.error('An Atlas mongodb+srv MONGODB_URI is required. Aborting.');
         process.exit(1);
     }
 
@@ -33,25 +33,31 @@ async function main () {
     }
 
     const expectedDim = config.ragVectorDimensions;
-    const client = new MongoClient(config.mongodbAtlasUri);
+    const tenantId = process.env.REEMBED_TENANT_ID || config.mcpTenantId;
+    if (!tenantId) {
+        console.error('REEMBED_TENANT_ID is required. Aborting.');
+        process.exit(1);
+    }
+    const actorId = 'reembed-service';
+    const client = new MongoClient(config.mongodbUri);
     await client.connect();
     const db = client.db();
     const chunks = db.collection('chunks');
 
-    console.log('[reembed] dropping old vector search index (ignore errors if absent)...');
-    try { await chunks.dropSearchIndex(config.ragVectorIndex); } catch { }
-
-    console.log('[reembed] deleting old documents + chunks...');
-    await chunks.deleteMany({});
-    await db.collection('documents').deleteMany({});
+    console.log(`[reembed] deleting documents + chunks for tenant=${tenantId} only...`);
+    await chunks.deleteMany({ tenantId });
+    await db.collection('documents').deleteMany({ tenantId });
 
     console.log('[reembed] re-embedding seed docs with real model...');
     for (const doc of seedDocs) {
         const parts = splitIntoChunks(doc.content);
         const inserted = await db.collection('documents').insertOne({
+            tenantId,
+            createdBy: actorId,
             title: doc.title,
             content: doc.content,
             tags: doc.tags,
+            scopes: doc.tags,
             sourceType: 'manual',
             chunkCount: parts.length,
             createdAt: new Date()
@@ -68,13 +74,16 @@ async function main () {
                 );
             }
             payload.push({
+                tenantId,
+                createdBy: actorId,
                 documentId: inserted.insertedId,
                 documentTitle: doc.title,
                 tags: doc.tags,
+                scopes: doc.tags,
                 sourceType: 'manual',
                 content: chunk,
                 chunkIndex: payload.length,
-                embedding: await embedTextReal(chunk, { useReal: true }),
+                embedding: vector,
                 createdAt: new Date()
             });
         }
@@ -82,7 +91,7 @@ async function main () {
         console.log(`[reembed] ${doc.title}: ${payload.length} chunks`);
     }
 
-    console.log('[reembed] recreating vector search index at', config.ragVectorDimensions, 'dims...');
+    console.log('[reembed] ensuring vector search index at', config.ragVectorDimensions, 'dims...');
     try {
         await chunks.createSearchIndex({
             name: config.ragVectorIndex,
@@ -90,7 +99,8 @@ async function main () {
             definition: {
                 fields: [
                     { type: 'vector', path: config.ragVectorPath, numDimensions: config.ragVectorDimensions, similarity: 'cosine' },
-                    { type: 'filter', path: 'tags' }
+                    { type: 'filter', path: 'tenantId' },
+                    { type: 'filter', path: 'scopes' }
                 ]
             }
         });

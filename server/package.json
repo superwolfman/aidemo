@@ -7,6 +7,8 @@
     "dev": "node --watch src/index.js",
     "mcp": "node src/mcp/architectureMcpServer.js",
     "start": "node src/index.js",
+    "migrate:tenant": "node src/store/migrations/20260804-backfill-knowledge-tenant.js",
+    "migrate:tenant:file": "node src/store/migrations/20260804-backfill-file-tenant.js",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {

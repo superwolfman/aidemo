@@ -1,5 +1,7 @@
 import { createStore } from '../store/index.js';
 import { retrieveKnowledge } from '../services/ragEngine.js';
+import { config } from '../config.js';
+import { createServiceTenantContext } from '../security/tenantContext.js';
 
 function frame(payload) {
   const body = JSON.stringify(payload);
@@ -59,10 +61,16 @@ async function inspectProjectStructure() {
   };
 }
 
-async function handleToolCall(store, name, args = {}) {
+async function handleToolCall(store, context, name, args = {}) {
   if (name === 'search_architecture_docs') {
     const scopes = Array.isArray(args.scopes) && args.scopes.length ? args.scopes : ['architecture', 'standards'];
-    const result = await retrieveKnowledge({ store, query: args.query || '', scopes, limit: args.limit || 5 });
+    const result = await retrieveKnowledge({
+      store,
+      context,
+      query: args.query || '',
+      scopes,
+      limit: args.limit || 5
+    });
     return {
       content: text(JSON.stringify({ rag: result.status, sources: result.sources }, null, 2))
     };
@@ -112,9 +120,9 @@ async function handleToolCall(store, name, args = {}) {
   return fail(null, -32601, `Unknown tool: ${name}`);
 }
 
-async function handleResourceRead(store, uri) {
+async function handleResourceRead(store, context, uri) {
   if (uri === 'architecture://documents') {
-    const docs = await store.listDocuments();
+    const docs = await store.listDocuments(context);
     return {
       contents: [
         {
@@ -147,7 +155,7 @@ async function handleResourceRead(store, uri) {
   return fail(null, -32602, `Unknown resource: ${uri}`);
 }
 
-async function dispatch(store, message) {
+async function dispatch(store, context, message) {
   const { id, method, params = {} } = message;
 
   if (method === 'initialize') {
@@ -172,7 +180,7 @@ async function dispatch(store, message) {
   }
 
   if (method === 'resources/read') {
-    return ok(id, await handleResourceRead(store, params.uri));
+    return ok(id, await handleResourceRead(store, context, params.uri));
   }
 
   if (method === 'tools/list') {
@@ -234,7 +242,7 @@ async function dispatch(store, message) {
   }
 
   if (method === 'tools/call') {
-    return ok(id, await handleToolCall(store, params.name, params.arguments));
+    return ok(id, await handleToolCall(store, context, params.name, params.arguments));
   }
 
   if (method === 'prompts/list') {
@@ -269,6 +277,11 @@ async function dispatch(store, message) {
 console.log = (...args) => console.error(...args);
 
 const store = await createStore();
+const mcpContext = createServiceTenantContext({
+  tenantId: config.mcpTenantId,
+  actorId: 'mcp-service',
+  allowedKnowledgeScopes: config.mcpAllowedKnowledgeScopes
+});
 let buffer = '';
 
 process.stdin.setEncoding('utf8');
@@ -278,7 +291,7 @@ process.stdin.on('data', async (chunk) => {
   buffer = parsed.rest;
 
   for (const message of parsed.messages) {
-    const response = await dispatch(store, message);
+    const response = await dispatch(store, mcpContext, message);
     if (response) process.stdout.write(frame(response));
   }
 });

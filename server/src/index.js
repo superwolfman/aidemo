@@ -49,7 +49,11 @@ app.use('/api/agent-studio', auth, agentStudioRouter(store));
 
 app.use((err, req, res, next) => {
     console.error(err);
-    res.status(500).json({ message: 'Internal server error' });
+    const statusCode = Number(err.statusCode) || 500;
+    res.status(statusCode).json({
+        message: statusCode === 500 ? 'Internal server error' : err.message,
+        ...(err.code ? { code: err.code } : {})
+    });
 });
 
 // const server = http.createServer(app);
