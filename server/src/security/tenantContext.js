@@ -1,10 +1,12 @@
+import { isPrivileged } from './roles.js';
+
 const TENANT_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const SCOPE_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 
 export const DEFAULT_TENANT_ID = 'tenant-demo';
 
 export class AuthorizationError extends Error {
-    constructor (message, code = 'FORBIDDEN') {
+    constructor(message, code = 'FORBIDDEN') {
         super(message);
         this.name = 'AuthorizationError';
         this.code = code;
@@ -19,8 +21,32 @@ export function normalizeKnowledgeScopes (scopes) {
         .filter((scope) => SCOPE_PATTERN.test(scope)))];
 }
 
+/**
+ * 解析用户当前生效的租户与角色。
+ * - 优先使用 activeTenantId + tenants 数组中匹配的角色（多租户切换场景）；
+ * - 旧数据结构（无 tenants / activeTenantId）回退到顶层 tenantId / role；
+ * - 保证向后兼容单租户老用户。
+ * @returns {{ tenantId: string, role: string, tenants: Array<{tenantId:string, role:string}> }}
+ */
+export function resolveActiveTenant (user) {
+    const baseTenantId = String(user?.tenantId || '').trim();
+    const baseRole = String(user?.role || 'member');
+    const tenants = Array.isArray(user?.tenants) ? user.tenants : [];
+
+    const activeTenantId = String(user?.activeTenantId || baseTenantId).trim();
+    if (!activeTenantId) {
+        return { tenantId: '', role: baseRole, tenants };
+    }
+
+    const matched = tenants.find((entry) => String(entry?.tenantId) === activeTenantId);
+    const role = matched ? String(matched.role || baseRole) : baseRole;
+
+    return { tenantId: activeTenantId, role, tenants };
+}
+
 export function createTenantContext (user) {
-    const tenantId = String(user?.tenantId || '').trim();
+    const active = resolveActiveTenant(user);
+    const tenantId = active.tenantId;
     if (!TENANT_ID_PATTERN.test(tenantId)) {
         throw new AuthorizationError('Authenticated user has no valid tenant assignment', 'TENANT_CONTEXT_MISSING');
     }
@@ -37,7 +63,7 @@ export function createTenantContext (user) {
     return Object.freeze({
         tenantId,
         actorId,
-        role: String(user.role || 'member'),
+        role: active.role,
         allowedKnowledgeScopes: Object.freeze(allowedKnowledgeScopes)
     });
 }
@@ -95,4 +121,29 @@ export function isKnowledgeRecordVisible (context, record, authorizedScopes) {
     if (record?.tenantId !== context.tenantId) return false;
     const recordScopes = normalizeKnowledgeScopes(record?.scopes);
     return recordScopes.some((scope) => authorizedScopes.includes(scope));
+}
+
+/**
+ * 生成“同租户 + 仅自己”的列表过滤条件。
+ * - 所有用户只能看到本租户数据；
+ * - 非特权角色只能看到 createdBy 等于自己 actorId 的数据；
+ * - 特权角色（admin/service/owner）可查看本租户全部用户数据。
+ */
+export function tenantUserFilter (context) {
+    requireTenantContext(context);
+    const filter = { tenantId: context.tenantId };
+
+    if (!isPrivileged(context.role)) {
+        filter.createdBy = context.actorId;
+    }
+
+    return filter;
+}
+
+/**
+ * 判断当前上下文是否有权跨用户查看记录（用于详情/修改/删除前的所有权校验）。
+ */
+export function canAccessAnyUserRecord (context) {
+    if (!context) return false;
+    return isPrivileged(context.role);
 }

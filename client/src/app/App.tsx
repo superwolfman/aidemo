@@ -24,7 +24,8 @@ function Login({ onLogin }: { onLogin: (user: any) => void }) {
         body: JSON.stringify({ email, password })
       });
       localStorage.setItem(tokenKey, result.token);
-      onLogin(result.user);
+      localStorage.setItem('tenantId', result.tenant?.id || '');
+      onLogin({ ...result.user, tenant: result.tenant, tenants: result.tenants });
     } catch (err) {
       setError((err as Error).message);
     }
@@ -51,13 +52,57 @@ function Login({ onLogin }: { onLogin: (user: any) => void }) {
   );
 }
 
-function Shell({ user, onLogout }: { user: any; onLogout: () => void }) {
+function Shell({ user, onLogout, onSwitchTenant }: { user: any; onLogout: () => void; onSwitchTenant: (nextUser: any) => void }) {
   const router = useShellRouter();
   const app = getSubApp(router.appId);
   const [collapsed, setCollapsed] = useState(false);
   const [mountedAppIds, setMountedAppIds] = useState(() => new Set([app.id]));
   const [, forceI18nRender] = useState(0);
   const context = useMemo<ShellContext>(() => ({ user, eventBus, navigate: router.navigate, app }), [user, router.navigate, app]);
+
+  const currentTenantId = user.tenant?.id || user.activeTenantId || user.tenantId;
+  const tenantList = Array.isArray(user.tenants) && user.tenants.length
+    ? user.tenants
+    : [{ tenantId: currentTenantId, role: user.role }];
+  const currentRole = user.tenant?.role || tenantList.find((t) => t.tenantId === currentTenantId)?.role || user.role;
+
+  // Keep Alive：按租户恢复最近使用的子应用路由
+  useEffect(() => {
+    const key = `aidemo:keepalive:${currentTenantId}:appId`;
+    const saved = sessionStorage.getItem(key);
+    if (saved && saved !== router.appId && visibleSubApps.some((item) => item.id === saved)) {
+      router.navigate(saved);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTenantId]);
+
+  // Keep Alive：保存当前子应用路由
+  useEffect(() => {
+    const key = `aidemo:keepalive:${currentTenantId}:appId`;
+    sessionStorage.setItem(key, router.appId);
+  }, [router.appId, currentTenantId]);
+
+  async function switchTenant(nextTenantId: string) {
+    if (nextTenantId === currentTenantId) return;
+    try {
+      const result = await request('/api/auth/switch-tenant', {
+        method: 'POST',
+        body: JSON.stringify({ tenantId: nextTenantId })
+      });
+      localStorage.setItem(tokenKey, result.token);
+      localStorage.setItem('tenantId', result.tenant?.id || nextTenantId);
+
+      // 切换成功后拉取最新用户视图，避免 reload 丢失运行时上下文
+      const me = await request('/api/auth/me');
+      const nextUser = { ...me.user, tenant: me.tenant, tenants: me.tenants };
+      onSwitchTenant(nextUser);
+
+      // 清空非当前子应用的挂载缓存，切换租户后强制子应用重新加载数据
+      setMountedAppIds(new Set([router.appId]));
+    } catch (err) {
+      alert((err as Error).message);
+    }
+  }
 
   useEffect(() => i18n.subscribe(() => forceI18nRender((value) => value + 1)), []);
   useEffect(() => {
@@ -96,7 +141,25 @@ function Shell({ user, onLogout }: { user: any; onLogout: () => void }) {
         </nav>
         <div className="user-box">
           <strong>{user.name}</strong>
-          <span>{user.department} · {user.role}</span>
+          <span>{user.department} · {currentRole}</span>
+          {tenantList.length > 1 ? (
+            <label className="tenant-switch">
+              <em className="tenant-badge">{currentTenantId}</em>
+              <select
+                value={currentTenantId}
+                onChange={(event) => switchTenant(event.target.value)}
+                title="切换租户"
+              >
+                {tenantList.map((t) => (
+                  <option key={t.tenantId} value={t.tenantId}>
+                    {t.tenantId}（{t.role}）
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <em className="tenant-badge">{currentTenantId}</em>
+          )}
           <button onClick={onLogout}><LogOut size={16} />退出</button>
         </div>
       </aside>
@@ -111,6 +174,7 @@ function Shell({ user, onLogout }: { user: any; onLogout: () => void }) {
               aria-hidden={!active}
             >
               <MicroAppContainer
+                key={`${mountedApp.id}-${currentTenantId}`}
                 app={mountedApp}
                 context={{ ...context, app: mountedApp }}
               />
@@ -138,7 +202,7 @@ export default function App() {
     }
 
     request('/api/auth/me')
-      .then((res) => setUser(res.user))
+      .then((res) => setUser({ ...res.user, tenant: res.tenant, tenants: res.tenants }))
       .catch(() => localStorage.removeItem(tokenKey))
       .finally(() => setBooting(false));
 
@@ -154,6 +218,7 @@ export default function App() {
       onLogout={() => {
         eventBus.emit(AppEvents.AUTH_LOGOUT, {});
       }}
+      onSwitchTenant={setUser}
     />
   );
 }

@@ -13,6 +13,7 @@ import {
     isKnowledgeRecordVisible,
     requireTenantContext
 } from '../security/tenantContext.js';
+import { ROLES } from '../security/roles.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, '../../data');
@@ -68,8 +69,13 @@ function createDemoAdmin () {
         _id: crypto.randomUUID(),
         name: 'AI Copilot 管理员',
         email: 'removed-default-admin@example.invalid',
-        role: 'ai_copilot_admin',
+        role: ROLES.ADMIN,
         tenantId: DEFAULT_TENANT_ID,
+        tenants: [
+            { tenantId: DEFAULT_TENANT_ID, role: ROLES.ADMIN },
+            { tenantId: 'tenant-demo-2', role: ROLES.MEMBER }
+        ],
+        activeTenantId: DEFAULT_TENANT_ID,
         allowedKnowledgeScopes: ['*'],
         department: 'AI 产品研发',
         passwordHash: DEMO_ADMIN_PASSWORD_HASH,
@@ -81,10 +87,15 @@ async function ensureDemoAdmin (db) {
     db.users = Array.isArray(db.users) ? db.users : [];
     const existing = db.users.find((user) => user.email === 'removed-default-admin@example.invalid');
     if (existing) {
+        const tenants = Array.isArray(existing.tenants) && existing.tenants.length
+            ? existing.tenants
+            : [{ tenantId: existing.tenantId || DEFAULT_TENANT_ID, role: existing.role || ROLES.ADMIN }];
         const next = {
             name: 'AI Copilot 管理员',
-            role: 'ai_copilot_admin',
+            role: ROLES.ADMIN,
             tenantId: existing.tenantId || DEFAULT_TENANT_ID,
+            tenants,
+            activeTenantId: existing.activeTenantId || (existing.tenantId || DEFAULT_TENANT_ID),
             allowedKnowledgeScopes: Array.isArray(existing.allowedKnowledgeScopes) ? existing.allowedKnowledgeScopes : ['*'],
             department: 'AI 产品研发',
             passwordHash: DEMO_ADMIN_PASSWORD_HASH

@@ -9,8 +9,10 @@ import {
     authorizeKnowledgeScopes,
     createServiceTenantContext,
     requireTenantContext,
-    tenantFilter
+    tenantFilter,
+    tenantUserFilter
 } from '../security/tenantContext.js';
+import { ROLES } from '../security/roles.js';
 
 function now () {
     return new Date();
@@ -166,18 +168,33 @@ export class MongoStore {
             const result = await users.insertOne({
                 name: '增长平台管理员',
                 email: 'removed-default-admin@example.invalid',
-                role: 'growth_admin',
+                role: ROLES.ADMIN,
                 tenantId: DEFAULT_TENANT_ID,
+                tenants: [
+                    { tenantId: DEFAULT_TENANT_ID, role: ROLES.ADMIN },
+                    { tenantId: 'tenant-demo-2', role: ROLES.MEMBER }
+                ],
+                activeTenantId: DEFAULT_TENANT_ID,
                 allowedKnowledgeScopes: ['*'],
                 department: '用户增长',
                 passwordHash: hashPassword('removed-public-password'),
                 createdAt: now()
             });
             existingUser = await users.findOne({ _id: result.insertedId });
-        } else if (!existingUser.tenantId || !Array.isArray(existingUser.allowedKnowledgeScopes)) {
+        } else if (!existingUser.tenantId || !Array.isArray(existingUser.allowedKnowledgeScopes) || !Array.isArray(existingUser.tenants)) {
+            const tenants = Array.isArray(existingUser.tenants) && existingUser.tenants.length
+                ? existingUser.tenants
+                : [{ tenantId: existingUser.tenantId || DEFAULT_TENANT_ID, role: existingUser.role || ROLES.ADMIN }];
             await users.updateOne(
                 { _id: existingUser._id },
-                { $set: { tenantId: DEFAULT_TENANT_ID, allowedKnowledgeScopes: ['*'] } }
+                {
+                    $set: {
+                        tenantId: existingUser.tenantId || DEFAULT_TENANT_ID,
+                        allowedKnowledgeScopes: ['*'],
+                        tenants,
+                        activeTenantId: existingUser.activeTenantId || (existingUser.tenantId || DEFAULT_TENANT_ID)
+                    }
+                }
             );
             existingUser = await users.findOne({ _id: existingUser._id });
         }
@@ -448,20 +465,34 @@ export class MongoStore {
         return serialize(await this.db.collection(collection).findOne({ _id: result.insertedId }));
     }
 
-    async listRecords (collection, limit = 100, projection = null) {
+    async listRecords (collection, limit = 100, projection = null, context = null) {
         const options = projection ? { projection } : {};
-        const records = await this.db.collection(collection).find({}, options).sort({ createdAt: -1 }).limit(limit).toArray();
+        const query = context ? tenantUserFilter(context) : {};   // 无 context 时保持旧行为（仅用于内部脚本）
+        const records = await this.db.collection(collection)
+            .find(query, options)
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .toArray();
         return records.map(serialize);
     }
 
-    async getRecord (collection, id) {
-        return serialize(await this.db.collection(collection).findOne({ _id: new ObjectId(id) }));
+    // 增加按 context 过滤，否则详情接口仍需在路由层校验
+    async getRecord (collection, id, context = null) {
+        const filter = { _id: new ObjectId(id) };
+        if (context) {
+            Object.assign(filter, tenantUserFilter(context));
+        }
+        return serialize(await this.db.collection(collection).findOne(filter));
     }
 
-    async updateRecord (collection, id, patch) {
+    async updateRecord (collection, id, patch, context = null) {
+        const filter = { _id: new ObjectId(id) };
+        if (context) {
+            Object.assign(filter, tenantUserFilter(context));
+        }
         await this.db
             .collection(collection)
-            .updateOne({ _id: new ObjectId(id) }, { $set: { ...patch, updatedAt: now() } });
-        return serialize(await this.db.collection(collection).findOne({ _id: new ObjectId(id) }));
+            .updateOne(filter, { $set: { ...patch, updatedAt: now() } });
+        return serialize(await this.db.collection(collection).findOne(filter));
     }
 }

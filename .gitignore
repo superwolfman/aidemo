@@ -6,4 +6,5 @@ server/.env
 client/.env
 server/data/demo-db.json
 .local/
+*.md
 npm-debug.log*
