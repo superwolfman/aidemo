@@ -25,6 +25,10 @@ export async function listAgentStudioRuns(): Promise<{ runs: any[] }> {
     return request('/api/agent-studio/runs');
 }
 
+export async function getAgentStudioRun(runId: string): Promise<{ run: any }> {
+    return request(`/api/agent-studio/runs/${runId}`);
+}
+
 export const listRuns = listAgentStudioRuns;
 
 export async function controlRun(runId: string, action: string, reason = '') {

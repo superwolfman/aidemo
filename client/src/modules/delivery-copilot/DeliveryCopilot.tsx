@@ -15,8 +15,11 @@ import { useAgentRun } from '../../hooks/useAgentRun';
 import { useEval } from '../../hooks/useEval';
 import { useArtifact } from '../../hooks/useArtifact';
 import { useSession } from '../../hooks/useSession';
+import { useTenantSessionState } from '../../hooks/useTenantSessionState';
+import type { ShellContext } from '../../platform/subapps';
 import { getAgentStudioBlueprint } from '../../services/blueprintService';
 import * as sessionService from '../../services/sessionService';
+import { getAgentStudioRun } from '../../services/agentRunService';
 
 const deliveryTaskModes = [
     { id: 'product-workflow', title: '产品交付工作流', desc: '需求澄清、PRD、页面结构、接口协议和任务拆解', agentId: 'product-delivery-agent', scopes: ['architecture', 'standards', 'ai-native', 'frontend'], promptSuffix: '请按产品交付工作流输出 PRD 摘要、页面结构、接口协议、状态流转、研发任务拆解、风险和待确认问题。' },
@@ -25,7 +28,11 @@ const deliveryTaskModes = [
     { id: 'delivery-review', title: '交付质量评审', desc: '测试策略、上线风险、质量门禁和人工审批', agentId: 'delivery-review-agent', scopes: ['standards', 'architecture', 'sdk'], promptSuffix: '请对本需求做交付质量评审，输出测试策略、风险清单、上线门禁、缺口和人工审批建议。' }
 ];
 
-export default function DeliveryCopilot() {
+export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
+    const tenantId = shell?.user?.tenant?.id || shell?.user?.activeTenantId || shell?.user?.tenantId || '';
+    const userId = String(shell?.user?._id || '');
+    const sessionState = useTenantSessionState(tenantId, userId);
+
     const [blueprint, setBlueprint] = useState<RuntimeBlueprint | null>(null);
     const [requirement, setRequirement] = useState('为企业内部 AI 产品研发团队建设一个需求到交付 Copilot 工作台，要求覆盖 PRD、页面结构、BFF 接口协议、任务拆解、风险确认和人工审批。');
     const [audience, setAudience] = useState('产品经理、前端工程师、后端工程师、测试负责人');
@@ -39,6 +46,7 @@ export default function DeliveryCopilot() {
     const abortRef = useRef<AbortController | null>(null);
     const outputRef = useRef<HTMLDivElement | null>(null);
     const [confirming, setConfirming] = useState(false);
+    const loadedRef = useRef(false);
 
     const session = useSession();
     const agentRun = useAgentRun('delivery');
@@ -76,30 +84,101 @@ export default function DeliveryCopilot() {
     ].join('\n'), [activeTaskMode.promptSuffix, audience, constraints, deadline, requirement]);
 
     const load = useCallback(async () => {
-        // 先读本地缓存，避免 fallback 闪烁
-        const cachedBlueprint = localStorage.getItem('aidemo.blueprint');
-        if (cachedBlueprint) {
-            try { setBlueprint(JSON.parse(cachedBlueprint)); } catch { }
-        }
+        try {
+            // 先读本地缓存，避免 fallback 闪烁
+            const cachedBlueprint = localStorage.getItem('aidemo.blueprint');
+            if (cachedBlueprint) {
+                try { setBlueprint(JSON.parse(cachedBlueprint)); } catch { }
+            }
 
-        const [blueprintResult, sessionResult, caseResult] = await Promise.all([
-            getAgentStudioBlueprint(),
-            sessionService.listAgentStudioSessions(),
-            loadEvalCases()
-        ]);
-        setBlueprint(blueprintResult);
-        localStorage.setItem('aidemo.blueprint', JSON.stringify(blueprintResult));
-        setCases(caseResult.cases || []);
-        if (sessionResult.sessions?.[0]) {
-            setActive(sessionResult.sessions[0]);
-            return;
+            const [blueprintResult, sessionResult, caseResult] = await Promise.all([
+                getAgentStudioBlueprint(),
+                sessionService.listAgentStudioSessions(),
+                loadEvalCases()
+            ]);
+            setBlueprint(blueprintResult);
+            localStorage.setItem('aidemo.blueprint', JSON.stringify(blueprintResult));
+            setCases(caseResult.cases || []);
+
+            // Keep Alive：优先恢复上次的 active session
+            const snapshot = sessionState.getSnapshot();
+            if (snapshot?.activeSessionId) {
+                const target = sessionResult.sessions?.find((s: AgentSession) => s._id === snapshot.activeSessionId);
+                if (target) {
+                    setActive(target);
+                    return;
+                }
+            }
+
+            if (sessionResult.sessions?.[0]) {
+                setActive(sessionResult.sessions[0]);
+                return;
+            }
+            const created = await sessionService.createAgentStudioSession('Copilot 交付工作台会话');
+            setActive(created.session);
+        } finally {
+            loadedRef.current = true;
         }
-        const created = await sessionService.createAgentStudioSession('Copilot 交付工作台会话');
-        setActive(created.session);
-    }, [loadEvalCases, setCases, setActive]);
+    }, [loadEvalCases, setCases, setActive, sessionState]);
 
     useEffect(() => { load().catch(console.error); }, [load]);
     useEffect(() => { if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight; }, [answer, running]);
+
+    // Keep Alive：session 加载完成后恢复 run 与视图状态
+    const restoredRef = useRef(false);
+    useEffect(() => {
+        if (!tenantId || !userId || !active?._id || restoredRef.current) return;
+        const snapshot = sessionState.getSnapshot();
+        if (!snapshot) return;
+
+        const restore = async () => {
+            try {
+                restoredRef.current = true;
+                if (snapshot.taskModeId) setTaskModeId(snapshot.taskModeId);
+                if (snapshot.selectedEvalCaseId !== undefined) setSelectedEvalCaseId(snapshot.selectedEvalCaseId);
+                if (snapshot.requirement) setRequirement(snapshot.requirement);
+                if (snapshot.audience) setAudience(snapshot.audience);
+                if (snapshot.deadline) setDeadline(snapshot.deadline);
+                if (snapshot.constraints) setConstraints(snapshot.constraints);
+
+                if (snapshot.activeRunId) {
+                    const { run } = await getAgentStudioRun(snapshot.activeRunId);
+                    if (run) {
+                        syncRun(run);
+                        if (snapshot.activeArtifactId) {
+                            const art = (run.artifacts || []).find((item: Artifact) => item.id === snapshot.activeArtifactId) || run.artifacts?.[0];
+                            if (art) {
+                                setActiveArtifactId(art.id);
+                                setArtifactDraft(stringify(art.content));
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('[KeepAlive] restore run failed:', error);
+            }
+        };
+
+        restore();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [active?._id, tenantId, userId]);
+
+    // Keep Alive：关键状态变更时保存快照
+    useEffect(() => {
+        if (!tenantId || !userId || !loadedRef.current) return;
+        sessionState.setSnapshot({
+            activeSessionId: active?._id,
+            activeRunId: activeRun?._id,
+            activeArtifactId,
+            taskModeId,
+            selectedEvalCaseId,
+            requirement,
+            audience,
+            deadline,
+            constraints
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [active?._id, activeRun?._id, activeArtifactId, taskModeId, selectedEvalCaseId, requirement, audience, deadline, constraints, tenantId, userId]);
 
     async function run(nextPrompt = prompt, evalCaseId = selectedEvalCaseId) {
         if (!active || running || !nextPrompt.trim()) return;
@@ -133,7 +212,8 @@ export default function DeliveryCopilot() {
                     setSources(payload.run?.sources || []);
                     setFilteredChunks(payload.run?.filteredChunks || []);
                     setArtifacts(payload.run?.artifacts || []);
-                    setTrace(payload.run?.trace || []);
+                    // 防御性合并：后端 final 事件可能不带 trace，避免覆盖运行中已累积的 trace
+                    setTrace((items) => (payload.run?.trace?.length ? payload.run.trace : items));
                     setQuality(payload.run?.quality || null);
                     setActiveRun(payload.run || null);
                     setActiveArtifactId(payload.run?.artifacts?.[0]?.id || '');

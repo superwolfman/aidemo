@@ -5,6 +5,8 @@ import { Header, Status } from '../../components/ui';
 
 import { useCopilot } from '../../hooks/useCopilot';
 import { useApproval } from '../../hooks/useApproval';
+import { useTenantSessionState } from '../../hooks/useTenantSessionState';
+import type { ShellContext } from '../../platform/subapps';
 import * as copilotService from '../../services/copilotService';
 import * as ragService from '../../services/ragService';
 import * as sessionService from '../../services/sessionService';
@@ -537,7 +539,11 @@ function getVisibleConversation(messages: Message[]) {
     return normalized.slice(-1);
 }
 
-export default function CopilotWorkbench() {
+export default function CopilotWorkbench({ shell }: { shell: ShellContext }) {
+    const tenantId = shell?.user?.tenant?.id || shell?.user?.activeTenantId || shell?.user?.tenantId || '';
+    const userId = String(shell?.user?._id || '');
+    const sessionState = useTenantSessionState(tenantId, userId);
+
     const copilot = useCopilot();
     const approval = useApproval();
     const {
@@ -579,6 +585,7 @@ export default function CopilotWorkbench() {
     const [running, setRunning] = useState(false);
     const abortRef = useRef<AbortController | null>(null);
     const chatStreamRef = useRef<HTMLDivElement | null>(null);
+    const loadedRef = useRef(false);
 
     const activeSkill = useMemo(() => skills.find((skill) => skill.id === skillId), [skills, skillId]);
     const activeMode = useMemo(() => taskModes.find((mode) => mode.id === taskModeId) || taskModes[0], [taskModeId]);
@@ -603,38 +610,94 @@ export default function CopilotWorkbench() {
     }, [activeMode, form, selectedEvalCase]);
 
     const load = useCallback(async () => {
-        const [skillResult, sessionResult, knowledgeResult, templateResult, runtimeResult, modelResult, evalResult] = await Promise.all([
-            copilotService.listSkills(),
-            sessionService.listCopilotSessions(),
-            ragService.listKnowledge(),
-            ragService.listTemplates(),
-            copilotService.getCopilotRuntime(),
-            copilotService.listModels(),
-            evalService.listCopilotEvalCases()
-        ]);
-        setSkills(skillResult.skills);
-        setDocuments(knowledgeResult.documents);
-        setKnowledgeStats(knowledgeResult.stats || null);
-        setTemplates(templateResult.templates || []);
-        setRuntime(runtimeResult);
-        setEvalCases(evalResult.cases || []);
-        setVectorHealth(null);
-        setRagDiagnostics((current) => current || { rag: runtimeResult.rag, query: '', scopes: [], sources: [], source: 'runtime' });
-        setModels(modelResult.models || []);
-        setSelectedModelId((current) => current || modelResult.models?.find((m) => m.active || m.configured)?.id || modelResult.models?.[0]?.id || '');
-        const productSession = sessionResult.sessions.find((s) => s.activeSkillId === 'product-workflow');
-        if (!sessionResult.sessions.length || !productSession) {
-            const created = await sessionService.createCopilotSession('AI 产品工作流演示会话', 'product-workflow');
-            setSessions([created.session, ...sessionResult.sessions]);
-            setActive(created.session);
-            return;
+        try {
+            const [skillResult, sessionResult, knowledgeResult, templateResult, runtimeResult, modelResult, evalResult] = await Promise.all([
+                copilotService.listSkills(),
+                sessionService.listCopilotSessions(),
+                ragService.listKnowledge(),
+                ragService.listTemplates(),
+                copilotService.getCopilotRuntime(),
+                copilotService.listModels(),
+                evalService.listCopilotEvalCases()
+            ]);
+            setSkills(skillResult.skills);
+            setDocuments(knowledgeResult.documents);
+            setKnowledgeStats(knowledgeResult.stats || null);
+            setTemplates(templateResult.templates || []);
+            setRuntime(runtimeResult);
+            setEvalCases(evalResult.cases || []);
+            setVectorHealth(null);
+            setRagDiagnostics((current) => current || { rag: runtimeResult.rag, query: '', scopes: [], sources: [], source: 'runtime' });
+            setModels(modelResult.models || []);
+            setSelectedModelId((current) => current || modelResult.models?.find((m) => m.active || m.configured)?.id || modelResult.models?.[0]?.id || '');
+            const productSession = sessionResult.sessions.find((s) => s.activeSkillId === 'product-workflow');
+            if (!sessionResult.sessions.length || !productSession) {
+                const created = await sessionService.createCopilotSession('AI 产品工作流演示会话', 'product-workflow');
+                setSessions([created.session, ...sessionResult.sessions]);
+                setActive(created.session);
+                return;
+            }
+            setSessions(sessionResult.sessions);
+            setActive((current) => current || productSession);
+            setSkillId('product-workflow');
+        } finally {
+            loadedRef.current = true;
         }
-        setSessions(sessionResult.sessions);
-        setActive((current) => current || productSession);
-        setSkillId('product-workflow');
     }, [setSkills, setDocuments, setKnowledgeStats, setTemplates, setRuntime, setEvalCases, setVectorHealth, setRagDiagnostics, setModels, setSelectedModelId, setSessions, setActive]);
 
     useEffect(() => { load().catch(console.error); }, [load]);
+
+    // Keep Alive：刷新后恢复上次的 session、表单草稿与视图状态
+    useEffect(() => {
+        if (!tenantId || !userId || sessions.length === 0) return;
+        const snapshot = sessionState.getSnapshot();
+        if (!snapshot?.activeSessionId) return;
+
+        const restore = async () => {
+            try {
+                const { session } = await sessionService.getCopilotSession(snapshot.activeSessionId!);
+                if (!session) return;
+
+                setActive(session);
+                setSessions((items) => {
+                    if (items.find((item) => item._id === session._id)) return items;
+                    return [session, ...items];
+                });
+
+                if (snapshot.skillId) setSkillId(snapshot.skillId);
+                if (snapshot.taskModeId) setTaskModeId(snapshot.taskModeId);
+                if (snapshot.prompt) setPrompt(snapshot.prompt);
+                if (snapshot.form) setForm((current) => ({ ...current, ...snapshot.form }));
+                if (snapshot.selectedWorkflowArtifactType) setSelectedWorkflowArtifactType(snapshot.selectedWorkflowArtifactType as Artifact['type']);
+
+                // 如果 session 关联了非终态 run，恢复运行状态视图
+                const lastMessage = [...(session.messages || [])].reverse().find((m) => m.approvalId || m.trace?.length);
+                if (lastMessage?.trace?.length) {
+                    setTrace(lastMessage.trace);
+                    setRunState({ status: 'waiting_approval', label: '等待人工确认' });
+                }
+            } catch (error) {
+                console.warn('[KeepAlive] restore session failed:', error);
+            }
+        };
+
+        restore();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sessions.length, tenantId, userId]);
+
+    // Keep Alive：关键状态变更时保存快照
+    useEffect(() => {
+        if (!tenantId || !userId || !loadedRef.current) return;
+        sessionState.setSnapshot({
+            activeSessionId: active?._id,
+            skillId,
+            taskModeId,
+            prompt,
+            form,
+            selectedWorkflowArtifactType
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [active?._id, skillId, taskModeId, prompt, form, selectedWorkflowArtifactType, tenantId, userId]);
     useEffect(() => { const el = chatStreamRef.current; if (!el) return; el.scrollTop = el.scrollHeight; }, [messages, running]);
     useEffect(() => { setArtifactReviews((current) => { const next = { ...current }; for (const artifact of artifacts) { if (!next[artifact.id]) next[artifact.id] = { status: 'draft', version: 1, draft: artifactToText(artifact), history: [{ version: 1, status: 'created', at: new Date().toISOString() }] }; } return next; }); }, [artifacts]);
     useEffect(() => { setOpenTraceIds((ids) => ids.filter((id) => visibleTrace.some((item) => item.id === id))); }, [visibleTrace]);

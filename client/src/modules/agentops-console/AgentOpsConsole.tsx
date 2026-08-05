@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Header } from '../../components/ui';
 import { CommandCenter } from './components/CommandCenter';
 import { MetricsGrid, RuntimeMetrics } from './components/RuntimeMetrics';
@@ -13,6 +13,7 @@ import { useAgentRun } from '../../hooks/useAgentRun';
 import { getAgentStudioBlueprint } from '../../services/blueprintService';
 import * as sessionService from '../../services/sessionService';
 import * as agentRunService from '../../services/agentRunService';
+import { getAgentStudioRun } from '../../services/agentRunService';
 
 type AgentSession = {
     _id: string;
@@ -192,6 +193,8 @@ export default function AgentOpsConsole() {
     const [detailOpen, setDetailOpen] = useState(false);
     const [detailTab, setDetailTab] = useState<'overview' | 'trace' | 'artifacts' | 'sources' | 'raw'>('overview');
     const [runs, setRuns] = useState<AgentRun[]>([]);
+    const activeRunIdRef = useRef(activeRunId);
+    useEffect(() => { activeRunIdRef.current = activeRunId; }, [activeRunId]);
 
 
     const activeRunMemo = useMemo(() => runs.find((run) => run._id === activeRunId) || runs[0], [activeRunId, runs]);
@@ -222,14 +225,41 @@ export default function AgentOpsConsole() {
 
     const load = useCallback(async () => {
         const [blueprintResult, runResult, sessionResult] = await Promise.all([getAgentStudioBlueprint(), agentRunService.listRuns(), sessionService.listAgentStudioSessions()]);
-        setBlueprint(blueprintResult); setRuns(runResult.runs || []);
+        setBlueprint(blueprintResult);
+        setRuns(runResult.runs || []);
         if (sessionResult.sessions?.[0]) setActive(sessionResult.sessions[0]);
         else { const created = await sessionService.createAgentStudioSession('AgentOps Command Center 会话'); setActive(created.session); }
         const first = runResult.runs?.[0];
         if (first) { setActiveRunId((current) => current || first._id); setActiveTraceId((current) => current || first.trace?.[0]?.id || ''); }
+
+        // 列表接口出于性能排除 trace/artifacts/logs，若当前有选中的 run，补全详情避免显示空 Trace
+        const targetId = activeRunIdRef.current;
+        if (targetId) {
+            try {
+                const { run } = await getAgentStudioRun(targetId);
+                if (run) {
+                    setRuns((items) => items.map((item) => (item._id === run._id ? run : item)));
+                }
+            } catch (error) {
+                console.warn('[AgentOps] hydrate active run failed:', error);
+            }
+        }
     }, [setActive, setRuns, setBlueprint]);
 
     useEffect(() => { load().catch(console.error); }, [load]);
+
+    // 列表接口不返回 trace/artifacts/logs，选中 run 后通过详情接口补全，避免运行完后被列表覆盖导致 Trace 为空
+    useEffect(() => {
+        if (!activeRunId) return;
+        let cancelled = false;
+        getAgentStudioRun(activeRunId)
+            .then(({ run }) => {
+                if (cancelled || !run) return;
+                setRuns((items) => items.map((item) => (item._id === run._id ? run : item)));
+            })
+            .catch((error) => console.warn('[AgentOps] load run detail failed:', error));
+        return () => { cancelled = true; };
+    }, [activeRunId]);
 
     // async function control(action: string) {
     //     if (!activeRunMemo?._id) return;
