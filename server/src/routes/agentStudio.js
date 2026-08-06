@@ -117,11 +117,11 @@ function buildAgentPlan (intent) {
         },
         {
             id: 'stream-result',
-            name: '流式生成',
+            name: 'LLM 生成',
             owner: 'LLM Provider',
             status: 'pending',
             guardrail: 'Provider fallback 必须显式展示',
-            tool: 'streamLlmAnswer'
+            tool: 'llmAnswer'
         },
         {
             id: 'human-review',
@@ -784,17 +784,18 @@ export function agentStudioRouter (store) {
             }));
             await persistRun({ logs, artifacts });
 
-            await emitStatus('streaming', '调用 LLM Provider 流式生成');
+            await emitStatus('streaming', '调用 LLM Provider 生成');
             plan = updatePlan(plan, 'stream-result', 'running');
             await persistRun({ plan });
             sendEvent(res, 'plan', { plan, selectedSkill, intent });
-            await emitStep(step('llm', 'LLM 流式生成', 'running', {
+            await emitStep(step('llm', 'LLM 生成', 'running', {
                 input: { provider: provider.provider, model: provider.requestedModel || provider.model }
             }));
 
             const fallback = buildFallbackAnswer({ prompt, intent, sources, artifacts });
             let answer = fallback;
-            let streamed = false;
+            let generatedProvider = provider;
+            let mode = 'deterministic';
             try {
                 const generated = await streamLlmAnswer({
                     // systemPrompt: '你是企业级 AI Agent 产品专家，输出要围绕产研测交付闭环、自然语言交互、RAG 引用、Artifact、Trace 和人工确认。',
@@ -815,10 +816,14 @@ export function agentStudioRouter (store) {
                     modelConfig,
                     onDelta: (text) => sendEvent(res, 'delta', { text })
                 });
+                generatedProvider = generated.provider;
                 if (generated.text?.trim()) {
                     answer = generated.text;
-                    streamed = generated.streamed;
+                    mode = 'streaming';
+                    logs.push(auditLog('llm', 'LLM 流式生成成功', { provider: generated.provider }));
                 } else {
+                    // 部分模型（如 qwen-flash-2025-07-28）在流式模式下可能返回空，静默降级到同步调用
+                    logs.push(auditLog('llm', '流式返回为空，降级到同步生成', { provider: generated.provider }));
                     const completed = await generateLlmAnswer({
                         systemPrompt: '你是企业级 AI Agent 产品专家。引用 sources 时必须在正文相关句末内联 [n] 标记（编号与 sources 顺序一致），禁止编造引用编号；未覆盖的问题明确说"未在知识库中找到相关资料"。',
                         prompt,
@@ -827,17 +832,18 @@ export function agentStudioRouter (store) {
                         modelConfig,
                         fallback
                     });
+                    generatedProvider = completed.provider;
                     answer = completed.text;
+                    mode = 'sync';
                 }
-                await emitStep(step('llm', 'LLM 流式生成', 'success', {
-                    output: { mode: generated.provider.mode, streaming: generated.streamed },
+                await emitStep(step('llm', 'LLM 生成', 'success', {
+                    output: { provider: generatedProvider.provider, model: generatedProvider.model, mode, requestedModel: generatedProvider.requestedModel },
                     tokenUsage: tokenCount(answer)
                 }));
-                plan = updatePlan(plan, 'stream-result', 'success', { output: { provider: generated.provider.provider, model: generated.provider.model } });
-                logs.push(auditLog('llm', 'LLM Provider 调用成功', { provider: generated.provider }));
-                await persistRun({ answer, plan, logs, provider: generated.provider });
+                plan = updatePlan(plan, 'stream-result', 'success', { output: { provider: generatedProvider.provider, model: generatedProvider.model } });
+                await persistRun({ answer, plan, logs, provider: generatedProvider });
             } catch (error) {
-                await emitStep(step('llm', 'LLM 流式生成', 'failed', { error: error.message }));
+                await emitStep(step('llm', 'LLM 生成', 'failed', { error: error.message }));
                 answer = `${fallback}\n\n### Provider fallback\n真实模型调用失败，已降级到 deterministic Agent Runtime。错误：${error.message}`;
                 plan = updatePlan(plan, 'stream-result', 'failed', { error: error.message });
                 logs.push(auditLog('error', 'LLM Provider 调用失败，已降级 fallback', { error: error.message }));
