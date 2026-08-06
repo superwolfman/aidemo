@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Loader2, Search, Shield, Users } from 'lucide-react';
 import { request, tokenKey } from '../api/client';
 
@@ -86,7 +87,11 @@ export function TenantSwitcher({ user, onSwitchTenant }: TenantSwitcherProps) {
   const [loading, setLoading] = useState(false);
   const [confirmTenant, setConfirmTenant] = useState<TenantEntry | null>(null);
   const [error, setError] = useState('');
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
+  const [placement, setPlacement] = useState<'top' | 'bottom'>('top');
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const currentTenant = useMemo(
@@ -104,10 +109,90 @@ export function TenantSwitcher({ user, onSwitchTenant }: TenantSwitcherProps) {
     );
   }, [query, tenantList]);
 
+  const computePosition = () => {
+    const trigger = triggerRef.current;
+    const dropdown = dropdownRef.current;
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const dropdownWidth = 280;
+    const gap = 8;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    // 水平方向：优先左对齐 trigger，右侧超出视口则左移
+    let left = rect.left;
+    if (left + dropdownWidth > viewportWidth - 16) {
+      left = Math.max(16, rect.right - dropdownWidth);
+    }
+
+    // 垂直方向：默认向上展开；若上方空间不足则向下展开
+    const dropdownHeight = dropdown?.offsetHeight ?? 320;
+    const spaceAbove = rect.top - gap;
+    const spaceBelow = viewportHeight - rect.bottom - gap;
+
+    let nextPlacement: 'top' | 'bottom' = 'top';
+    let top = 0;
+    if (spaceAbove >= dropdownHeight || spaceAbove >= spaceBelow) {
+      nextPlacement = 'top';
+      top = rect.top - gap; // CSS 用 bottom 锚定，这里先占位
+    } else {
+      nextPlacement = 'bottom';
+      top = rect.bottom + gap;
+    }
+
+    // 避免超出视口底部/顶部
+    if (nextPlacement === 'bottom') {
+      const maxTop = viewportHeight - dropdownHeight - 16;
+      if (top > maxTop) top = Math.max(gap, maxTop);
+    } else {
+      // top 展开时：先让 bottom 对齐 trigger 上方，再限制顶部不超出视口
+      const bottom = rect.top - gap;
+      const minTop = 16;
+      const calculatedTop = bottom - dropdownHeight;
+      top = Math.max(minTop, calculatedTop);
+    }
+
+    setPlacement(nextPlacement);
+    setDropdownStyle({
+      position: 'fixed',
+      left,
+      top,
+      width: dropdownWidth,
+      maxHeight: Math.min(360, viewportHeight - 32)
+    });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setDropdownStyle({});
+      return;
+    }
+    computePosition();
+    // 下拉高度在渲染后才能确定，延迟再校准一次
+    const raf = requestAnimationFrame(() => computePosition());
+    const timer = setTimeout(computePosition, 50);
+
+    function onResize() {
+      computePosition();
+    }
+    window.addEventListener('resize', onResize);
+    window.addEventListener('scroll', onResize, true);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', onResize, true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, tenantList.length]);
+
   useEffect(() => {
     function onDocClick(event: MouseEvent) {
-      if (!containerRef.current) return;
-      if (!containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const insideTrigger = containerRef.current?.contains(target);
+      const insideDropdown = dropdownRef.current?.contains(target);
+      if (!insideTrigger && !insideDropdown) {
         setOpen(false);
         setQuery('');
       }
@@ -162,6 +247,7 @@ export function TenantSwitcher({ user, onSwitchTenant }: TenantSwitcherProps) {
   return (
     <div className="tenant-switcher" ref={containerRef}>
       <button
+        ref={triggerRef}
         type="button"
         className={`tenant-current ${open ? 'open' : ''} ${loading ? 'loading' : ''}`}
         onClick={() => !loading && setOpen((v) => !v)}
@@ -179,95 +265,104 @@ export function TenantSwitcher({ user, onSwitchTenant }: TenantSwitcherProps) {
         <ChevronDown size={16} className="tenant-current-chevron" />
       </button>
 
-      {open && (
-        <div className="tenant-dropdown" role="listbox">
-          <div className="tenant-dropdown-header">
-            <span>切换工作空间</span>
-            <small>{tenantList.length} 个租户</small>
-          </div>
-
-          {tenantList.length > 4 && (
-            <div className="tenant-search">
-              <Search size={14} />
-              <input
-                ref={searchRef}
-                type="text"
-                placeholder="搜索租户"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
+      {open &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            className={`tenant-dropdown tenant-dropdown-${placement}`}
+            role="listbox"
+            style={dropdownStyle}
+          >
+            <div className="tenant-dropdown-header">
+              <span>切换工作空间</span>
+              <small>{tenantList.length} 个租户</small>
             </div>
-          )}
 
-          <div className="tenant-options">
-            {filteredList.map((entry) => {
-              const active = entry.tenantId === currentTenantId;
-              return (
-                <button
-                  key={entry.tenantId}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  className={`tenant-option ${active ? 'active' : ''}`}
-                  onClick={() => onSelectTenant(entry)}
-                >
-                  <span className="tenant-option-avatar">
-                    {entry.tenantId.slice(0, 2).toUpperCase()}
-                  </span>
-                  <span className="tenant-option-meta">
-                    <strong>{entry.displayName || entry.tenantId}</strong>
-                    <em>{entry.tenantId}</em>
-                  </span>
-                  <span className="tenant-option-role">
-                    <Shield size={12} />
-                    {entry.role}
-                  </span>
-                  {active && <Check size={16} className="tenant-option-check" />}
-                </button>
-              );
-            })}
-            {filteredList.length === 0 && (
-              <div className="tenant-empty">未找到匹配租户</div>
+            {tenantList.length > 4 && (
+              <div className="tenant-search">
+                <Search size={14} />
+                <input
+                  ref={searchRef}
+                  type="text"
+                  placeholder="搜索租户"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </div>
             )}
-          </div>
-        </div>
-      )}
 
-      {confirmTenant && (
-        <div className="tenant-confirm-overlay">
-          <div className="tenant-confirm-panel">
-            <h4>切换工作空间？</h4>
-            <p>
-              即将从 <strong>{currentTenant?.displayName || currentTenantId}</strong> 切换到{' '}
-              <strong>{confirmTenant.displayName || confirmTenant.tenantId}</strong>
-              。当前未保存的数据可能会丢失。
-            </p>
-            {error ? <div className="tenant-confirm-error">{error}</div> : null}
-            <div className="tenant-confirm-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => {
-                  setConfirmTenant(null);
-                  setError('');
-                }}
-                disabled={loading}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => doSwitch(confirmTenant)}
-                disabled={loading}
-              >
-                {loading ? <Loader2 size={14} className="spin" /> : null}
-                确认切换
-              </button>
+            <div className="tenant-options">
+              {filteredList.map((entry) => {
+                const active = entry.tenantId === currentTenantId;
+                return (
+                  <button
+                    key={entry.tenantId}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    className={`tenant-option ${active ? 'active' : ''}`}
+                    onClick={() => onSelectTenant(entry)}
+                  >
+                    <span className="tenant-option-avatar">
+                      {entry.tenantId.slice(0, 2).toUpperCase()}
+                    </span>
+                    <span className="tenant-option-meta">
+                      <strong>{entry.displayName || entry.tenantId}</strong>
+                      <em>{entry.tenantId}</em>
+                    </span>
+                    <span className="tenant-option-role">
+                      <Shield size={12} />
+                      {entry.role}
+                    </span>
+                    {active && <Check size={16} className="tenant-option-check" />}
+                  </button>
+                );
+              })}
+              {filteredList.length === 0 && (
+                <div className="tenant-empty">未找到匹配租户</div>
+              )}
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
+
+      {confirmTenant &&
+        createPortal(
+          <div className="tenant-confirm-overlay">
+            <div className="tenant-confirm-panel">
+              <h4>切换工作空间？</h4>
+              <p>
+                即将从 <strong>{currentTenant?.displayName || currentTenantId}</strong> 切换到{' '}
+                <strong>{confirmTenant.displayName || confirmTenant.tenantId}</strong>
+                。当前未保存的数据可能会丢失。
+              </p>
+              {error ? <div className="tenant-confirm-error">{error}</div> : null}
+              <div className="tenant-confirm-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    setConfirmTenant(null);
+                    setError('');
+                  }}
+                  disabled={loading}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => doSwitch(confirmTenant)}
+                  disabled={loading}
+                >
+                  {loading ? <Loader2 size={14} className="spin" /> : null}
+                  确认切换
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

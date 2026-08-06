@@ -10320,19 +10320,22 @@ kbd {
 }
 
 .tenant-dropdown {
-    position: absolute;
-    bottom: calc(100% + 8px);
-    left: 0;
-    width: 280px;
-    max-height: 360px;
     display: flex;
     flex-direction: column;
     background: #1c2933;
     border: 1px solid #344556;
     border-radius: 10px;
-    box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.32);
-    z-index: 50;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+    z-index: 9998;
     overflow: hidden;
+}
+
+.tenant-dropdown-top {
+    box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.32);
+}
+
+.tenant-dropdown-bottom {
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
 }
 
 .tenant-dropdown-header {
@@ -10495,7 +10498,7 @@ kbd {
     display: grid;
     place-items: center;
     background: rgba(15, 23, 31, 0.72);
-    z-index: 100;
+    z-index: 9999;
 }
 
 .tenant-confirm-panel {
