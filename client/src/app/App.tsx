@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import { BrainCircuit, LogOut, PanelLeftClose, PanelLeftOpen, ShieldCheck } from 'lucide-react';
+import { BrainCircuit, LogOut, PanelLeftClose, PanelLeftOpen, ShieldCheck, Users } from 'lucide-react';
 import { request, tokenKey } from '../api/client';
+import { TenantSwitcher } from './TenantSwitcher';
 import { Header } from '../components/ui';
 import { eventBus, AppEvents } from '../platform/events';
 import { MicroAppContainer } from '../platform/microFrontend';
@@ -61,10 +62,7 @@ function Shell({ user, onLogout, onSwitchTenant }: { user: any; onLogout: () => 
   const context = useMemo<ShellContext>(() => ({ user, eventBus, navigate: router.navigate, app }), [user, router.navigate, app]);
 
   const currentTenantId = user.tenant?.id || user.activeTenantId || user.tenantId;
-  const tenantList = Array.isArray(user.tenants) && user.tenants.length
-    ? user.tenants
-    : [{ tenantId: currentTenantId, role: user.role }];
-  const currentRole = user.tenant?.role || tenantList.find((t) => t.tenantId === currentTenantId)?.role || user.role;
+  const currentRole = user.tenant?.role || user.role;
 
   // Keep Alive：按租户恢复最近使用的子应用路由
   useEffect(() => {
@@ -82,26 +80,10 @@ function Shell({ user, onLogout, onSwitchTenant }: { user: any; onLogout: () => 
     sessionStorage.setItem(key, router.appId);
   }, [router.appId, currentTenantId]);
 
-  async function switchTenant(nextTenantId: string) {
-    if (nextTenantId === currentTenantId) return;
-    try {
-      const result = await request('/api/auth/switch-tenant', {
-        method: 'POST',
-        body: JSON.stringify({ tenantId: nextTenantId })
-      });
-      localStorage.setItem(tokenKey, result.token);
-      localStorage.setItem('tenantId', result.tenant?.id || nextTenantId);
-
-      // 切换成功后拉取最新用户视图，避免 reload 丢失运行时上下文
-      const me = await request('/api/auth/me');
-      const nextUser = { ...me.user, tenant: me.tenant, tenants: me.tenants };
-      onSwitchTenant(nextUser);
-
-      // 清空非当前子应用的挂载缓存，切换租户后强制子应用重新加载数据
-      setMountedAppIds(new Set([router.appId]));
-    } catch (err) {
-      alert((err as Error).message);
-    }
+  function handleSwitchTenant(nextUser: any) {
+    onSwitchTenant(nextUser);
+    // 清空非当前子应用的挂载缓存，切换租户后强制子应用重新加载数据
+    setMountedAppIds(new Set([router.appId]));
   }
 
   useEffect(() => i18n.subscribe(() => forceI18nRender((value) => value + 1)), []);
@@ -142,23 +124,14 @@ function Shell({ user, onLogout, onSwitchTenant }: { user: any; onLogout: () => 
         <div className="user-box">
           <strong>{user.name}</strong>
           <span>{user.department} · {currentRole}</span>
-          {tenantList.length > 1 ? (
-            <label className="tenant-switch">
-              <em className="tenant-badge">{currentTenantId}</em>
-              <select
-                value={currentTenantId}
-                onChange={(event) => switchTenant(event.target.value)}
-                title="切换租户"
-              >
-                {tenantList.map((t) => (
-                  <option key={t.tenantId} value={t.tenantId}>
-                    {t.tenantId}（{t.role}）
-                  </option>
-                ))}
-              </select>
-            </label>
+          {Array.isArray(user.tenants) && user.tenants.length > 1 ? (
+            <TenantSwitcher user={user} onSwitchTenant={handleSwitchTenant} />
           ) : (
-            <em className="tenant-badge">{currentTenantId}</em>
+            <div className="tenant-readonly">
+              <Users size={14} />
+              <span>{currentTenantId}</span>
+              <em>{currentRole}</em>
+            </div>
           )}
           <button onClick={onLogout}><LogOut size={16} />退出</button>
         </div>
