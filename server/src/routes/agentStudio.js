@@ -627,6 +627,8 @@ export function agentStudioRouter (store) {
             }
 
             const prompt = String(req.body.message || '').trim();
+            // retrievalQuery 由前端提供，用于 RAG；不含 LLM 输出格式/任务后缀，避免向量搜索被模板词汇污染。
+            const retrievalQuery = String(req.body.retrievalQuery || prompt).trim();
             const commandOptions = req.body.commandOptions && typeof req.body.commandOptions === 'object' ? req.body.commandOptions : {};
             const modelConfig = req.body.model && typeof req.body.model === 'object' ? req.body.model : {};
             const provider = getProviderStatus(modelConfig);
@@ -742,7 +744,7 @@ export function agentStudioRouter (store) {
             const rag = await retrieveKnowledge({
                 store,
                 context: req.auth,
-                query: prompt,
+                query: retrievalQuery,
                 scopes: intent.scopes,
                 limit: 5
             });
@@ -753,7 +755,7 @@ export function agentStudioRouter (store) {
             sendEvent(res, 'plan', { plan, selectedSkill, intent });
             await emitStep(step('rag', 'RAG 上下文检索', 'success', {
                 tool: 'retrieveKnowledge',
-                input: { query: prompt, scopes: intent.scopes },
+                input: { query: retrievalQuery, scopes: intent.scopes },
                 output: sources.map((source) => ({ title: source.documentTitle, score: source.score, backend: source.retrievalBackend })),
                 tokenUsage: tokenCount(JSON.stringify(sources))
             }));

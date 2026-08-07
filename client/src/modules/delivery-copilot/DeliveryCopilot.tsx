@@ -192,13 +192,13 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
         const aud = opts.audience ?? audience;
         const dl = opts.deadline ?? deadline;
         const cons = opts.constraints ?? constraints;
-        const nextPrompt = [
+        const retrievalQuery = [
             `业务需求：${req}`,
             `目标用户：${aud}`,
             `交付目标：${dl}`,
-            `约束条件：${cons}`,
-            activeTaskMode.promptSuffix
+            `约束条件：${cons}`
         ].join('\n');
+        const nextPrompt = `${retrievalQuery}\n${activeTaskMode.promptSuffix}`;
         const evalCaseId = opts.evalCaseId ?? selectedEvalCaseId;
         if (!nextPrompt.trim()) return;
         const controller = new AbortController();
@@ -214,6 +214,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
         try {
             await start(active._id, {
                 message: nextPrompt,
+                retrievalQuery,
                 evalCaseId,
                 commandOptions: { agentId: activeTaskMode.agentId, skillId: activeTaskMode.agentId, scopes: activeTaskMode.scopes, taskModeId: activeTaskMode.id, source: 'delivery-copilot' }
             }, {
