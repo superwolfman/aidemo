@@ -64,5 +64,21 @@ test('命中多个精确 scope 不重复乘 factor（只判定是否命中）', 
 
     assert.equal(result[0].title, 'A');
     assert.ok(result[0].score > result[1].score);
-    assert.equal(result[0].score, Number((0.80 * 1.25).toFixed(4)));
+    assert.equal(result[0].score, Number((0.80 * 1.5).toFixed(4)));
+});
+
+test('极端情况：Copilot 源码原始分远高于领域文档时仍能翻盘', () => {
+    // 模拟用户截图真实数据：project-file 原始分 ~1.14，领域文档原始分 ~0.65
+    const sources = [
+        makeSource({ title: 'Copilot 工作台前端源码', score: 1.1422, scopes: ['frontend', 'architecture'], sourceType: 'project-file' }),
+        makeSource({ title: 'Copilot BFF 路由源码', score: 1.1389, scopes: ['architecture'], sourceType: 'project-file' }),
+        makeSource({ title: '前端可观测性与高可用架构', score: 0.65, scopes: ['frontend-observability', 'architecture', 'frontend'], sourceType: 'template' })
+    ];
+
+    const result = rerankByScopePrecision(sources, USER_SCOPES);
+
+    assert.equal(result[0].title, '前端可观测性与高可用架构');
+    assert.ok(result[1].score < result[0].score);
+    assert.ok(result[2].score < result[0].score);
+    assert.equal(result[0].score, Number((0.65 * 1.5).toFixed(4)));
 });

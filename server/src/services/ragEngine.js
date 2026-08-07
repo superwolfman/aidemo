@@ -192,8 +192,8 @@ const BROAD_SCOPES = new Set([
  *   降低其排在 top5 的概率。
  */
 export function rerankByScopePrecision (sources, scopes, {
-    boostFactor = 1.25,
-    projectFilePenalty = 0.72
+    boostFactor = 1.5,
+    projectFilePenalty = 0.5
 } = {}) {
     if (!sources?.length) return sources;
 
