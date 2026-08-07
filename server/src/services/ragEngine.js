@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { getEmbeddingDiagnostics } from '../utils/embedding.js';
 import { authorizeKnowledgeScopes, requireTenantContext } from '../security/tenantContext.js';
 
 function redactConnection (uri) {
@@ -78,8 +79,14 @@ export function getRagStatus (extra = {}) {
     };
 }
 
-async function gatherDiagnostics (store, context) {
-    const diagnostics = { chunkCount: 0, documentCount: 0, vectorSearchReady: false, embeddingProvider: 'unknown' };
+async function gatherDiagnostics (store, context, query = '') {
+    const diagnostics = {
+        chunkCount: 0,
+        documentCount: 0,
+        vectorSearchReady: false,
+        embeddingProvider: 'unknown',
+        embedding: getEmbeddingDiagnostics()
+    };
     try {
         if (typeof store.countChunks === 'function') diagnostics.chunkCount = await store.countChunks(context);
         if (typeof store.listDocuments === 'function') diagnostics.documentCount = (await store.listDocuments(context)).length;
@@ -87,6 +94,17 @@ async function gatherDiagnostics (store, context) {
             const vs = await store.checkVectorSearch();
             diagnostics.vectorSearchReady = vs.ok === true;
             diagnostics.vectorSearchDetail = vs;
+            diagnostics.embeddingDimensionsInIndex = vs.dimensions;
+        }
+        if (query) {
+            try {
+                const { embedTextReal } = await import('../utils/embedding.js');
+                const queryVector = await embedTextReal(query, { useReal: true });
+                diagnostics.queryVectorDimensions = queryVector.length;
+                diagnostics.queryEmbeddingProvider = diagnostics.embedding.effectiveProvider;
+            } catch (embeddingError) {
+                diagnostics.queryEmbeddingError = embeddingError.message;
+            }
         }
     } catch (error) {
         diagnostics.error = error.message;
@@ -97,7 +115,7 @@ async function gatherDiagnostics (store, context) {
 export async function retrieveKnowledge ({ store, context, query, scopes, limit = 5 }) {
     requireTenantContext(context);
     const authorizedScopes = authorizeKnowledgeScopes(context, scopes);
-    const diagnostics = await gatherDiagnostics(store, context);
+    const diagnostics = await gatherDiagnostics(store, context, query);
 
     if (config.ragBackend === 'mongodb-atlas' && typeof store.searchVectorChunks === 'function') {
         try {

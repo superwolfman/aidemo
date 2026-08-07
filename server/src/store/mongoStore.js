@@ -8,6 +8,7 @@ import {
     allowedScopesForListing,
     authorizeKnowledgeScopes,
     createServiceTenantContext,
+    normalizeKnowledgeScopes,
     requireTenantContext,
     tenantFilter,
     tenantUserFilter
@@ -28,9 +29,15 @@ export function buildTenantVectorPipeline ({
     scopes,
     queryEmbedding,
     limit,
-    numCandidates
+    numCandidates,
+    tenantOnly = false
 }) {
     requireTenantContext(context);
+    const normalizedScopes = normalizeKnowledgeScopes(scopes);
+    const filter = { tenantId: { $eq: context.tenantId } };
+    if (!tenantOnly && normalizedScopes.length) {
+        filter.scopes = { $in: normalizedScopes };
+    }
     return [
         {
             $vectorSearch: {
@@ -39,12 +46,7 @@ export function buildTenantVectorPipeline ({
                 queryVector: queryEmbedding,
                 numCandidates: Math.max(numCandidates, limit * 8),
                 limit,
-                filter: {
-                    $and: [
-                        { tenantId: { $eq: context.tenantId } },
-                        { scopes: { $in: scopes } }
-                    ]
-                }
+                filter
             }
         },
         {
@@ -328,7 +330,21 @@ export class MongoStore {
             numCandidates
         });
 
-        const chunks = await this.db.collection('chunks').aggregate(pipeline).toArray();
+        let chunks = await this.db.collection('chunks').aggregate(pipeline).toArray();
+
+        // Fallback 1：若按 tenant + scopes 未命中，放宽到仅 tenant（部分历史 chunk 的 scopes 可能不匹配当前 skill）
+        if (!chunks.length) {
+            const tenantOnlyPipeline = buildTenantVectorPipeline({
+                context,
+                scopes: [],
+                queryEmbedding,
+                limit,
+                numCandidates,
+                tenantOnly: true
+            });
+            chunks = await this.db.collection('chunks').aggregate(tenantOnlyPipeline).toArray();
+        }
+
         return chunks.map((chunk) => serialize({
             ...chunk,
             documentId: String(chunk.documentId),

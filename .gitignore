@@ -11,3 +11,8 @@ npm-debug.log*
 
 # 部署：生产密钥不入库（.example 保留）
 deploy/.env.production
+
+# 本地缓存与诊断脚本
+.cache/
+scripts/diag-*.mjs
+scripts/test-*.mjs

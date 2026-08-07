@@ -15,7 +15,7 @@ type SkillSelectorProps = {
   onConstraintsChange: (value: string) => void;
   cases: EvalCase[];
   selectedEvalCaseId: string;
-  onLoadCase: (item: EvalCase) => void;
+  onRunCase: (item: EvalCase) => void;
   onRunAllCases: () => void;
   running: boolean;
   onRun: () => void;
@@ -37,7 +37,7 @@ export function SkillSelector({
   onConstraintsChange,
   cases,
   selectedEvalCaseId,
-  onLoadCase,
+  onRunCase,
   onRunAllCases,
   running,
   onRun,
@@ -80,11 +80,17 @@ export function SkillSelector({
           <button type="button" className="text-button" disabled={running || cases.length === 0} onClick={onRunAllCases}>运行全部</button>
         </div>
         {cases.map((item) => (
-          <button key={item.id} className={selectedEvalCaseId === item.id ? 'active' : ''} onClick={() => onLoadCase(item)}>
+          <button
+            key={item.id}
+            type="button"
+            className={selectedEvalCaseId === item.id ? 'active' : ''}
+            disabled={running}
+            onClick={() => onRunCase(item)}
+          >
             <b>{item.title}</b>
             <span>{item.expected.join(' / ')}</span>
             <em className={item.lastResult ? (item.lastResult.score === 100 ? 'passed' : 'review') : ''}>
-              {item.lastResult ? `${item.lastResult.score}% · ${item.lastResult.passed}/${item.lastResult.total}` : '未运行'}
+              {item.lastResult ? `${item.lastResult.score}% · ${item.lastResult.passed}/${item.lastResult.total}` : '点击运行'}
             </em>
           </button>
         ))}

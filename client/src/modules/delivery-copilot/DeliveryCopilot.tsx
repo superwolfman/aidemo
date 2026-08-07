@@ -247,12 +247,16 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
 
     function stop() { abortRef.current?.abort(); setRunning(false); setStatus('cancelled'); }
 
-    function loadCase(item: EvalCase) {
+    async function runCase(item: EvalCase) {
+        if (running) return;
         setSelectedEvalCaseId(item.id);
-        setRequirement(item.prompt);
-        setAudience('产品经理、研发负责人、前后端工程师、测试负责人');
-        setDeadline('一周内完成可评审方案与 Demo');
-        setConstraints(`验收重点：${item.expected.join('、')}`);
+        await run({
+            requirement: item.prompt,
+            audience: '产品经理、研发负责人、前后端工程师、测试负责人',
+            deadline: '一周内完成可评审方案与 Demo',
+            constraints: item.expected.join('、'),
+            evalCaseId: item.id
+        });
     }
 
     async function runAllCases() {
@@ -332,7 +336,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
             <ArtifactOverview artifactSummary={artifactSummary} activeArtifactId={activeArtifact?.id} onSelectArtifact={selectArtifact} />
             <main className="delivery-workspace delivery-workspace-v2">
                 <section className="delivery-workspace-col delivery-workspace-left">
-                    <SkillSelector taskModes={deliveryTaskModes} taskModeId={taskModeId} onTaskModeChange={setTaskModeId} requirement={requirement} audience={audience} deadline={deadline} constraints={constraints} onRequirementChange={setRequirement} onAudienceChange={setAudience} onDeadlineChange={setDeadline} onConstraintsChange={setConstraints} cases={cases} selectedEvalCaseId={selectedEvalCaseId} onLoadCase={loadCase} onRunAllCases={runAllCases} running={running} onRun={() => run()} onStop={stop} onRerun={() => run()} />
+                    <SkillSelector taskModes={deliveryTaskModes} taskModeId={taskModeId} onTaskModeChange={setTaskModeId} requirement={requirement} audience={audience} deadline={deadline} constraints={constraints} onRequirementChange={setRequirement} onAudienceChange={setAudience} onDeadlineChange={setDeadline} onConstraintsChange={setConstraints} cases={cases} selectedEvalCaseId={selectedEvalCaseId} onRunCase={runCase} onRunAllCases={runAllCases} running={running} onRun={() => run()} onStop={stop} onRerun={() => run()} />
                 </section>
                 <section className="delivery-workspace-col delivery-workspace-center">
                     <section className="delivery-im-region">

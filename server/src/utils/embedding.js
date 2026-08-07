@@ -61,6 +61,14 @@ const embeddingConfig = {
     apiKey: config.embeddingApiKey || ''
 };
 
+function isAtlasBackend () {
+    return config.ragBackend === 'mongodb-atlas';
+}
+
+function isEmbeddingConfigured () {
+    return embeddingConfig.provider && embeddingConfig.provider !== 'local' && embeddingConfig.apiKey;
+}
+
 function cacheKey (text) {
     let h = 2166136261;
     const s = `${embeddingConfig.provider}:${embeddingConfig.model}:${text || ''}`;
@@ -79,12 +87,24 @@ function normalizeVector (vector, target) {
     return arr;
 }
 
-export async function embedTextReal (text, { useReal = false } = {}) {
-    if (!useReal || embeddingConfig.provider === 'local' || !embeddingConfig.apiKey) {
+export async function embedTextReal (text, { useReal = false, skipCache = false } = {}) {
+    if (!useReal || embeddingConfig.provider === 'local') {
+        return embedText(text);
+    }
+    if (!embeddingConfig.apiKey) {
+        // Atlas 向量库要求查询与入库使用同一份真实 embedding；
+        // 若未配置 API key 却要求真实 embedding，必须显式报错，避免 96 维哈希向量污染 Atlas 索引导致 0 hits。
+        if (isAtlasBackend()) {
+            throw new Error(
+                `Atlas RAG requires a real embedding API key. ` +
+                `Set EMBEDDING_API_KEY or ensure DASHSCOPE_API_KEY/LLM_API_KEY is configured. ` +
+                `Current provider: ${embeddingConfig.provider}, model: ${embeddingConfig.model}`
+            );
+        }
         return embedText(text);
     }
     const key = cacheKey(text);
-    if (memoryCache.has(key)) return memoryCache.get(key);
+    if (!skipCache && memoryCache.has(key)) return memoryCache.get(key);
     try {
         const target = config.ragVectorDimensions || 1536;
         const body = { model: embeddingConfig.model, input: [String(text || '')] };
@@ -119,9 +139,25 @@ export async function embedTextReal (text, { useReal = false } = {}) {
         persistCache();
         return vector;
     } catch (error) {
+        if (isAtlasBackend()) {
+            // Atlas 模式下 embedding 失败必须抛错，否则会用 96 维哈希向量查询 1024 维索引，导致 0 hits 且难以排查。
+            throw new Error(`[embedding] Atlas real embedding failed: ${error.message}`);
+        }
         console.warn(`[embedding] fell back to local hash: ${error.message}`);
         return embedText(text);
     }
+}
+
+export function getEmbeddingDiagnostics () {
+    return {
+        provider: embeddingConfig.provider,
+        model: embeddingConfig.model,
+        dimensions: config.ragVectorDimensions,
+        apiKeyConfigured: Boolean(embeddingConfig.apiKey),
+        backend: config.ragBackend,
+        isAtlas: isAtlasBackend(),
+        effectiveProvider: isAtlasBackend() && !isEmbeddingConfigured() ? `local-fallback(${embeddingConfig.model})` : embeddingConfig.provider
+    };
 }
 // ===== 新增结束 =====
 

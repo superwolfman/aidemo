@@ -57,6 +57,7 @@ export type RunQuality = {
     passed: number;
     total: number;
     verdict: string;
+    citationHitCount?: number;
     capabilities?: {
         realVector: boolean;
         realProvider: boolean;

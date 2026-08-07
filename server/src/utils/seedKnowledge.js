@@ -109,6 +109,44 @@ export async function seedKnowledgeIfEmpty (store, { tenantId = DEFAULT_TENANT_I
     try {
         const context = createServiceTenantContext({ tenantId, actorId, allowedKnowledgeScopes: ['*'] });
         const count = typeof store.countChunks === 'function' ? await store.countChunks(context) : 0;
+
+        // 修复历史 chunk：早期数据可能缺失 tenantId/scopes，导致 $vectorSearch filter 无法命中
+        if (typeof store.db === 'object' && store.db) {
+            const chunks = store.db.collection('chunks');
+            const missingTenant = await chunks.countDocuments({
+                $or: [
+                    { tenantId: { $exists: false } },
+                    { tenantId: null },
+                    { tenantId: '' },
+                    { scopes: { $exists: false } },
+                    { scopes: { $size: 0 } }
+                ]
+            });
+            if (missingTenant > 0) {
+                const result = await chunks.updateMany(
+                    {
+                        $or: [
+                            { tenantId: { $exists: false } },
+                            { tenantId: null },
+                            { tenantId: '' }
+                        ]
+                    },
+                    { $set: { tenantId } }
+                );
+                const resultScopes = await chunks.updateMany(
+                    {
+                        $or: [
+                            { scopes: { $exists: false } },
+                            { scopes: { $size: 0 } },
+                            { scopes: null }
+                        ]
+                    },
+                    { $set: { scopes: ['legacy'] } }
+                );
+                console.log(`[seed] repaired ${result.modifiedCount} chunks missing tenantId, ${resultScopes.modifiedCount} chunks missing scopes`);
+            }
+        }
+
         if (count > 0) {
             console.log(`[seed] chunks already exist (${count}), skip auto seed`);
             return { seeded: false, reason: 'chunks already exist', count };

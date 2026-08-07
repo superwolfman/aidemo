@@ -295,6 +295,7 @@ export function scoreRunQuality (run, opts = {}) {
         score,
         passed,
         total: checks.length,
+        citationHitCount: c.sources.length,
         avgCitationScore: c.avgCitationScore,
         retrievalBackends: c.retrievalBackends,
         usesFallbackRetrieval: c.hasFallbackSource,

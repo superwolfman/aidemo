@@ -35,7 +35,7 @@ export function SessionPanel({ blueprint, ragRuntime, ragLive, quality }: Props)
                     <span>quality</span>
                     {quality?.capabilities ? (
                         <small className={quality.capabilities.realVector && quality.capabilities.realProvider ? 'env-ok' : 'env-warn'}>
-                            {quality.capabilities.realVector ? 'Atlas' : 'fallback'} · {quality.capabilities.realProvider ? 'live' : 'mock'}
+                            {quality.capabilities.realVector ? 'RAG Atlas' : (quality.citationHitCount ? 'RAG fallback' : 'RAG 未命中')} · {quality.capabilities.realProvider ? 'LLM live' : 'LLM mock'}
                         </small>
                     ) : null}
                 </article>
