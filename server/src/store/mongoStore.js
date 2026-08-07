@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { cosineSimilarity, embedText, embedTextReal, keywordOverlap, splitIntoChunks } from '../utils/embedding.js';
 import { hashPassword } from '../utils/password.js';
 import { getRagStatus } from '../services/ragEngine.js';
+import { seedKnowledgeIfEmpty } from '../utils/seedKnowledge.js';
 import {
     DEFAULT_TENANT_ID,
     allowedScopesForListing,
@@ -201,33 +202,15 @@ export class MongoStore {
             existingUser = await users.findOne({ _id: existingUser._id });
         }
 
-        const seedContext = createServiceTenantContext({
-            tenantId: existingUser.tenantId,
-            actorId: String(existingUser._id)
-        });
-        const documentsCount = await this.db.collection('documents').countDocuments({ tenantId: seedContext.tenantId });
-        if (documentsCount === 0) {
-            await this.createDocument(seedContext, {
-                title: '会员增长活动方法论',
-                tags: ['growth', 'campaign'],
-                scopes: ['growth', 'campaign'],
-                content:
-                    '会员增长活动应围绕目标人群、权益刺激、渠道触达、转化路径和复购承接设计。高价值用户适合会员日和专属券，新用户适合首单礼和限时补贴，沉睡用户适合召回券和内容种草。核心指标包括曝光、点击、领取、核销、GMV、ROI 和次日留存。'
-            });
-            await this.createDocument(seedContext, {
-                title: '投放素材生产规范',
-                tags: ['creative', 'ads'],
-                scopes: ['creative', 'ads'],
-                content:
-                    '投放素材需要明确人群痛点、利益点、行动指令和可信背书。短视频首 3 秒突出场景冲突，信息流图片控制在一个主卖点。A/B 测试至少覆盖标题、利益点、视觉风格和 CTA。素材复盘关注 CTR、CVR、CPA、ROI 和疲劳衰减。'
-            });
-            await this.createDocument(seedContext, {
-                title: '运营 Agent 工具边界',
-                tags: ['agent', 'workflow'],
-                scopes: ['agent', 'workflow'],
-                content:
-                    '运营 Agent 可以自动生成方案、查询知识库、生成素材、读取归因数据、创建优惠券草稿和 Push 草稿。涉及真实预算消耗、用户触达、广告发布、券生效等动作必须进入人工确认。所有工具调用需要记录输入、输出、状态和回滚策略。'
-            });
+        // 多租户 seed：为当前用户关联的每个租户单独注入 seed 文档，避免 tenant-demo-2 无数据
+        const uniqueTenantIds = [
+            ...new Set([
+                existingUser.tenantId || DEFAULT_TENANT_ID,
+                ...(Array.isArray(existingUser.tenants) ? existingUser.tenants.map((t) => t.tenantId) : [])
+            ].filter(Boolean))
+        ];
+        for (const tenantId of uniqueTenantIds) {
+            await seedKnowledgeIfEmpty(this, { tenantId, actorId: String(existingUser._id) });
         }
     }
 

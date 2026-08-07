@@ -22,10 +22,10 @@ import * as sessionService from '../../services/sessionService';
 import { getAgentStudioRun } from '../../services/agentRunService';
 
 const deliveryTaskModes = [
-    { id: 'product-workflow', title: '产品交付工作流', desc: '需求澄清、PRD、页面结构、接口协议和任务拆解', agentId: 'product-delivery-agent', scopes: ['architecture', 'standards', 'ai-native', 'frontend'], promptSuffix: '请按产品交付工作流输出 PRD 摘要、页面结构、接口协议、状态流转、研发任务拆解、风险和待确认问题。' },
-    { id: 'requirement-analysis', title: '架构级需求分析', desc: '拆目标、约束、风险、验收标准和待确认问题', agentId: 'product-delivery-agent', scopes: ['architecture', 'standards', 'frontend'], promptSuffix: '请先做架构级需求分析，输出目标、非功能约束、风险、验收标准、待确认问题和下一步交付计划。' },
-    { id: 'knowledge-assistant', title: '知识库问答方案', desc: '知识范围、RAG 引用、纠错反馈和运营治理', agentId: 'knowledge-assistant', scopes: ['architecture', 'standards', 'ai-native', 'im'], promptSuffix: '请围绕知识库问答产品输出知识范围、RAG 检索链路、引用来源展示、人工纠错、会话历史和质量评估方案。' },
-    { id: 'delivery-review', title: '交付质量评审', desc: '测试策略、上线风险、质量门禁和人工审批', agentId: 'delivery-review-agent', scopes: ['standards', 'architecture', 'sdk'], promptSuffix: '请对本需求做交付质量评审，输出测试策略、风险清单、上线门禁、缺口和人工审批建议。' }
+    { id: 'product-workflow', title: '产品交付工作流', desc: '需求澄清、PRD、页面结构、接口协议和任务拆解', agentId: 'product-delivery-agent', scopes: ['architecture', 'standards', 'ai-native', 'frontend', 'frontend-observability', 'engineering-governance', 'performance'], promptSuffix: '请按产品交付工作流输出 PRD 摘要、页面结构、接口协议、状态流转、研发任务拆解、风险和待确认问题。' },
+    { id: 'requirement-analysis', title: '架构级需求分析', desc: '拆目标、约束、风险、验收标准和待确认问题', agentId: 'product-delivery-agent', scopes: ['architecture', 'standards', 'frontend', 'frontend-observability', 'engineering-governance', 'performance'], promptSuffix: '请先做架构级需求分析，输出目标、非功能约束、风险、验收标准、待确认问题和下一步交付计划。' },
+    { id: 'knowledge-assistant', title: '知识库问答方案', desc: '知识范围、RAG 引用、纠错反馈和运营治理', agentId: 'knowledge-assistant', scopes: ['architecture', 'standards', 'ai-native', 'im', 'frontend-observability', 'engineering-governance', 'performance'], promptSuffix: '请围绕知识库问答产品输出知识范围、RAG 检索链路、引用来源展示、人工纠错、会话历史和质量评估方案。' },
+    { id: 'delivery-review', title: '交付质量评审', desc: '测试策略、上线风险、质量门禁和人工审批', agentId: 'delivery-review-agent', scopes: ['standards', 'architecture', 'sdk', 'frontend-observability', 'engineering-governance', 'performance'], promptSuffix: '请对本需求做交付质量评审，输出测试策略、风险清单、上线门禁、缺口和人工审批建议。' }
 ];
 
 export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
@@ -39,7 +39,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
     const [deadline, setDeadline] = useState('3 个工作日内完成可演示 MVP');
     const [constraints, setConstraints] = useState('React + TypeScript + Node BFF；必须展示 RAG 引用、Trace、人工确认和导出产物。');
     const [taskModeId, setTaskModeId] = useState(deliveryTaskModes[0].id);
-    const [selectedEvalCaseId, setSelectedEvalCaseId] = useState('');
+    const [selectedEvalCaseId, setSelectedEvalCaseId] = useState('ai-product-workflow');
     const [activeArtifactId, setActiveArtifactId] = useState('');
     const [artifactDraft, setArtifactDraft] = useState('');
     const [running, setRunning] = useState(false);
