@@ -6616,7 +6616,7 @@ kbd {
 
 .delivery-hero {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(260px, 1fr) auto;
     gap: 18px;
     align-items: center;
     background:
@@ -6638,6 +6638,10 @@ kbd {
     margin: 6px 0;
     color: #172026;
     font-size: 24px;
+    word-break: keep-all;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .delivery-hero p,
@@ -7273,9 +7277,9 @@ kbd {
 
 .delivery-hero-metrics {
     display: grid;
-    grid-template-columns: repeat(3, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: 12px;
-    min-width: min(720px, 100%);
+    min-width: 0;
 }
 
 .delivery-hero-metrics article {
@@ -9512,6 +9516,19 @@ kbd {
     .delivery-workspace,
     .delivery-source-list,
     .delivery-artifact-shell {
+        grid-template-columns: 1fr;
+    }
+
+    .delivery-hero {
+        grid-template-columns: 1fr;
+    }
+
+    .delivery-hero h2 {
+        white-space: normal;
+        word-break: normal;
+    }
+
+    .delivery-hero-metrics {
         grid-template-columns: 1fr;
     }
 
