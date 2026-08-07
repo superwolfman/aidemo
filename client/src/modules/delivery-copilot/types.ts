@@ -9,6 +9,7 @@ export type Source = {
     documentTitle: string;
     content: string;
     score: number;
+    vectorScore?: number;
     retrievalBackend?: string;
     sourcePath?: string;
     candidateRank?: number;

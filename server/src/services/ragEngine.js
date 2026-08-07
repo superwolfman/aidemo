@@ -170,7 +170,7 @@ export async function retrieveKnowledge ({ store, context, query, scopes, limit 
                 status: getRagStatus({ mode: 'live', storeKind: store.kind, vectorSearchReady: true }),
                 sources: enrichSources(sources, {
                     backend: 'mongodb-atlas-vector-search',
-                    strategy: 'atlas-vector-prefilter + scope-precision-rerank',
+                    strategy: 'atlas-vector-prefilter + bounded-scope-odds-rerank',
                     scopes: authorizedScopes
                 }),
                 filter: { tenantApplied: true, scopeApplied: true },
@@ -181,7 +181,7 @@ export async function retrieveKnowledge ({ store, context, query, scopes, limit 
                     diagnostics,
                     query,
                     vectorPlan,
-                    'business-requirement + atlas-vector-prefilter + scope-precision-rerank'
+                    'business-requirement + atlas-vector-prefilter + bounded-scope-odds-rerank'
                 )
             };
         } catch (error) {
@@ -245,10 +245,11 @@ const BROAD_SCOPES = new Set([
 
 /**
  * 对 Atlas 向量召回结果按 scope 精确度重排序。
- * - 命中更细分领域 scope（如 frontend-observability）的 chunk 获得 boost，避免被
+ * - 命中更细分领域 scope（如 frontend-observability）的 chunk 在 odds 空间获得 boost，避免被
  *   architecture/frontend/ai-native 这类宽泛 scope 的通用模板淹没。
- * - 未命中任何精确 scope 的 project-file 类型 chunk（如 Copilot 自身源码）受到 penalty，
+ * - 未命中任何精确 scope 的 project-file 类型 chunk（如 Copilot 自身源码）在 odds 空间受到 penalty，
  *   降低其排在 top5 的概率。
+ * - 最终 relevance 保持在 [0, 1]；它是排序相关度，不是模型置信概率。
  */
 export function rerankByScopePrecision (sources, scopes, {
     boostFactor = 1.5,
@@ -269,19 +270,39 @@ export function rerankByScopePrecision (sources, scopes, {
             if (hasPreciseMatch) factor *= boostFactor;
             if (isProjectFile && !hasPreciseMatch) factor *= projectFilePenalty;
 
-            const baseScore = Number(source.score || source.rerankScore || 0);
+            const baseScore = Number(source.score ?? source.rerankScore ?? 0);
+            const rerankScore = applyOddsFactor(baseScore, factor);
             return {
                 ...source,
-                score: Number((baseScore * factor).toFixed(4)),
-                rerankScore: Number((baseScore * factor).toFixed(4)),
+                score: rerankScore,
+                rerankScore,
                 rerankReason: hasPreciseMatch
-                    ? `scope precision boost (${boostFactor}x): ${matchedPrecise.join(', ')}`
+                    ? `scope precision odds boost (${boostFactor}x): ${matchedPrecise.join(', ')}`
                     : isProjectFile
-                        ? `project-file penalty (${projectFilePenalty}x): no precise scope match`
+                        ? `project-file odds penalty (${projectFilePenalty}x): no precise scope match`
                         : 'no scope adjustment'
             };
         })
         .sort((a, b) => b.score - a.score);
+}
+
+/**
+ * 在 odds 空间施加业务权重，输出仍保持在 [0, 1]。
+ * 相比直接 score * factor，不会出现 1.30 这类容易被误解为概率的展示值；
+ * 相比 Math.min(score, 1)，不会把所有高分结果压成相同的 1。
+ */
+export function applyOddsFactor (score, factor = 1) {
+    const numericScore = Number(score);
+    const boundedScore = Number.isFinite(numericScore)
+        ? Math.min(1, Math.max(0, numericScore))
+        : 0;
+    if (boundedScore === 0 || boundedScore === 1) return boundedScore;
+
+    const numericFactor = Number(factor);
+    const safeFactor = Number.isFinite(numericFactor) && numericFactor > 0 ? numericFactor : 1;
+    const adjusted = (boundedScore * safeFactor) /
+        ((1 - boundedScore) + (boundedScore * safeFactor));
+    return Number(adjusted.toFixed(4));
 }
 
 function enrichSources (sources, { backend, strategy, scopes = [], fallbackReason = '' } = {}) {

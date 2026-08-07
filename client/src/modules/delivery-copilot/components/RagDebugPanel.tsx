@@ -7,6 +7,7 @@ type Source = {
     documentTitle?: string;
     content?: string;
     score?: number;
+    vectorScore?: number;
     candidateRank?: number;
     vectorRank?: number;
     rerankScore?: number;
@@ -61,6 +62,24 @@ type Props = {
 
 function shortText(value = '', size = 160) {
     return value.length > size ? `${value.slice(0, size)}...` : value;
+}
+
+function displayRelevance(source: Source) {
+    const score = Number(source.rerankScore ?? source.score ?? 0);
+    if (source.rerankStrategy?.includes('bounded-scope-odds-rerank')) {
+        return Math.min(1, Math.max(0, score));
+    }
+
+    // 兼容修复前已经持久化的 Run：用原始 vectorScore 和历史 factor 还原为有界 relevance。
+    const vectorScore = Number(source.vectorScore);
+    const factorMatch = source.filterReason?.match(/\(([0-9.]+)x\)/);
+    const factor = Number(factorMatch?.[1]);
+    if (Number.isFinite(vectorScore) && vectorScore >= 0 && vectorScore <= 1 && Number.isFinite(factor) && factor > 0) {
+        if (vectorScore === 0 || vectorScore === 1) return vectorScore;
+        return (vectorScore * factor) / ((1 - vectorScore) + (vectorScore * factor));
+    }
+
+    return Math.min(1, Math.max(0, score));
 }
 
 function ExpandableText({ value, size = 160 }: { value: string; size?: number }) {
@@ -126,6 +145,10 @@ export function RagDebugPanel({ query, sources, ragRuntime, retrievalView, filte
                     <em>candidate pool</em>
                     <strong>{diagnostics?.retrieval?.candidateLimit || topK} / {diagnostics?.retrieval?.numCandidates || '-'}</strong>
                 </article>
+                <article>
+                    <em>score semantics</em>
+                    <strong>0–1 relevance · not confidence</strong>
+                </article>
             </div>
             <div className="rag-debug-note">
                 <b>{retrievalView.label}</b>
@@ -136,7 +159,7 @@ export function RagDebugPanel({ query, sources, ragRuntime, retrievalView, filte
                     <article id={`src-${index}`} key={source._id || `${source.documentTitle}-${index}`}>
                         <header>
                             <strong>[{index + 1}] {source.documentTitle || 'Untitled source'}</strong>
-                            <span>score {Number(source.score || 0).toFixed(4)}</span>
+                            <span>relevance {displayRelevance(source).toFixed(4)}</span>
                         </header>
                         <p><ExpandableText value={source.content || ''} size={180} /></p>
                         <footer>
@@ -144,7 +167,8 @@ export function RagDebugPanel({ query, sources, ragRuntime, retrievalView, filte
                             <span>{source.sourcePath || 'no-source-path'}</span>
                             <span>rank {source.candidateRank || index + 1}</span>
                             {source.vectorRank ? <span>vector rank {source.vectorRank}</span> : null}
-                            <span>rerank {Number(source.rerankScore ?? source.score ?? 0).toFixed(4)}</span>
+                            {source.vectorScore !== undefined ? <span>vector {Number(source.vectorScore).toFixed(4)}</span> : null}
+                            <span>rerank relevance {displayRelevance(source).toFixed(4)}</span>
                             <span>{source.rerankStrategy || 'score-desc'}</span>
                             <span>{source.filterReason || 'passed current retrieval filters'}</span>
                         </footer>
