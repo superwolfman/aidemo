@@ -1,4 +1,6 @@
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:4000';
+// 生产环境优先与页面同源（/api 走 nginx 反代），本地开发回退到 127.0.0.1:4000
+const isLocalhost = typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1|::1)$/.test(window.location.hostname);
+const API_BASE = import.meta.env.VITE_API_BASE || (isLocalhost ? 'http://127.0.0.1:4000' : '');
 export const tokenKey = 'enablement-ai-token';
 
 type RequestOptions = RequestInit & {

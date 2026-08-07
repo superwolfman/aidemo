@@ -49,9 +49,10 @@ if [ "${1:-}" = "--update" ]; then
   git pull --ff-only
 fi
 
-# 5. 构建镜像（VITE_API_BASE 变化或代码变化都需 --build）
+# 5. 构建镜像
+# 加 --no-cache 防止 Docker 复用旧层：VITE_API_BASE 变化必须重新执行 client build
 echo "==== 构建镜像 ===="
-$COMPOSE build
+$COMPOSE build --no-cache
 
 # 6. 启动服务
 echo "==== 启动服务 ===="

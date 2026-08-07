@@ -851,7 +851,8 @@ export function agentStudioRouter (store) {
             }
             sendEvent(res, 'plan', { plan, selectedSkill, intent });
 
-            if (!streamed) {
+            // 只有非真实流式模式（sync / fallback）才需要模拟流式输出 delta
+            if (mode !== 'streaming') {
                 for (let index = 0; index < answer.length; index += 20) {
                     sendEvent(res, 'delta', { text: answer.slice(index, index + 20) });
                     await sleep(14);
