@@ -226,18 +226,41 @@ export async function seedKnowledgeIfEmpty (store, { tenantId = DEFAULT_TENANT_I
             }
         }
 
-        // 只创建当前租户尚未存在的 seed 文档（按 title 去重），这样新增 seed 也能同步到已有数据的租户
-        let existingTitles = new Set();
+        // 收集当前租户已有文档（title -> _id），用于判断是否需要创建/重建
+        const titleToId = new Map();
         if (typeof store.db === 'object' && store.db) {
-            existingTitles = new Set(
-                (await store.db.collection('documents').find({ tenantId }, { projection: { title: 1 } }).toArray())
-                    .map((doc) => doc.title)
-            );
+            const existingDocs = await store.db.collection('documents')
+                .find({ tenantId }, { projection: { title: 1 } })
+                .toArray();
+            for (const doc of existingDocs) titleToId.set(doc.title, doc._id);
         }
-        const missing = seedKnowledge.filter((item) => !existingTitles.has(item.title));
+
+        // 只创建当前租户缺失或「无有效向量」的 seed 文档。
+        // 旧的「仅按 title 去重」会在 embedding 生成失败时留下「有 document 无 chunk」的空壳，
+        // 并永久跳过重建，导致该文档永远无法被检索召回（表现为领域知识库看起来没生效）。
+        const missing = [];
+        for (const item of seedKnowledge) {
+            const docId = titleToId.get(item.title);
+            if (!docId) {
+                missing.push(item);
+                continue;
+            }
+            const validChunkCount = typeof store.db === 'object' && store.db
+                ? await store.db.collection('chunks').countDocuments({
+                      documentId: docId,
+                      embedding: { $exists: true, $type: 'array', $ne: [] }
+                  })
+                : 1;
+            if (validChunkCount === 0) {
+                console.log(`[seed] orphan seed document without vectors detected, will rebuild: ${item.title}`);
+                await store.db.collection('documents').deleteOne({ _id: docId });
+                await store.db.collection('chunks').deleteMany({ documentId: docId });
+                missing.push(item);
+            }
+        }
 
         if (!missing.length) {
-            console.log(`[seed] all ${seedKnowledge.length} seed documents already exist for tenant ${tenantId}`);
+            console.log(`[seed] all ${seedKnowledge.length} seed documents already exist with vectors for tenant ${tenantId}`);
             return { seeded: false, reason: 'all seed documents exist', count };
         }
 

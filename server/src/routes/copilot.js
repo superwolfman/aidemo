@@ -507,18 +507,39 @@ async function readProjectKnowledgeFiles () {
 }
 
 async function ensureKnowledge (store, context) {
-    const docs = await store.listDocuments(context);
-    const titles = new Set(docs.map((doc) => doc.title));
+    // 直接用 store.db 查询以拿到 ObjectId（避免经 serialize 后 _id 变 string 导致删除不匹配）
+    const titleToId = new Map();
+    if (typeof store.db === 'object' && store.db) {
+        const existingDocs = await store.db.collection('documents')
+            .find({ tenantId: context.tenantId }, { projection: { title: 1 } })
+            .toArray();
+        for (const doc of existingDocs) titleToId.set(doc.title, doc._id);
+    }
     const projectDocs = await readProjectKnowledgeFiles();
     for (const doc of projectDocs) {
-        if (!titles.has(doc.title)) {
+        if (!titleToId.has(doc.title)) {
             await store.createDocument(context, doc);
-            titles.add(doc.title);
+            titleToId.set(doc.title, true);
         }
     }
-    for (const doc of seedKnowledge) {
-        if (!titles.has(doc.title)) {
-            await store.createDocument(context, { ...doc, scopes: doc.tags, sourceType: 'template' });
+    // 校验 seed 文档是否真的有向量，清理「有 document 无 chunk」的脏数据并重建
+    if (typeof store.db === 'object' && store.db) {
+        for (const doc of seedKnowledge) {
+            const docId = titleToId.get(doc.title);
+            if (!docId) {
+                await store.createDocument(context, { ...doc, scopes: doc.scopes, sourceType: 'template' });
+                continue;
+            }
+            const validChunkCount = await store.db.collection('chunks').countDocuments({
+                documentId: docId,
+                embedding: { $exists: true, $type: 'array', $ne: [] }
+            });
+            if (validChunkCount === 0) {
+                console.log(`[knowledge] orphan seed document without vectors detected, rebuild: ${doc.title}`);
+                await store.db.collection('documents').deleteOne({ _id: docId });
+                await store.db.collection('chunks').deleteMany({ documentId: docId });
+                await store.createDocument(context, { ...doc, scopes: doc.scopes, sourceType: 'template' });
+            }
         }
     }
 }
