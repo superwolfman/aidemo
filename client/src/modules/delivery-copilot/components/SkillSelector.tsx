@@ -15,8 +15,7 @@ type SkillSelectorProps = {
   onConstraintsChange: (value: string) => void;
   cases: EvalCase[];
   selectedEvalCaseId: string;
-  onRunCase: (item: EvalCase) => void;
-  onRunAllCases: () => void;
+  onApplyCase: (item: EvalCase) => void;
   running: boolean;
   onRun: () => void;
   onStop: () => void;
@@ -37,8 +36,7 @@ export function SkillSelector({
   onConstraintsChange,
   cases,
   selectedEvalCaseId,
-  onRunCase,
-  onRunAllCases,
+  onApplyCase,
   running,
   onRun,
   onStop,
@@ -69,28 +67,28 @@ export function SkillSelector({
       </div>
       <label>约束条件<textarea value={constraints} onChange={(event) => onConstraintsChange(event.target.value)} /></label>
       <div className="delivery-actions">
-        <button className="primary-button" disabled={running} onClick={onRun}><Send size={15} />生成交付物</button>
+        <button className="primary-button" disabled={running || !requirement.trim()} onClick={onRun}><Send size={15} />生成交付物</button>
         <button className="secondary-button" disabled={!running} onClick={onStop}><Pause size={15} />停止</button>
-        <button className="secondary-button" disabled={running} onClick={onRerun}><RefreshCw size={15} />重跑</button>
+        <button className="secondary-button" disabled={running || !requirement.trim()} onClick={onRerun}><RefreshCw size={15} />重跑</button>
       </div>
 
       <div className="delivery-cases">
         <div className="delivery-cases-head">
-          <strong>真实 Eval Cases</strong>
-          <button type="button" className="text-button" disabled={running || cases.length === 0} onClick={onRunAllCases}>运行全部</button>
+          <strong>评测场景模板</strong>
         </div>
+        <p style={{ margin: '0 0 10px', fontSize: 12, color: '#666' }}>选择模板自动填充需求与约束，也可直接编辑上方内容后运行。</p>
         {cases.map((item) => (
           <button
             key={item.id}
             type="button"
             className={selectedEvalCaseId === item.id ? 'active' : ''}
             disabled={running}
-            onClick={() => onRunCase(item)}
+            onClick={() => onApplyCase(item)}
           >
             <b>{item.title}</b>
             <span>{item.expected.join(' / ')}</span>
             <em className={item.lastResult ? (item.lastResult.score === 100 ? 'passed' : 'review') : ''}>
-              {item.lastResult ? `${item.lastResult.score}% · ${item.lastResult.passed}/${item.lastResult.total}` : '点击运行'}
+              {item.lastResult ? `${item.lastResult.score}% · ${item.lastResult.passed}/${item.lastResult.total}` : '点击填充'}
             </em>
           </button>
         ))}
