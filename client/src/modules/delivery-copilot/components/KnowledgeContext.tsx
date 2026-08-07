@@ -6,7 +6,6 @@ type KnowledgeContextProps = {
   ragLive: boolean;
   ragRuntime?: RagRuntime;
   retrievalView: RetrievalView;
-  prompt: string;
   requirement: string;
   sources: Source[];
   filteredChunks?: FilteredChunk[];
@@ -18,7 +17,6 @@ export function KnowledgeContext({
   ragLive,
   ragRuntime,
   retrievalView,
-  prompt,
   requirement,
   sources,
   filteredChunks,
@@ -54,7 +52,7 @@ export function KnowledgeContext({
         <em>{retrievalView.backend} · {ragRuntime?.connection || (ragRuntime?.connected ? 'connected' : 'not connected')}</em>
       </div>
       <RagDebugPanel
-        query={prompt || requirement}
+        query={diagnostics?.retrieval?.query || requirement}
         sources={sources}
         ragRuntime={ragRuntime}
         retrievalView={retrievalView}

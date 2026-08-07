@@ -72,10 +72,8 @@ test('Atlas vector query applies tenant and scope before vector retrieval', () =
     });
 
     assert.deepEqual(pipeline[0].$vectorSearch.filter, {
-        $and: [
-            { tenantId: { $eq: 'tenant-alpha' } },
-            { scopes: { $in: ['architecture'] } }
-        ]
+        tenantId: { $eq: 'tenant-alpha' },
+        scopes: { $in: ['architecture'] }
     });
     assert.equal(pipeline[0].$vectorSearch.limit, 5);
 });

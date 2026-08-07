@@ -11,8 +11,8 @@ const sources = [
   }
 ];
 
-test('buildDeliveryArtifacts creates traceable delivery assets', () => {
-  const artifacts = buildDeliveryArtifacts({
+test('buildDeliveryArtifacts creates traceable delivery assets', async () => {
+  const artifacts = await buildDeliveryArtifacts({
     intent: {
       id: 'product-delivery-agent',
       label: 'AI 产品交付工作流',

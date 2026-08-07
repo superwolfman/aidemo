@@ -112,31 +112,77 @@ async function gatherDiagnostics (store, context, query = '') {
     return diagnostics;
 }
 
+export function buildVectorSearchPlan (limit = 5) {
+    const topK = Math.max(1, Number(limit) || 5);
+    // Atlas 先扩大候选池，再做业务重排。这里与线上诊断脚本保持同一口径：
+    // top5 至少召回 20 个候选，避免只对向量 top8 重排导致领域文档根本没有参赛。
+    const candidateLimit = Math.max(topK * 4, 20);
+    return {
+        topK,
+        candidateLimit,
+        numCandidates: Math.max(candidateLimit * 16, 80)
+    };
+}
+
+function buildRetrievalDiagnostics (diagnostics, query, plan, strategy) {
+    return {
+        ...diagnostics,
+        retrieval: {
+            query,
+            queryStrategy: strategy,
+            requestedTopK: plan.topK,
+            candidateLimit: plan.candidateLimit,
+            numCandidates: plan.numCandidates
+        }
+    };
+}
+
+function toFilteredChunk (source, index, topK) {
+    return {
+        id: source._id,
+        title: source.documentTitle || source.title,
+        score: Number(source.score || 0),
+        reason: `scope precision rerank rank ${index + 1}，超出 topK ${topK}`
+    };
+}
+
 export async function retrieveKnowledge ({ store, context, query, scopes, limit = 5 }) {
     requireTenantContext(context);
     const authorizedScopes = authorizeKnowledgeScopes(context, scopes);
     const diagnostics = await gatherDiagnostics(store, context, query);
+    const vectorPlan = buildVectorSearchPlan(limit);
 
     if (config.ragBackend === 'mongodb-atlas' && typeof store.searchVectorChunks === 'function') {
         try {
             const rawSources = await store.searchVectorChunks(context, query, {
                 scopes: authorizedScopes,
-                limit: Math.max(limit, 8),
-                numCandidates: Math.max(limit * 16, 80)
+                limit: vectorPlan.candidateLimit,
+                numCandidates: vectorPlan.numCandidates
             });
 
-            const sources = rerankByScopePrecision(rawSources, authorizedScopes);
+            const rankedSources = rerankByScopePrecision(
+                rawSources.map((source, index) => ({ ...source, vectorRank: index + 1 })),
+                authorizedScopes
+            );
+            const sources = rankedSources.slice(0, vectorPlan.topK);
 
             return {
                 status: getRagStatus({ mode: 'live', storeKind: store.kind, vectorSearchReady: true }),
-                sources: enrichSources(sources.slice(0, limit), {
+                sources: enrichSources(sources, {
                     backend: 'mongodb-atlas-vector-search',
                     strategy: 'atlas-vector-prefilter + scope-precision-rerank',
                     scopes: authorizedScopes
                 }),
                 filter: { tenantApplied: true, scopeApplied: true },
-                filteredChunks: [],
-                diagnostics
+                filteredChunks: rankedSources
+                    .slice(vectorPlan.topK)
+                    .map((source, index) => toFilteredChunk(source, index + vectorPlan.topK, vectorPlan.topK)),
+                diagnostics: buildRetrievalDiagnostics(
+                    diagnostics,
+                    query,
+                    vectorPlan,
+                    'business-requirement + atlas-vector-prefilter + scope-precision-rerank'
+                )
             };
         } catch (error) {
             const fallback = await retrieveLocalKnowledge({ store, context, query, scopes: authorizedScopes, limit });
@@ -150,13 +196,26 @@ export async function retrieveKnowledge ({ store, context, query, scopes, limit 
                 }),
                 filter: { tenantApplied: true, scopeApplied: true },
                 filteredChunks: [],
-                diagnostics: { ...diagnostics, error: error.message }
+                diagnostics: buildRetrievalDiagnostics(
+                    { ...diagnostics, error: error.message },
+                    query,
+                    vectorPlan,
+                    'business-requirement + local-fallback'
+                )
             };
         }
     }
 
     const local = await retrieveLocalKnowledge({ store, context, query, scopes: authorizedScopes, limit });
-    return { ...local, diagnostics };
+    return {
+        ...local,
+        diagnostics: buildRetrievalDiagnostics(
+            diagnostics,
+            query,
+            vectorPlan,
+            'business-requirement + local-hash'
+        )
+    };
 }
 
 async function retrieveLocalKnowledge ({ store, context, query, scopes, limit = 5 }) {

@@ -12,6 +12,7 @@ export type Source = {
     retrievalBackend?: string;
     sourcePath?: string;
     candidateRank?: number;
+    vectorRank?: number;
     rerankScore?: number;
     rerankStrategy?: string;
     filterReason?: string;
@@ -72,6 +73,21 @@ export type AgentRun = {
     answer?: string;
     sources?: Source[];
     filteredChunks?: FilteredChunk[];
+    retrievalQuery?: string;
+    ragDiagnostics?: {
+        chunkCount?: number;
+        documentCount?: number;
+        vectorSearchReady?: boolean;
+        error?: string;
+        status?: RagRuntime;
+        retrieval?: {
+            query?: string;
+            queryStrategy?: string;
+            requestedTopK?: number;
+            candidateLimit?: number;
+            numCandidates?: number;
+        };
+    };
     artifacts?: Artifact[];
     trace?: TraceStep[];
     quality?: RunQuality;

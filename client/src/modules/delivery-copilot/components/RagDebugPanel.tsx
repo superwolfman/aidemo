@@ -8,6 +8,7 @@ type Source = {
     content?: string;
     score?: number;
     candidateRank?: number;
+    vectorRank?: number;
     rerankScore?: number;
     rerankStrategy?: string;
     filterReason?: string;
@@ -40,6 +41,13 @@ type Diagnostics = {
     documentCount?: number;
     vectorSearchReady?: boolean;
     error?: string;
+    retrieval?: {
+        query?: string;
+        queryStrategy?: string;
+        requestedTopK?: number;
+        candidateLimit?: number;
+        numCandidates?: number;
+    };
 };
 
 type Props = {
@@ -70,7 +78,7 @@ function ExpandableText({ value, size = 160 }: { value: string; size?: number })
 }
 
 export function RagDebugPanel({ query, sources, ragRuntime, retrievalView, filteredChunks, diagnostics }: Props) {
-    const topK = Math.max(sources.length, 5);
+    const topK = diagnostics?.retrieval?.requestedTopK || Math.max(sources.length, 5);
 
     const filteredReason = (() => {
         if (sources.length) return '已按当前 Skill scope、topK 和 score 阈值返回候选 chunk。';
@@ -112,7 +120,11 @@ export function RagDebugPanel({ query, sources, ragRuntime, retrievalView, filte
                 </article>
                 <article>
                     <em>rerank</em>
-                    <strong>{retrievalView.live ? 'vector score' : 'local score'}</strong>
+                    <strong>{diagnostics?.retrieval?.queryStrategy || (retrievalView.live ? 'vector score' : 'local score')}</strong>
+                </article>
+                <article>
+                    <em>candidate pool</em>
+                    <strong>{diagnostics?.retrieval?.candidateLimit || topK} / {diagnostics?.retrieval?.numCandidates || '-'}</strong>
                 </article>
             </div>
             <div className="rag-debug-note">
@@ -131,6 +143,7 @@ export function RagDebugPanel({ query, sources, ragRuntime, retrievalView, filte
                             <span>{source.retrievalBackend || 'unknown-backend'}</span>
                             <span>{source.sourcePath || 'no-source-path'}</span>
                             <span>rank {source.candidateRank || index + 1}</span>
+                            {source.vectorRank ? <span>vector rank {source.vectorRank}</span> : null}
                             <span>rerank {Number(source.rerankScore ?? source.score ?? 0).toFixed(4)}</span>
                             <span>{source.rerankStrategy || 'score-desc'}</span>
                             <span>{source.filterReason || 'passed current retrieval filters'}</span>

@@ -9,7 +9,7 @@ import { SkillSelector } from './components/SkillSelector';
 import { StreamPanel } from './components/StreamPanel';
 import { TraceTimeline } from './components/TraceTimeline';
 import { CitationText } from './components/CitationText';
-import type { AgentRun, AgentSession, Artifact, EvalCase, RunQuality, RuntimeBlueprint, Source, TraceStep } from './types';
+import type { AgentRun, AgentSession, Artifact, EvalCase, RuntimeBlueprint } from './types';
 import { downloadFile, getRetrievalView, stringify } from './utils';
 import { useAgentRun } from '../../hooks/useAgentRun';
 import { useEval } from '../../hooks/useEval';
@@ -53,13 +53,17 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
     const evalCase = useEval('agent-studio');
     const artifact = useArtifact();
 
-    const { setActive, load: loadSession, active } = session;
-    const { status, setStatus, answer, setAnswer, trace, setTrace, sources, setSources, filteredChunks, setFilteredChunks, ragDiagnostics, artifacts, setArtifacts, quality, setQuality, activeRun, setActiveRun, start, abortRef: runAbort } = agentRun;
+    const { setActive, active } = session;
+    const { status, setStatus, answer, setAnswer, trace, setTrace, sources, setSources, filteredChunks, setFilteredChunks, ragDiagnostics, setRagDiagnostics, artifacts, setArtifacts, quality, setQuality, activeRun, setActiveRun, start } = agentRun;
     const { cases, setCases, load: loadEvalCases, refresh: refreshEval, score } = evalCase;
 
     const activeArtifact = useMemo(() => artifacts.find((item) => item.id === activeArtifactId) || artifacts[0], [activeArtifactId, artifacts]);
     const activeTaskMode = useMemo(() => deliveryTaskModes.find((item) => item.id === taskModeId) || deliveryTaskModes[0], [taskModeId]);
-    const ragRuntime = blueprint?.runtime.rag;
+    // 配置快照作为初始值；本次 Run 的真实检索状态通过 SSE diagnostics 实时覆盖。
+    const ragRuntime = useMemo(() => ({
+        ...blueprint?.runtime.rag,
+        ...(ragDiagnostics?.status || {})
+    }), [blueprint?.runtime.rag, ragDiagnostics?.status]);
     const retrievalView = useMemo(() => getRetrievalView(ragRuntime, sources), [ragRuntime, sources]);
     const ragLive = retrievalView.live;
     const artifactSummary = useMemo(() => {
@@ -75,20 +79,16 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
             return { ...slot, artifact: art, done: Boolean(art), confirmed: art?.status === 'confirmed' };
         });
     }, [artifacts]);
-    const prompt = useMemo(() => [
-        `业务需求：${requirement}`,
-        `目标用户：${audience}`,
-        `交付目标：${deadline}`,
-        `约束条件：${constraints}`,
-        activeTaskMode.promptSuffix
-    ].join('\n'), [activeTaskMode.promptSuffix, audience, constraints, deadline, requirement]);
-
     const load = useCallback(async () => {
         try {
             // 先读本地缓存，避免 fallback 闪烁
             const cachedBlueprint = localStorage.getItem('aidemo.blueprint');
             if (cachedBlueprint) {
-                try { setBlueprint(JSON.parse(cachedBlueprint)); } catch { }
+                try {
+                    setBlueprint(JSON.parse(cachedBlueprint));
+                } catch {
+                    localStorage.removeItem('aidemo.blueprint');
+                }
             }
 
             const [blueprintResult, sessionResult, caseResult] = await Promise.all([
@@ -192,21 +192,25 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
         const aud = opts.audience ?? audience;
         const dl = opts.deadline ?? deadline;
         const cons = opts.constraints ?? constraints;
-        const retrievalQuery = [
+        // RAG 只使用用户的核心业务需求；受众、期限、技术约束仍进入 LLM Prompt，
+        // 但不再污染语义检索（否则 React/Node/RAG/Trace 会把 Copilot 自身源码推到前列）。
+        const retrievalQuery = req.trim();
+        const nextPrompt = [
             `业务需求：${req}`,
             `目标用户：${aud}`,
             `交付目标：${dl}`,
-            `约束条件：${cons}`
+            `约束条件：${cons}`,
+            activeTaskMode.promptSuffix
         ].join('\n');
-        const nextPrompt = `${retrievalQuery}\n${activeTaskMode.promptSuffix}`;
         const evalCaseId = opts.evalCaseId ?? selectedEvalCaseId;
-        if (!nextPrompt.trim()) return;
+        if (!retrievalQuery) return;
         const controller = new AbortController();
         abortRef.current = controller;
         setRunning(true);
         setAnswer('');
         setSources([]);
         setFilteredChunks([]);
+        setRagDiagnostics(null);
         setArtifacts([]);
         setTrace([]);
         setQuality(null);
@@ -223,6 +227,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
                 sources: (payload) => {
                     setSources(payload.sources || []);
                     setFilteredChunks(payload.filteredChunks || []);
+                    setRagDiagnostics(payload.diagnostics || null);
                 },
                 artifacts: (payload) => { setArtifacts(payload.artifacts || []); setActiveArtifactId(payload.artifacts?.[0]?.id || ''); setArtifactDraft(stringify(payload.artifacts?.[0]?.content || '')); },
                 delta: (payload) => setAnswer((current) => current + payload.text),
@@ -231,6 +236,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
                     setAnswer(payload.run?.answer || '');
                     setSources(payload.run?.sources || []);
                     setFilteredChunks(payload.run?.filteredChunks || []);
+                    setRagDiagnostics(payload.run?.ragDiagnostics || null);
                     setArtifacts(payload.run?.artifacts || []);
                     // 防御性合并：后端 final 事件可能不带 trace，避免覆盖运行中已累积的 trace
                     setTrace((items) => (payload.run?.trace?.length ? payload.run.trace : items));
@@ -276,6 +282,8 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
         setArtifacts(run.artifacts || []);
         setTrace(run.trace || []);
         setSources(run.sources || []);
+        setFilteredChunks(run.filteredChunks || []);
+        setRagDiagnostics(run.ragDiagnostics || null);
         setQuality(run.quality || null);
         const nextArtifact = (run.artifacts || []).find((item) => item.id === activeArtifactId) || run.artifacts?.[0];
         if (nextArtifact) { setActiveArtifactId(nextArtifact.id); setArtifactDraft(stringify(nextArtifact.content)); }
@@ -336,7 +344,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
             </main>
             <section className="delivery-bottom-row">
                 <section className="delivery-region-4">
-                    <KnowledgeContext ragLive={ragLive} ragRuntime={ragRuntime} retrievalView={retrievalView} prompt={prompt} requirement={requirement} sources={sources} filteredChunks={filteredChunks} diagnostics={ragDiagnostics} trace={trace} />
+                    <KnowledgeContext ragLive={ragLive} ragRuntime={ragRuntime} retrievalView={retrievalView} requirement={requirement} sources={sources} filteredChunks={filteredChunks} diagnostics={ragDiagnostics} trace={trace} />
                 </section>
                 <section className="delivery-region-5">
                     <ApprovalPanel activeRun={activeRun} activeArtifact={activeArtifact} artifactSummary={artifactSummary} onSelectArtifact={selectArtifact} onConfirmArtifact={confirmArtifact} />

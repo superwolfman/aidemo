@@ -6,6 +6,7 @@ import { applyArtifactReview, attachArtifactWorkflow, normalizeSourceRef, export
 import { buildEvalCases, persistEvalResult, scoreRunQuality } from '../services/evalService.js';
 import { generateLlmAnswer, getProviderStatus, streamLlmAnswer } from '../services/llmProvider.js';
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
+import { resolveRetrievalQuery } from '../services/retrievalQuery.js';
 import { agentCapabilities, getAgentCapability } from '../services/skillRegistry.js';
 import { buildDeliveryArtifacts, buildFallbackAnswer } from '../services/toolExecutor.js';
 import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
@@ -628,7 +629,7 @@ export function agentStudioRouter (store) {
 
             const prompt = String(req.body.message || '').trim();
             // retrievalQuery 由前端提供，用于 RAG；不含 LLM 输出格式/任务后缀，避免向量搜索被模板词汇污染。
-            const retrievalQuery = String(req.body.retrievalQuery || prompt).trim();
+            const retrievalQuery = resolveRetrievalQuery(req.body);
             const commandOptions = req.body.commandOptions && typeof req.body.commandOptions === 'object' ? req.body.commandOptions : {};
             const modelConfig = req.body.model && typeof req.body.model === 'object' ? req.body.model : {};
             const provider = getProviderStatus(modelConfig);
@@ -672,6 +673,8 @@ export function agentStudioRouter (store) {
                 quality: null,
                 evalCaseId: req.body.evalCaseId,
                 commandOptions,
+                retrievalQuery,
+                ragDiagnostics: null,
                 createdBy: req.user._id,
                 tenantId: req.auth.tenantId,
                 status: 'created',
@@ -749,9 +752,27 @@ export function agentStudioRouter (store) {
                 limit: 5
             });
             const sources = rag.sources || [];
-            sendEvent(res, 'sources', { sources, filteredChunks: rag.filteredChunks || [], rag: rag.status, latencyMs: Date.now() - retrievalStartedAt, scopes: intent.scopes, diagnostics: rag.diagnostics });
+            const ragDiagnostics = { ...rag.diagnostics, status: rag.status };
             plan = updatePlan(plan, 'retrieve-context', 'success', { output: { hits: sources.length, backend: rag.status?.retrievalBackend || rag.status?.backend } });
-            await persistRun({ sources, filteredChunks: rag.filteredChunks || [], plan })
+            await persistRun({
+                sources,
+                filteredChunks: rag.filteredChunks || [],
+                ragDiagnostics,
+                retrievalQuery,
+                plan
+            });
+            // 业务快照先落库，再发布 SSE；刷新或断线恢复时不会看到比事件更旧的 Run。
+            sendEvent(res, 'sources', {
+                runDbId: runRecord._id,
+                runId,
+                sources,
+                filteredChunks: rag.filteredChunks || [],
+                rag: rag.status,
+                latencyMs: Date.now() - retrievalStartedAt,
+                scopes: intent.scopes,
+                retrievalQuery,
+                diagnostics: ragDiagnostics
+            });
             sendEvent(res, 'plan', { plan, selectedSkill, intent });
             await emitStep(step('rag', 'RAG 上下文检索', 'success', {
                 tool: 'retrieveKnowledge',
@@ -890,6 +911,8 @@ export function agentStudioRouter (store) {
                 plan,
                 sources,
                 filteredChunks: rag.filteredChunks || [],
+                ragDiagnostics,
+                retrievalQuery,
                 artifacts,
                 trace,
                 logs,
@@ -931,4 +954,3 @@ export function agentStudioRouter (store) {
     })
     return router;
 }
-

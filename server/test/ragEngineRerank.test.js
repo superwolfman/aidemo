@@ -2,13 +2,21 @@
 // 不依赖外部服务，仅对 rerankByScopePrecision 做纯函数单测。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rerankByScopePrecision } from '../src/services/ragEngine.js';
+import { buildVectorSearchPlan, rerankByScopePrecision } from '../src/services/ragEngine.js';
 
 function makeSource ({ title, score, scopes, sourceType = 'manual' }) {
     return { title, score, scopes, sourceType };
 }
 
 const USER_SCOPES = ['architecture', 'standards', 'ai-native', 'frontend', 'frontend-observability', 'engineering-governance', 'performance'];
+
+test('top5 检索使用与线上诊断一致的 20 条重排候选池', () => {
+    assert.deepEqual(buildVectorSearchPlan(5), {
+        topK: 5,
+        candidateLimit: 20,
+        numCandidates: 320
+    });
+});
 
 test('命中精确领域 scope 的 chunk 得分被 boost，排名上升', () => {
     const sources = [
