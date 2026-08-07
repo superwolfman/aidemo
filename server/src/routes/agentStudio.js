@@ -742,7 +742,7 @@ export function agentStudioRouter (store) {
             const rag = await retrieveKnowledge({
                 store,
                 context: req.auth,
-                query: `${intent.goal}\n${prompt}`,
+                query: prompt,
                 scopes: intent.scopes,
                 limit: 5
             });
