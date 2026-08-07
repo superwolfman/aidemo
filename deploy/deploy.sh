@@ -5,8 +5,9 @@
 #   1. 首次：cp deploy/.env.production.example deploy/.env.production 并填写
 #   2. 设置公网访问地址：
 #        export VITE_API_BASE=http://<ECS公网IP>   # 或 https://aidemo.xxx.com
-#   3. bash deploy/deploy.sh                       # 首次部署
-#      bash deploy/deploy.sh --update              # 拉新代码后更新
+#   3. bash deploy/deploy.sh                       # 首次部署 / 代码更新后构建
+#      bash deploy/deploy.sh --update              # 先拉新代码再构建
+#      bash deploy/deploy.sh --clean               # 强制无缓存重建（首次或换 registry 时用）
 # ============================================================
 set -euo pipefail
 
@@ -43,16 +44,22 @@ if grep -qE "^JWT_SECRET=(replace-with-32-bytes-random|local-demo-secret)" "$ENV
   exit 1
 fi
 
-# 4. 更新分支（--update 时拉最新代码）
+# 4. 处理参数
+CLEAN_BUILD=""
 if [ "${1:-}" = "--update" ]; then
   echo "==== 拉取最新代码 ===="
   git pull --ff-only
+elif [ "${1:-}" = "--clean" ]; then
+  CLEAN_BUILD="--no-cache"
+  echo "==== 强制无缓存重建 ===="
 fi
 
 # 5. 构建镜像
-# 加 --no-cache 防止 Docker 复用旧层：VITE_API_BASE 变化必须重新执行 client build
+# 默认使用 Docker 层缓存：package.json 未变时 npm ci 不会重跑，可大幅加速部署。
+# VITE_API_BASE 作为 build arg 会自动使下游 client build 层失效，无需 --no-cache。
+# 只有依赖/registry 出问题或想彻底重建时，才用 bash deploy/deploy.sh --clean
 echo "==== 构建镜像 ===="
-$COMPOSE build --no-cache
+$COMPOSE build $CLEAN_BUILD
 
 # 6. 启动服务
 echo "==== 启动服务 ===="

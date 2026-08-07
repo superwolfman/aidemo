@@ -7,6 +7,7 @@ client/.env
 server/data/demo-db.json
 .local/
 *.md
+!.githooks/**/*.md
 npm-debug.log*
 
 # 部署：生产密钥不入库（.example 保留）

@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY client/package.json ./client/
 COPY server/package.json ./server/
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev || (echo 'npm ci failed, retry with registry.npmjs.org...' && npm config set registry https://registry.npmjs.org/ && npm ci --omit=dev)
 
 FROM node:20-alpine
 WORKDIR /app
