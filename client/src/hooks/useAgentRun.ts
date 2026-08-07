@@ -8,6 +8,7 @@ export function useAgentRun(_kind: 'agent-studio' | 'delivery' = 'agent-studio')
     const [trace, setTrace] = useState<any[]>([]);
     const [sources, setSources] = useState<any[]>([]);
     const [filteredChunks, setFilteredChunks] = useState<any[]>([]);
+    const [ragDiagnostics, setRagDiagnostics] = useState<any>(null);
     const [artifacts, setArtifacts] = useState<any[]>([]);
     const [plan, setPlan] = useState<any[]>([]);
     const [logs, setLogs] = useState<any[]>([]);
@@ -27,6 +28,7 @@ export function useAgentRun(_kind: 'agent-studio' | 'delivery' = 'agent-studio')
         setTrace([]);
         setSources([]);
         setFilteredChunks([]);
+        setRagDiagnostics(null);
         setArtifacts([]);
         setPlan([]);
         setLogs([]);
@@ -61,6 +63,7 @@ export function useAgentRun(_kind: 'agent-studio' | 'delivery' = 'agent-studio')
                 if (!handlers.sources) {
                     setSources(payload.sources || []);
                     setFilteredChunks(payload.filteredChunks || []);
+                    setRagDiagnostics(payload.diagnostics || null);
                 }
             },
             artifacts: (payload: any) => {
@@ -100,7 +103,8 @@ export function useAgentRun(_kind: 'agent-studio' | 'delivery' = 'agent-studio')
 
     return {
         status, setStatus, runState, setRunState, answer, setAnswer, trace, setTrace,
-        sources, setSources, filteredChunks, setFilteredChunks, artifacts, setArtifacts, plan, setPlan, logs, setLogs,
+        sources, setSources, filteredChunks, setFilteredChunks, ragDiagnostics, setRagDiagnostics,
+        artifacts, setArtifacts, plan, setPlan, logs, setLogs,
         activeRun, setActiveRun, quality, setQuality, running, setRunning,
         abortRef, start, control, review, replay, stop
     };

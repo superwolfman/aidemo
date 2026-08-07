@@ -35,12 +35,20 @@ type RetrievalView = {
     warning?: string;
 };
 
+type Diagnostics = {
+    chunkCount?: number;
+    documentCount?: number;
+    vectorSearchReady?: boolean;
+    error?: string;
+};
+
 type Props = {
     query: string;
     sources: Source[];
     ragRuntime?: RagRuntime;
     retrievalView: RetrievalView;
     filteredChunks?: FilteredChunk[];
+    diagnostics?: Diagnostics;
 };
 
 function shortText(value = '', size = 160) {
@@ -61,11 +69,20 @@ function ExpandableText({ value, size = 160 }: { value: string; size?: number })
     );
 }
 
-export function RagDebugPanel({ query, sources, ragRuntime, retrievalView, filteredChunks }: Props) {
-    const filteredReason = sources.length
-        ? '已按当前 Skill scope、topK 和 score 阈值返回候选 chunk。'
-        : '未命中引用；请检查知识域、向量索引或上传文档。';
+export function RagDebugPanel({ query, sources, ragRuntime, retrievalView, filteredChunks, diagnostics }: Props) {
     const topK = Math.max(sources.length, 5);
+
+    const filteredReason = (() => {
+        if (sources.length) return '已按当前 Skill scope、topK 和 score 阈值返回候选 chunk。';
+        if (!diagnostics) return '未命中引用；请检查知识域、向量索引或上传文档。';
+        if ((diagnostics.chunkCount || 0) === 0) {
+            return `未命中引用：当前租户知识库为空（${diagnostics.documentCount || 0} 文档 / ${diagnostics.chunkCount || 0} chunk）。系统已内置示例知识库，请前往「知识库」导入模板或重新部署以触发自动 seed。`;
+        }
+        if (!diagnostics.vectorSearchReady) {
+            return `未命中引用：向量索引异常或未就绪（chunk=${diagnostics.chunkCount}）。请检查 Atlas 向量索引配置：${diagnostics.error || 'unknown'}`;
+        }
+        return `未命中引用：知识库有 ${diagnostics.chunkCount} 个 chunk，但当前 query 与 scope 组合未召回内容。可尝试扩大 scope 或上传更相关文档。`;
+    })();
 
     return (
         <section className="rag-debug-panel">

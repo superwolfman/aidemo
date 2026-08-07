@@ -10,6 +10,7 @@ type KnowledgeContextProps = {
   requirement: string;
   sources: Source[];
   filteredChunks?: FilteredChunk[];
+  diagnostics?: any;
   trace: TraceStep[];
 };
 
@@ -21,6 +22,7 @@ export function KnowledgeContext({
   requirement,
   sources,
   filteredChunks,
+  diagnostics,
   trace
 }: KnowledgeContextProps) {
   return (
@@ -57,6 +59,7 @@ export function KnowledgeContext({
         ragRuntime={ragRuntime}
         retrievalView={retrievalView}
         filteredChunks={filteredChunks}
+        diagnostics={diagnostics}
       />
       <div className="delivery-review-box">
         <ShieldCheck size={18} />

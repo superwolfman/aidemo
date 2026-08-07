@@ -747,7 +747,7 @@ export function agentStudioRouter (store) {
                 limit: 5
             });
             const sources = rag.sources || [];
-            sendEvent(res, 'sources', { sources, filteredChunks: rag.filteredChunks || [], rag: rag.status, latencyMs: Date.now() - retrievalStartedAt, scopes: intent.scopes });
+            sendEvent(res, 'sources', { sources, filteredChunks: rag.filteredChunks || [], rag: rag.status, latencyMs: Date.now() - retrievalStartedAt, scopes: intent.scopes, diagnostics: rag.diagnostics });
             plan = updatePlan(plan, 'retrieve-context', 'success', { output: { hits: sources.length, backend: rag.status?.retrievalBackend || rag.status?.backend } });
             await persistRun({ sources, filteredChunks: rag.filteredChunks || [], plan })
             sendEvent(res, 'plan', { plan, selectedSkill, intent });

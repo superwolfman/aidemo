@@ -54,7 +54,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
     const artifact = useArtifact();
 
     const { setActive, load: loadSession, active } = session;
-    const { status, setStatus, answer, setAnswer, trace, setTrace, sources, setSources, filteredChunks, setFilteredChunks, artifacts, setArtifacts, quality, setQuality, activeRun, setActiveRun, start, abortRef: runAbort } = agentRun;
+    const { status, setStatus, answer, setAnswer, trace, setTrace, sources, setSources, filteredChunks, setFilteredChunks, ragDiagnostics, artifacts, setArtifacts, quality, setQuality, activeRun, setActiveRun, start, abortRef: runAbort } = agentRun;
     const { cases, setCases, load: loadEvalCases, refresh: refreshEval, score } = evalCase;
 
     const activeArtifact = useMemo(() => artifacts.find((item) => item.id === activeArtifactId) || artifacts[0], [activeArtifactId, artifacts]);
@@ -180,8 +180,27 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active?._id, activeRun?._id, activeArtifactId, taskModeId, selectedEvalCaseId, requirement, audience, deadline, constraints, tenantId, userId]);
 
-    async function run(nextPrompt = prompt, evalCaseId = selectedEvalCaseId) {
-        if (!active || running || !nextPrompt.trim()) return;
+    async function run(opts: {
+        requirement?: string;
+        audience?: string;
+        deadline?: string;
+        constraints?: string;
+        evalCaseId?: string;
+    } = {}) {
+        if (!active || running) return;
+        const req = opts.requirement ?? requirement;
+        const aud = opts.audience ?? audience;
+        const dl = opts.deadline ?? deadline;
+        const cons = opts.constraints ?? constraints;
+        const nextPrompt = [
+            `业务需求：${req}`,
+            `目标用户：${aud}`,
+            `交付目标：${dl}`,
+            `约束条件：${cons}`,
+            activeTaskMode.promptSuffix
+        ].join('\n');
+        const evalCaseId = opts.evalCaseId ?? selectedEvalCaseId;
+        if (!nextPrompt.trim()) return;
         const controller = new AbortController();
         abortRef.current = controller;
         setRunning(true);
@@ -234,6 +253,19 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
         setAudience('产品经理、研发负责人、前后端工程师、测试负责人');
         setDeadline('一周内完成可评审方案与 Demo');
         setConstraints(`验收重点：${item.expected.join('、')}`);
+    }
+
+    async function runAllCases() {
+        if (!cases.length || running) return;
+        for (const item of cases) {
+            await run({
+                requirement: item.prompt,
+                audience: '产品经理、研发负责人、前后端工程师、测试负责人',
+                deadline: '一周内完成可评审方案与 Demo',
+                constraints: `验收重点：${item.expected.join('、')}`,
+                evalCaseId: item.id
+            });
+        }
     }
 
     async function refreshEvalCases() { await refreshEval(); }
@@ -300,7 +332,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
             <ArtifactOverview artifactSummary={artifactSummary} activeArtifactId={activeArtifact?.id} onSelectArtifact={selectArtifact} />
             <main className="delivery-workspace delivery-workspace-v2">
                 <section className="delivery-workspace-col delivery-workspace-left">
-                    <SkillSelector taskModes={deliveryTaskModes} taskModeId={taskModeId} onTaskModeChange={setTaskModeId} requirement={requirement} audience={audience} deadline={deadline} constraints={constraints} onRequirementChange={setRequirement} onAudienceChange={setAudience} onDeadlineChange={setDeadline} onConstraintsChange={setConstraints} cases={cases} selectedEvalCaseId={selectedEvalCaseId} onLoadCase={loadCase} running={running} onRun={() => run()} onStop={stop} onRerun={() => run(prompt)} />
+                    <SkillSelector taskModes={deliveryTaskModes} taskModeId={taskModeId} onTaskModeChange={setTaskModeId} requirement={requirement} audience={audience} deadline={deadline} constraints={constraints} onRequirementChange={setRequirement} onAudienceChange={setAudience} onDeadlineChange={setDeadline} onConstraintsChange={setConstraints} cases={cases} selectedEvalCaseId={selectedEvalCaseId} onLoadCase={loadCase} onRunAllCases={runAllCases} running={running} onRun={() => run()} onStop={stop} onRerun={() => run()} />
                 </section>
                 <section className="delivery-workspace-col delivery-workspace-center">
                     <section className="delivery-im-region">
@@ -317,7 +349,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
             </main>
             <section className="delivery-bottom-row">
                 <section className="delivery-region-4">
-                    <KnowledgeContext ragLive={ragLive} ragRuntime={ragRuntime} retrievalView={retrievalView} prompt={prompt} requirement={requirement} sources={sources} filteredChunks={filteredChunks} trace={trace} />
+                    <KnowledgeContext ragLive={ragLive} ragRuntime={ragRuntime} retrievalView={retrievalView} prompt={prompt} requirement={requirement} sources={sources} filteredChunks={filteredChunks} diagnostics={ragDiagnostics} trace={trace} />
                 </section>
                 <section className="delivery-region-5">
                     <ApprovalPanel activeRun={activeRun} activeArtifact={activeArtifact} artifactSummary={artifactSummary} onSelectArtifact={selectArtifact} onConfirmArtifact={confirmArtifact} />

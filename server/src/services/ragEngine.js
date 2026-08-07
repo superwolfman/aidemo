@@ -78,9 +78,27 @@ export function getRagStatus (extra = {}) {
     };
 }
 
+async function gatherDiagnostics (store, context) {
+    const diagnostics = { chunkCount: 0, documentCount: 0, vectorSearchReady: false, embeddingProvider: 'unknown' };
+    try {
+        if (typeof store.countChunks === 'function') diagnostics.chunkCount = await store.countChunks(context);
+        if (typeof store.listDocuments === 'function') diagnostics.documentCount = (await store.listDocuments(context)).length;
+        if (typeof store.checkVectorSearch === 'function') {
+            const vs = await store.checkVectorSearch();
+            diagnostics.vectorSearchReady = vs.ok === true;
+            diagnostics.vectorSearchDetail = vs;
+        }
+    } catch (error) {
+        diagnostics.error = error.message;
+    }
+    return diagnostics;
+}
+
 export async function retrieveKnowledge ({ store, context, query, scopes, limit = 5 }) {
     requireTenantContext(context);
     const authorizedScopes = authorizeKnowledgeScopes(context, scopes);
+    const diagnostics = await gatherDiagnostics(store, context);
+
     if (config.ragBackend === 'mongodb-atlas' && typeof store.searchVectorChunks === 'function') {
         try {
             const sources = await store.searchVectorChunks(context, query, {
@@ -97,7 +115,8 @@ export async function retrieveKnowledge ({ store, context, query, scopes, limit 
                     scopes: authorizedScopes
                 }),
                 filter: { tenantApplied: true, scopeApplied: true },
-                filteredChunks: []
+                filteredChunks: [],
+                diagnostics
             };
         } catch (error) {
             const fallback = await retrieveLocalKnowledge({ store, context, query, scopes: authorizedScopes, limit });
@@ -110,12 +129,14 @@ export async function retrieveKnowledge ({ store, context, query, scopes, limit 
                     fallbackReason: error.message
                 }),
                 filter: { tenantApplied: true, scopeApplied: true },
-                filteredChunks: []
+                filteredChunks: [],
+                diagnostics: { ...diagnostics, error: error.message }
             };
         }
     }
 
-    return retrieveLocalKnowledge({ store, context, query, scopes: authorizedScopes, limit });
+    const local = await retrieveLocalKnowledge({ store, context, query, scopes: authorizedScopes, limit });
+    return { ...local, diagnostics };
 }
 
 async function retrieveLocalKnowledge ({ store, context, query, scopes, limit = 5 }) {

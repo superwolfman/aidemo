@@ -16,6 +16,7 @@ type SkillSelectorProps = {
   cases: EvalCase[];
   selectedEvalCaseId: string;
   onLoadCase: (item: EvalCase) => void;
+  onRunAllCases: () => void;
   running: boolean;
   onRun: () => void;
   onStop: () => void;
@@ -37,6 +38,7 @@ export function SkillSelector({
   cases,
   selectedEvalCaseId,
   onLoadCase,
+  onRunAllCases,
   running,
   onRun,
   onStop,
@@ -73,7 +75,10 @@ export function SkillSelector({
       </div>
 
       <div className="delivery-cases">
-        <strong>真实 Eval Cases</strong>
+        <div className="delivery-cases-head">
+          <strong>真实 Eval Cases</strong>
+          <button type="button" className="text-button" disabled={running || cases.length === 0} onClick={onRunAllCases}>运行全部</button>
+        </div>
         {cases.map((item) => (
           <button key={item.id} className={selectedEvalCaseId === item.id ? 'active' : ''} onClick={() => onLoadCase(item)}>
             <b>{item.title}</b>

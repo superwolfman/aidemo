@@ -9,8 +9,13 @@ import { requireAuth } from './middleware/auth.js';
 import { authRouter } from './routes/auth.js';
 import { copilotRouter } from './routes/copilot.js';
 import { agentStudioRouter } from './routes/agentStudio.js';
+import { seedKnowledgeIfEmpty } from './utils/seedKnowledge.js';
 
 const store = await createStore();
+const seedResult = await seedKnowledgeIfEmpty(store);
+if (seedResult.seeded) {
+    console.log(`[server] auto seeded ${seedResult.count} knowledge documents`);
+}
 const app = express();
 const auth = requireAuth(store);
 
