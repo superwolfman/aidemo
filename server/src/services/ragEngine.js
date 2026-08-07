@@ -119,17 +119,19 @@ export async function retrieveKnowledge ({ store, context, query, scopes, limit 
 
     if (config.ragBackend === 'mongodb-atlas' && typeof store.searchVectorChunks === 'function') {
         try {
-            const sources = await store.searchVectorChunks(context, query, {
+            const rawSources = await store.searchVectorChunks(context, query, {
                 scopes: authorizedScopes,
-                limit,
+                limit: Math.max(limit, 8),
                 numCandidates: Math.max(limit * 16, 80)
             });
 
+            const sources = rerankByScopePrecision(rawSources, authorizedScopes);
+
             return {
                 status: getRagStatus({ mode: 'live', storeKind: store.kind, vectorSearchReady: true }),
-                sources: enrichSources(sources, {
+                sources: enrichSources(sources.slice(0, limit), {
                     backend: 'mongodb-atlas-vector-search',
-                    strategy: 'atlas-vector-prefilter',
+                    strategy: 'atlas-vector-prefilter + scope-precision-rerank',
                     scopes: authorizedScopes
                 }),
                 filter: { tenantApplied: true, scopeApplied: true },
@@ -175,6 +177,54 @@ async function retrieveLocalKnowledge ({ store, context, query, scopes, limit = 
     };
 }
 
+const BROAD_SCOPES = new Set([
+    'architecture',
+    'frontend',
+    'ai-native',
+    'standards'
+]);
+
+/**
+ * 对 Atlas 向量召回结果按 scope 精确度重排序。
+ * - 命中更细分领域 scope（如 frontend-observability）的 chunk 获得 boost，避免被
+ *   architecture/frontend/ai-native 这类宽泛 scope 的通用模板淹没。
+ * - 未命中任何精确 scope 的 project-file 类型 chunk（如 Copilot 自身源码）受到 penalty，
+ *   降低其排在 top5 的概率。
+ */
+export function rerankByScopePrecision (sources, scopes, {
+    boostFactor = 1.25,
+    projectFilePenalty = 0.72
+} = {}) {
+    if (!sources?.length) return sources;
+
+    const preciseScopes = scopes.filter((s) => !BROAD_SCOPES.has(s));
+
+    return sources
+        .map((source) => {
+            const sourceScopes = source.scopes || [];
+            const matchedPrecise = preciseScopes.filter((s) => sourceScopes.includes(s));
+            const hasPreciseMatch = matchedPrecise.length > 0;
+            const isProjectFile = source.sourceType === 'project-file';
+
+            let factor = 1.0;
+            if (hasPreciseMatch) factor *= boostFactor;
+            if (isProjectFile && !hasPreciseMatch) factor *= projectFilePenalty;
+
+            const baseScore = Number(source.score || source.rerankScore || 0);
+            return {
+                ...source,
+                score: Number((baseScore * factor).toFixed(4)),
+                rerankScore: Number((baseScore * factor).toFixed(4)),
+                rerankReason: hasPreciseMatch
+                    ? `scope precision boost (${boostFactor}x): ${matchedPrecise.join(', ')}`
+                    : isProjectFile
+                        ? `project-file penalty (${projectFilePenalty}x): no precise scope match`
+                        : 'no scope adjustment'
+            };
+        })
+        .sort((a, b) => b.score - a.score);
+}
+
 function enrichSources (sources, { backend, strategy, scopes = [], fallbackReason = '' } = {}) {
     return sources.map((source, index) => {
         const score = Number(source.score || 0);
@@ -184,10 +234,10 @@ function enrichSources (sources, { backend, strategy, scopes = [], fallbackReaso
             ...source,
             retrievalBackend: source.retrievalBackend || backend,
             candidateRank: index + 1,
-            rerankScore: score,
-            rerankStrategy: strategy,
-            filterReason: fallbackReason
-                ? `${scopeReason}; fallback reason: ${fallbackReason}`
+            rerankScore: Number(source.rerankScore || score),
+            rerankStrategy: source.rerankStrategy || strategy,
+            filterReason: source.rerankReason || fallbackReason
+                ? `${scopeReason}; ${source.rerankReason || `fallback reason: ${fallbackReason}`}`
                 : scopeReason
         };
     });
