@@ -1,0 +1,23 @@
+# aidemo 后端镜像（Express + SSE，需常驻进程，不能 serverless）
+# 多阶段构建：先装依赖（利用层缓存），再拷业务代码
+FROM node:20-alpine AS deps
+WORKDIR /app
+# workspaces：需要根 package.json + lock + 各 workspace 的 package.json
+COPY package.json package-lock.json ./
+COPY client/package.json ./client/
+COPY server/package.json ./server/
+RUN npm ci --omit=dev
+
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+# 生产监听 0.0.0.0，否则容器内 127.0.0.1 nginx 反代不到
+ENV HOST=0.0.0.0
+ENV PORT=4000
+COPY --from=deps /app/node_modules ./node_modules
+COPY server/ ./server/
+EXPOSE 4000
+# 健康检查命中 /health（server/src/index.js:42）
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:4000/health >/dev/null 2>&1 || exit 1
+CMD ["node", "server/src/index.js"]

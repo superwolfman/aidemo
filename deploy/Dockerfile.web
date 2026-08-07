@@ -1,0 +1,24 @@
+# aidemo 前端镜像（Vite build → nginx 静态托管 + /api 反代到后端）
+# build 阶段注入 VITE_API_BASE（前端 API 地址，client/src/api/client.ts:1）
+# 生产推荐：VITE_API_BASE 与访问域名同源（如 http://<ECS公网IP> 或 https://aidemo.xxx.com）
+#          这样前端请求 /api 走 nginx 反代，不跨域、不触发 CORS
+FROM node:20-alpine AS build
+WORKDIR /app
+ARG VITE_API_BASE
+ENV VITE_API_BASE=$VITE_API_BASE
+COPY package.json package-lock.json ./
+COPY client/package.json ./client/
+COPY server/package.json ./server/
+# vite 属 devDependencies，需装 dev 才能 build
+RUN npm ci
+COPY client/ ./client/
+COPY server/ ./server/
+RUN npm run build --workspace client
+
+FROM nginx:alpine
+# 前端静态产物
+COPY --from=build /app/client/dist /usr/share/nginx/html
+# nginx 配置（反代 + SSE 透传）
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
