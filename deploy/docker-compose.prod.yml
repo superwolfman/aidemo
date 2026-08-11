@@ -4,10 +4,9 @@
 #
 # 用法：
 #   1. cp .env.production.example .env.production 并填写
-#   2. export VITE_API_BASE=https://<你的域名>
-#      export PUBLIC_HOST=app.agentdelivery.com
+#   2. export VITE_API_BASE=https://app.agentdelivery.asia
+#      export PUBLIC_HOST=app.agentdelivery.asia
 #      export ORIGIN_PUBLIC_IP=<ECS 公网 IP>
-#      export EDGE_PROXY_MODE=cloudflare
 #   3. docker compose -f deploy/docker-compose.prod.yml up -d --build
 services:
   api:
@@ -54,6 +53,7 @@ services:
     container_name: aidemo-edge
     environment:
       PUBLIC_HOST: ${PUBLIC_HOST:?PUBLIC_HOST is required}
+      PUBLIC_ROOT_HOST: ${PUBLIC_ROOT_HOST:-agentdelivery.asia}
     ports:
       - "80:80"
       - "443:443"

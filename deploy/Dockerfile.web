@@ -1,7 +1,6 @@
 # aidemo 前端镜像（Vite build → nginx 静态托管 + /api 反代到后端）
 # build 阶段注入 VITE_API_BASE（前端 API 地址，client/src/api/client.ts:1）
-# 生产：VITE_API_BASE 与 Cloudflare 公网域名同源，
-# 例如 https://app.agentdelivery.com，不在前端产物中暴露源站 IP。
+# 生产：VITE_API_BASE 与公网域名同源，例如 https://app.agentdelivery.asia。
 FROM node:20-alpine AS build
 WORKDIR /app
 ARG VITE_API_BASE

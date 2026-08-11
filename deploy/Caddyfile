@@ -1,32 +1,22 @@
 {
-	# 关闭管理接口的公网暴露；配置只通过容器启动时加载。
 	admin off
-
-	# 只信任 Cloudflare 官方回源网段携带的客户端 IP Header，
-	# 防止直连源站的请求伪造 X-Forwarded-For / CF-Connecting-IP。
-	# Source: https://www.cloudflare.com/ips/
-	servers {
-		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
-		trusted_proxies_strict
-		client_ip_headers CF-Connecting-IP X-Forwarded-For
-	}
 }
 
-# 防御纵深：除 Cloudflare 回源与本机/容器健康检查外，拒绝直连。
-# 阿里云安全组仍应将 80/443 来源限制为 Cloudflare 官方网段。
-(cloudflare_origin_only) {
-	@untrusted not remote_ip private_ranges 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
-	respond @untrusted "Forbidden\n" 403
-}
-
-# 显式使用 301，兼容需要永久重定向语义的安全扫描器。
+# Caddy 自动申请并续期证书；HTTP 永久跳转 HTTPS。
 http://{$PUBLIC_HOST} {
-	import cloudflare_origin_only
+	redir https://{$PUBLIC_HOST}{uri} 301
+}
+
+# 根域只作为品牌入口，统一永久跳转到应用域名。
+http://{$PUBLIC_ROOT_HOST} {
+	redir https://{$PUBLIC_HOST}{uri} 301
+}
+
+{$PUBLIC_ROOT_HOST} {
 	redir https://{$PUBLIC_HOST}{uri} 301
 }
 
 {$PUBLIC_HOST} {
-	import cloudflare_origin_only
 	encode zstd gzip
 
 	header {
@@ -37,14 +27,12 @@ http://{$PUBLIC_HOST} {
 		-Server
 	}
 
-	# API 直接到 Express，避免多一层代理，并保留 SSE 实时刷新能力。
 	handle /api/* {
 		reverse_proxy api:4000 {
 			flush_interval -1
 		}
 	}
 
-	# 前端静态资源仍由现有 Nginx 容器提供。
 	handle {
 		reverse_proxy web:80
 	}

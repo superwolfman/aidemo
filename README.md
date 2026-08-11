@@ -92,7 +92,7 @@ Typical use cases:
 |---|---|
 | Frontend stack | React 19, TypeScript, Vite, Less |
 | Backend stack | Node.js, Express, MongoDB / file fallback |
-| Authentication | Cloudflare Access identity, short-lived HttpOnly session, server-side revocation, development password fallback |
+| Authentication | Password login for the restricted demo account, short-lived HttpOnly session, server-side revocation |
 | LLM provider | DeepSeek / OpenAI-compatible / DashScope adapter with fallback status |
 | RAG | Local hash fallback + MongoDB Atlas Vector Search adapter |
 | Skill runtime | Skill definition, allowed tools, knowledge scopes, prompt contract |
@@ -562,14 +562,11 @@ There are no usable credentials in the repository. Production must set
 
 ## Public Interview Demo Authentication
 
-The production demo uses one login boundary and no second application password:
+The production demo uses the existing restricted application account:
 
 ```text
-Visitor email OTP
-  -> Cloudflare Access exact-email policy
-  -> signed Cf-Access-Jwt-Assertion
-  -> API verifies signature + issuer + audience
-  -> existing users collection (auto-provision demo_viewer when enabled)
+Visitor email and password
+  -> existing users collection (`demo_viewer`)
   -> dedicated tenant-interview-demo
   -> short-lived HttpOnly/Secure/SameSite cookie
   -> existing Session / Run / Artifact / Trace APIs
@@ -577,23 +574,14 @@ Visitor email OTP
 
 Required deployment steps:
 
-1. Register `agentdelivery.com`, add `app.agentdelivery.com` to Cloudflare as a
-   proxied A record, and set SSL/TLS mode to `Full (strict)`.
-2. Keep the origin IP private: public DNS must return Cloudflare anycast addresses,
-   while the ECS security group should allow ports 80/443 only from Cloudflare's
-   published origin ranges. Port 22 must be restricted to the operator's IP.
-3. Create a Self-hosted Access application for `app.agentdelivery.com`.
-4. Configure an `Allow` policy with the interviewer's exact email and One-time PIN.
-5. Set the Access application session duration to 30–60 minutes and copy its AUD tag.
-6. Fill `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `CLIENT_ORIGINS` and the `DEMO_*` values in the untracked `deploy/.env.production` file.
-7. Keep `PASSWORD_LOGIN_ENABLED=false`, `SEED_DEMO_ADMIN=false`, and deploy through `deploy/docker-compose.prod.yml`.
-8. After the interview, remove/revoke the Access user or policy. Existing application cookies can also be invalidated immediately by incrementing the user's `tokenVersion` or setting `disabledAt` in the `users` collection.
+1. Add the Aliyun DNS record `app.agentdelivery.asia -> 8.217.153.138`.
+2. Allow TCP 80/443 and restrict SSH port 22 to the operator's IP.
+3. Set `CLIENT_ORIGIN(S)=https://app.agentdelivery.asia`, enable password login,
+   keep `SEED_DEMO_ADMIN=false`, and deploy through `deploy/docker-compose.prod.yml`.
+4. After the interview, revoke the demo account. Existing cookies can be invalidated
+   immediately by incrementing `tokenVersion` or setting `disabledAt`.
 
-`deploy/deploy.sh` fails closed when the public hostname is an IP-derived
-`sslip.io`/`nip.io` name, when DNS still exposes `ORIGIN_PUBLIC_IP`, or when the
-resolved addresses are outside Cloudflare's published IPv4 ranges. Caddy applies
-the same Cloudflare allowlist before routing traffic and only trusts client IP
-headers from those ranges.
+`deploy/deploy.sh` performs one DNS-to-ECS check before Caddy requests the certificate.
 
 Immediate application-side revoke/enable commands (run with production env loaded):
 
