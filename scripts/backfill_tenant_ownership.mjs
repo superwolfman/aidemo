@@ -1,8 +1,8 @@
 import { MongoClient } from 'mongodb';
+import { config } from '../server/src/config.js';
 
-const uri = process.env.MONGODB_URI;
-const client = new MongoClient(uri);
-const db = client.db();
+const client = new MongoClient(config.mongodbUri);
+const db = client.db(config.mongodbDatabase);
 
 const fallbackTenantId = 'tenant-demo';
 const fallbackCreatedBy = 'system';

@@ -1,9 +1,10 @@
 import { loadEnvironment } from './config/env.js';
 import { validateConfig } from './config/validateConfig.js';
+import { defaultMongoDatabaseName, runtimeDatabaseEnvironment } from './store/mongoDatabase.js';
 
 const nodeEnv = loadEnvironment();
 
-const localMongoUri = 'mongodb://127.0.0.1:27017/growth_ai_assistant';
+const localMongoUri = 'mongodb://127.0.0.1:27017';
 const configuredMongoUri =
     process.env.MONGODB_URI || '';
 const defaultMongoUri = configuredMongoUri ||
@@ -24,6 +25,11 @@ const selectedMongoUri =
     isAtlas && atlasCandidateUri
         ? atlasCandidateUri
         : defaultMongoUri;
+const mongodbDatabaseExplicit = Boolean(String(process.env.MONGODB_DB_NAME || '').trim());
+const mongodbDatabase = String(
+    process.env.MONGODB_DB_NAME || defaultMongoDatabaseName(nodeEnv)
+).trim();
+const mongodbEnvironment = runtimeDatabaseEnvironment(nodeEnv);
 
 function booleanFromEnv (name, fallback = false) {
     const value = process.env[name];
@@ -54,12 +60,11 @@ const clientOrigins = [...new Set([
     )
 ])];
 
-function redactConnection (uri) {
+function redactConnection (uri, databaseName) {
     if (!uri) return 'not configured';
     try {
         const parsed = new URL(uri);
-        const dbName = parsed.pathname?.replace(/^\//, '') || 'default-db';
-        return `${parsed.protocol}//${parsed.hostname}/${dbName}`;
+        return `${parsed.protocol}//${parsed.hostname}/${databaseName || 'database-not-configured'}`;
     } catch {
         return uri.replace(/\/\/([^:@]+):([^@]+)@/, '//***:***@');
     }
@@ -116,6 +121,9 @@ export const config = {
     clientOrigin,
     clientOrigins,
     mongodbUri: selectedMongoUri,
+    mongodbDatabase,
+    mongodbDatabaseExplicit,
+    mongodbEnvironment,
     mongodbAtlasUri,
     mongodbAtlasConfigured:
         ragBackend === 'mongodb-atlas' &&
@@ -175,7 +183,7 @@ export const config = {
         '',
     ragCreateVectorIndex:
         process.env.RAG_CREATE_VECTOR_INDEX === 'true',
-    redactedMongoUri: redactConnection(selectedMongoUri)
+    redactedMongoUri: redactConnection(selectedMongoUri, mongodbDatabase)
 };
 // 必须在所有字段构建完成后调用。
 validateConfig(config);

@@ -1,10 +1,10 @@
 // 给已有账号追加一个演示租户（tenant-demo-2 / member），便于验证“切换租户”与租户隔离。
-// 用法：MONGODB_URI="..." node server/scripts/add-demo-tenant.mjs [email]
+// 用法：在项目 .env 中配置连接与 MONGODB_DB_NAME 后执行 node server/scripts/add-demo-tenant.mjs [email]
 import { MongoClient } from 'mongodb';
+import { config } from '../src/config.js';
 
-const uri = process.env.MONGODB_URI;
-if (!uri) {
-    console.error('请设置环境变量 MONGODB_URI');
+if (!config.mongodbUri) {
+    console.error('请配置 MONGODB_URI 或 MONGODB_ATLAS_URI');
     process.exit(1);
 }
 
@@ -15,9 +15,9 @@ if (!email) {
 }
 const DEMO_TENANT = 'tenant-demo-2';
 
-const client = new MongoClient(uri);
+const client = new MongoClient(config.mongodbUri);
 await client.connect();
-const db = client.db();
+const db = client.db(config.mongodbDatabase);
 
 const user = await db.collection('users').findOne({ email });
 if (!user) {

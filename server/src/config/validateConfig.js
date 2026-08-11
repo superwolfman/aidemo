@@ -1,9 +1,17 @@
+import { validateMongoDatabaseIsolation } from '../store/mongoDatabase.js';
+
 function required (name, value, errors) {
     if (!String(value || '').trim()) errors.push(`${name} is required`);
 }
 
 export function validateConfig (config) {
     const errors = [];
+    const databaseIsolation = validateMongoDatabaseIsolation({
+        nodeEnv: config.nodeEnv,
+        databaseName: config.mongodbDatabase,
+        explicit: config.mongodbDatabaseExplicit
+    });
+    errors.push(...databaseIsolation.errors);
 
     if (config.nodeEnv === 'production') {
         required('JWT_SECRET', config.jwtSecret, errors);

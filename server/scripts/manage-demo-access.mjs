@@ -20,7 +20,7 @@ if (!['enable', 'revoke'].includes(action) || !email) {
     const client = new MongoClient(config.mongodbUri);
     try {
         await client.connect();
-        const users = client.db().collection('users');
+        const users = client.db(config.mongodbDatabase).collection('users');
         const patch = action === 'revoke'
             ? {
                 $set: { disabledAt: new Date(), updatedAt: new Date() },

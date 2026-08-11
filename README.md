@@ -39,6 +39,7 @@ RAG_VECTOR_DIMENSIONS=1024
 RAG_VECTOR_INDEX=chunks_vector_index
 RAG_VECTOR_PATH=embedding
 MONGODB_ATLAS_URI=mongodb+srv://...
+MONGODB_DB_NAME=aidemo_dev
 ```
 
 ### 产品化意义
@@ -417,7 +418,8 @@ Example `.env`:
 
 ```bash
 RAG_BACKEND=mongodb-atlas
-MONGODB_ATLAS_URI=mongodb+srv://<user>:<password>@<cluster>/<db>?retryWrites=true&w=majority
+MONGODB_ATLAS_URI=mongodb+srv://<user>:<password>@<cluster>/?retryWrites=true&w=majority
+MONGODB_DB_NAME=aidemo_dev
 RAG_VECTOR_INDEX=chunks_vector_index
 RAG_VECTOR_PATH=embedding
 RAG_VECTOR_DIMENSIONS=96
@@ -532,8 +534,19 @@ DEMO_ADMIN_PASSWORD=use-a-private-local-password
 
 `.env.example` is a committed template and is never loaded directly. Copy the
 required values into the untracked root `.env`. With `RAG_BACKEND=mongodb-atlas`,
-the account is created in the database selected by `MONGODB_ATLAS_URI`; use a
-development database rather than the production database.
+the account is created in the database selected explicitly by
+`MONGODB_DB_NAME`. Development defaults to `aidemo_dev`, tests use
+`aidemo_test`, and production must explicitly set `aidemo_prod`. The runtime
+writes an environment marker into each database and refuses to start when the
+marker does not match `NODE_ENV`.
+
+To copy legacy data from `growth_ai_assistant` into the current environment
+database, preview and then apply the idempotent migration:
+
+```bash
+npm run database:migrate --workspace server -- --source growth_ai_assistant
+npm run database:migrate --workspace server -- --source growth_ai_assistant --apply
+```
 
 There are no usable credentials in the repository. Production must set
 `PASSWORD_LOGIN_ENABLED=false`, `LEGACY_BEARER_ENABLED=false`, and

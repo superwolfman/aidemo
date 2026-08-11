@@ -125,9 +125,20 @@ nano deploy/.env.production   # 填写下面"必填项"
 | `CLIENT_ORIGIN` | `http://<ECS公网IP>` | 与访问地址同源，CORS |
 | `CLIENT_ORIGINS` | `http://<ECS公网IP>` | 同上 |
 | `MONGODB_ATLAS_URI` | Atlas 控制台复制 | 业务数据+向量 |
+| `MONGODB_DB_NAME` | `aidemo_prod` | 生产独立数据库，必须以 `_prod` 结尾 |
 | `DASHSCOPE_API_KEY` | DashScope 控制台 | LLM + Embedding |
 
 其余 `RAG_*` / `LLM_MODEL` 等保持模板默认即可。
+
+首次从历史共享库升级时，先预览并迁移数据，再启动新版本：
+
+```bash
+docker compose -f deploy/docker-compose.prod.yml run --rm api \
+  node server/scripts/migrate-database-environment.mjs --source growth_ai_assistant
+
+docker compose -f deploy/docker-compose.prod.yml run --rm api \
+  node server/scripts/migrate-database-environment.mjs --source growth_ai_assistant --apply
+```
 
 ### 3.2 MongoDB Atlas：加 IP 白名单
 

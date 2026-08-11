@@ -15,6 +15,7 @@ import {
     tenantUserFilter
 } from '../security/tenantContext.js';
 import { ROLES } from '../security/roles.js';
+import { ensureMongoDatabaseEnvironment } from './mongoDatabase.js';
 
 function now () {
     return new Date();
@@ -69,10 +70,12 @@ export function buildTenantVectorPipeline ({
 }
 
 export class MongoStore {
-    constructor(uri) {
+    constructor(uri, databaseName = config.mongodbDatabase, environment = config.mongodbEnvironment) {
         // this.uri = uri;
         // this.kind = 'mongo';
         this.uri = uri;
+        this.databaseName = databaseName;
+        this.environment = environment;
         this.kind = 'mongo';
         this.ragStatusCache = null;
         this.ragStatusCacheAt = 0;
@@ -111,7 +114,8 @@ export class MongoStore {
             retryWrites: isAtlasSrv ? true : undefined
         });
         await this.client.connect();
-        this.db = this.client.db();
+        this.db = this.client.db(this.databaseName);
+        await ensureMongoDatabaseEnvironment(this.db, this.environment);
 
         await this.db.collection('users').createIndex({ email: 1 }, { unique: true });
         await this.db.collection('documents').createIndex({ tenantId: 1, createdAt: -1 });

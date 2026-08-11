@@ -23,7 +23,7 @@ if (!['create', 'revoke'].includes(action)) {
     const client = new MongoClient(config.mongodbUri);
     try {
         await client.connect();
-        const users = client.db().collection('users');
+        const users = client.db(config.mongodbDatabase).collection('users');
         if (action === 'revoke') {
             const result = await users.updateOne(
                 { email },

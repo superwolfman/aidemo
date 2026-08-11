@@ -44,6 +44,12 @@ if grep -qE "^JWT_SECRET=(replace-with-32-bytes-random|local-demo-secret)" "$ENV
   exit 1
 fi
 
+if ! grep -qE '^MONGODB_DB_NAME=[A-Za-z0-9_-]+_prod$' "$ENV_FILE"; then
+  echo "✗ 生产必须显式设置 MONGODB_DB_NAME，且数据库名以 _prod 结尾"
+  echo "  推荐: MONGODB_DB_NAME=aidemo_prod"
+  exit 1
+fi
+
 # 4. 处理参数
 CLEAN_BUILD=""
 if [ "${1:-}" = "--update" ]; then
@@ -65,9 +71,26 @@ $COMPOSE build $CLEAN_BUILD
 echo "==== 启动服务 ===="
 $COMPOSE up -d
 
-# 7. 等待健康检查
-echo "==== 等待 api 健康检查 ===="
-sleep 6
+# 7. 等待完整入口健康：不仅检查容器，还验证 nginx -> api 真实反代。
+echo "==== 等待完整服务健康检查 ===="
+READY=false
+for attempt in $(seq 1 30); do
+  if curl -fsS http://127.0.0.1:4000/health >/dev/null \
+    && curl -fsS http://127.0.0.1/healthz >/dev/null \
+    && curl -fsS http://127.0.0.1/api/auth/bootstrap >/dev/null; then
+    READY=true
+    break
+  fi
+  sleep 2
+done
+
+if [ "$READY" != "true" ]; then
+  echo "✗ 部署后健康检查失败"
+  $COMPOSE ps
+  $COMPOSE logs --tail=100 api web
+  exit 1
+fi
+
 $COMPOSE ps
 
 # 8. 自检

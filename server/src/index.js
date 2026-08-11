@@ -47,7 +47,12 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-    res.json({ ok: true, store: store.kind });
+    res.json({
+        ok: true,
+        store: store.kind,
+        environment: config.mongodbEnvironment,
+        database: store.kind === 'mongo' ? config.mongodbDatabase : undefined
+    });
 });
 
 app.use('/api/auth', authRouter(store, auth));

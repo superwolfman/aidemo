@@ -11,6 +11,7 @@ import {
     validateUserAccount
 } from '../security/session.js';
 import { SlidingWindowLimiter } from '../security/requestLimiter.js';
+import { capabilitiesForRole } from '../security/capabilities.js';
 
 const loginLimiter = new SlidingWindowLimiter({
     limit: config.loginAttemptLimit,
@@ -24,7 +25,12 @@ function publicUser (user) {
         accessIdentitySub,
         ...safeUser
     } = user || {};
-    return { ...safeUser, _id: String(safeUser._id) };
+    const { role } = resolveActiveTenant(user);
+    return {
+        ...safeUser,
+        _id: String(safeUser._id),
+        permissions: capabilitiesForRole(role)
+    };
 }
 
 function formatTenantName (tenantId) {

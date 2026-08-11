@@ -86,7 +86,7 @@ async function run() {
 
   const client = new MongoClient(config.mongodbUri, { serverSelectionTimeoutMS: 8000 });
   await client.connect();
-  const db = client.db();
+  const db = client.db(config.mongodbDatabase);
 
   const chunks = await ensureSeedChunk(db);
   const index = await requestSearchIndex(db);
@@ -118,6 +118,8 @@ async function run() {
     ok: true,
     backend: config.ragBackend,
     vectorStore: 'MongoDB Atlas Vector Search',
+    database: config.mongodbDatabase,
+    databaseEnvironment: config.mongodbEnvironment,
     index: config.ragVectorIndex,
     vectorPath: config.ragVectorPath,
     dimensions: config.ragVectorDimensions,

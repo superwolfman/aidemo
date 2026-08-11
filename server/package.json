@@ -11,7 +11,8 @@
     "migrate:tenant:file": "node src/store/migrations/20260804-backfill-file-tenant.js",
     "access:manage": "node scripts/manage-demo-access.mjs",
     "demo-password:manage": "node scripts/manage-password-demo.mjs",
-    "test": "node --test test/*.test.js"
+    "database:migrate": "node scripts/migrate-database-environment.mjs",
+    "test": "NODE_ENV=test node --test test/*.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

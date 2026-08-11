@@ -2,12 +2,11 @@ import { config } from '../config.js';
 import { getEmbeddingDiagnostics } from '../utils/embedding.js';
 import { authorizeKnowledgeScopes, requireTenantContext } from '../security/tenantContext.js';
 
-function redactConnection (uri) {
+function redactConnection (uri, databaseName) {
     if (!uri) return 'not configured';
     try {
         const parsed = new URL(uri);
-        const dbName = parsed.pathname?.replace(/^\//, '') || 'default-db';
-        return `${parsed.protocol}//${parsed.hostname}/${dbName}`;
+        return `${parsed.protocol}//${parsed.hostname}/${databaseName || 'database-not-configured'}`;
     } catch {
         return uri.replace(/\/\/([^:@]+):([^@]+)@/, '//***:***@');
     }
@@ -66,7 +65,8 @@ export function getRagStatus (extra = {}) {
                     : backend === 'milvus'
                         ? 'Milvus'
                         : 'Local hash embedding',
-        connection: backend === 'local-hash' ? 'in-process' : redactConnection(config.mongodbUri),
+        connection: backend === 'local-hash' ? 'in-process' : redactConnection(config.mongodbUri, config.mongodbDatabase),
+        databaseEnvironment: config.mongodbEnvironment,
         index: isAtlas ? config.ragVectorIndex : undefined,
         vectorPath: isAtlas ? config.ragVectorPath : undefined,
         dimensions: isAtlas ? config.ragVectorDimensions : undefined,

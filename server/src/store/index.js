@@ -3,13 +3,17 @@ import { FileStore } from './fileStore.js';
 import { MongoStore } from './mongoStore.js';
 
 export async function createStore () {
-    const mongo = new MongoStore(config.mongodbUri);
+    const mongo = new MongoStore(
+        config.mongodbUri,
+        config.mongodbDatabase,
+        config.mongodbEnvironment
+    );
 
     try {
         await mongo.init();
 
         console.log(
-            `[store] MongoDB connected: ${config.redactedMongoUri}`
+            `[store] MongoDB connected: ${config.redactedMongoUri} (${config.mongodbEnvironment})`
         );
 
         return mongo;

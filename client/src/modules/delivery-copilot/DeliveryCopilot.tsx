@@ -48,7 +48,10 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
     const [confirming, setConfirming] = useState(false);
     const [notice, setNotice] = useState('');
     const loadedRef = useRef(false);
-    const isDemoViewer = (shell?.user?.tenant?.role || shell?.user?.role) === 'demo_viewer';
+    const activeRole = shell?.user?.tenant?.role || shell?.user?.role;
+    const permissions = shell?.user?.permissions;
+    const isDemoViewer = permissions?.mode === 'restricted-demo' || activeRole === 'demo_viewer';
+    const artifactsReadOnly = permissions?.canEditArtifacts === false || isDemoViewer;
 
     const session = useSession();
     const agentRun = useAgentRun('delivery');
@@ -358,10 +361,10 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
                     <KnowledgeContext ragLive={ragLive} ragRuntime={ragRuntime} retrievalView={retrievalView} requirement={requirement} sources={sources} filteredChunks={filteredChunks} diagnostics={ragDiagnostics} trace={trace} />
                 </section>
                 <section className="delivery-region-5">
-                    <ApprovalPanel activeRun={activeRun} activeArtifact={activeArtifact} artifactSummary={artifactSummary} onSelectArtifact={selectArtifact} onConfirmArtifact={confirmArtifact} readOnly={isDemoViewer} />
+                    <ApprovalPanel activeRun={activeRun} activeArtifact={activeArtifact} artifactSummary={artifactSummary} onSelectArtifact={selectArtifact} onConfirmArtifact={confirmArtifact} readOnly={permissions?.canReviewArtifacts === false || isDemoViewer} />
                 </section>
             </section>
-            <ArtifactWorkbench artifacts={artifacts} activeArtifact={activeArtifact} activeRun={activeRun} artifactDraft={artifactDraft} onArtifactDraftChange={setArtifactDraft} onSelectArtifact={selectArtifact} onCopy={copy} onSaveArtifact={saveArtifact} onConfirmArtifact={confirmArtifact} onReviewArtifact={reviewArtifact} onExportArtifact={exportArtifact} readOnly={isDemoViewer} />
+            <ArtifactWorkbench artifacts={artifacts} activeArtifact={activeArtifact} activeRun={activeRun} artifactDraft={artifactDraft} onArtifactDraftChange={setArtifactDraft} onSelectArtifact={selectArtifact} onCopy={copy} onSaveArtifact={saveArtifact} onConfirmArtifact={confirmArtifact} onReviewArtifact={reviewArtifact} onExportArtifact={exportArtifact} readOnly={artifactsReadOnly} />
         </div>
     );
 }

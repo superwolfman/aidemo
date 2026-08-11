@@ -41,7 +41,7 @@ async function main () {
     const actorId = 'reembed-service';
     const client = new MongoClient(config.mongodbUri);
     await client.connect();
-    const db = client.db();
+    const db = client.db(config.mongodbDatabase);
     const chunks = db.collection('chunks');
 
     console.log(`[reembed] deleting documents + chunks for tenant=${tenantId} only...`);

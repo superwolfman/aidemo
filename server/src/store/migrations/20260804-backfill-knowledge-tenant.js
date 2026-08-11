@@ -26,7 +26,7 @@ async function main () {
     await client.connect();
 
     try {
-        const db = client.db();
+        const db = client.db(config.mongodbDatabase);
         const users = db.collection('users');
         const documents = db.collection('documents');
         const chunks = db.collection('chunks');
