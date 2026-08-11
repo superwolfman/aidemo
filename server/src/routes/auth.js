@@ -12,6 +12,7 @@ import {
 } from '../security/session.js';
 import { SlidingWindowLimiter } from '../security/requestLimiter.js';
 import { capabilitiesForRole } from '../security/capabilities.js';
+import { recordAuthorizationDenied } from '../security/authorizationAudit.js';
 
 const loginLimiter = new SlidingWindowLimiter({
     limit: config.loginAttemptLimit,
@@ -256,6 +257,10 @@ export function authRouter (store, auth) {
 
     router.post('/switch-tenant', auth, async (req, res) => {
         if (req.auth.role === ROLES.DEMO_VIEWER) {
+            await recordAuthorizationDenied(store, req, {
+                area: 'auth',
+                code: 'DEMO_TENANT_SWITCH_FORBIDDEN'
+            });
             return res.status(403).json({ message: '演示账号不允许切换租户', code: 'DEMO_TENANT_SWITCH_FORBIDDEN' });
         }
         const target = String(req.body?.tenantId || '').trim();

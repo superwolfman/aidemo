@@ -1,4 +1,7 @@
-import { validateMongoDatabaseIsolation } from '../store/mongoDatabase.js';
+import {
+    validateMongoCredentialIsolation,
+    validateMongoDatabaseIsolation
+} from '../store/mongoDatabase.js';
 
 function required (name, value, errors) {
     if (!String(value || '').trim()) errors.push(`${name} is required`);
@@ -12,6 +15,13 @@ export function validateConfig (config) {
         explicit: config.mongodbDatabaseExplicit
     });
     errors.push(...databaseIsolation.errors);
+    const credentialIsolation = validateMongoCredentialIsolation({
+        nodeEnv: config.nodeEnv,
+        uri: config.mongodbUri,
+        expectedUsername: config.mongodbExpectedUsername,
+        explicit: config.mongodbExpectedUsernameExplicit
+    });
+    errors.push(...credentialIsolation.errors);
 
     if (config.nodeEnv === 'production') {
         required('JWT_SECRET', config.jwtSecret, errors);
@@ -40,6 +50,18 @@ export function validateConfig (config) {
 
         if (config.legacyBearerEnabled) {
             errors.push('LEGACY_BEARER_ENABLED must not be enabled in production');
+        }
+
+        if (!config.sessionCookieSecure) {
+            errors.push('SESSION_COOKIE_SECURE must be true in production');
+        }
+
+        if (!String(config.sessionCookieName || '').startsWith('__Host-')) {
+            errors.push('SESSION_COOKIE_NAME must use the __Host- prefix in production');
+        }
+
+        if (!String(config.clientOrigin || '').startsWith('https://')) {
+            errors.push('CLIENT_ORIGIN must use https:// in production');
         }
 
         if (config.passwordLoginEnabled && config.seedDemoAdmin) {

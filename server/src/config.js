@@ -26,6 +26,7 @@ const selectedMongoUri =
         ? atlasCandidateUri
         : defaultMongoUri;
 const mongodbDatabaseExplicit = Boolean(String(process.env.MONGODB_DB_NAME || '').trim());
+const mongodbExpectedUsernameExplicit = Boolean(String(process.env.MONGODB_EXPECTED_USERNAME || '').trim());
 const mongodbDatabase = String(
     process.env.MONGODB_DB_NAME || defaultMongoDatabaseName(nodeEnv)
 ).trim();
@@ -124,6 +125,8 @@ export const config = {
     mongodbDatabase,
     mongodbDatabaseExplicit,
     mongodbEnvironment,
+    mongodbExpectedUsername: String(process.env.MONGODB_EXPECTED_USERNAME || '').trim(),
+    mongodbExpectedUsernameExplicit,
     mongodbAtlasUri,
     mongodbAtlasConfigured:
         ragBackend === 'mongodb-atlas' &&

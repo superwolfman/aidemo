@@ -1,7 +1,7 @@
 # aidemo 阿里云生产部署方案
 
 > 适用：单台阿里云 ECS，Docker 全栈部署，手机/电脑外网访问
-> 数据库/LLM 走云（MongoDB Atlas + DashScope），服务器只跑 Express + Nginx
+> 数据库/LLM 走云（MongoDB Atlas + DashScope），服务器运行 Express + 内部 Nginx + Caddy TLS 边缘
 > 基线 commit：`33561bb`
 
 ---
@@ -11,15 +11,17 @@
 ```
                         手机 / 电脑（公网）
                               │
-                     http://<ECS公网IP>  或  https://aidemo.xxx.com
+                         https://<公网域名>
                               │
                   ┌───────────▼───────────┐
                   │   阿里云 ECS（轻量/ECS）│
                   │   ┌─────────────────┐ │
-                  │   │  nginx (web)    │ │  ← 80 端口，serve 前端静态 + /api 反代
-                  │   │  /api/ ──────┐   │ │     (SSE buffering off)
-                  │   └──────────────┼───┘ │
-                  │            ┌─────▼───┐ │
+                  │   │ Caddy TLS edge  │ │  ← 80/443，自动证书、301、HSTS
+                  │   └──────┬──────┬───┘ │
+                  │     ┌────▼───┐  │     │
+                  │     │ Nginx  │  │     │  ← 仅 Docker 内部静态站点
+                  │     └────────┘  │     │
+                  │            ┌────▼────┐│
                   │            │ Express │ │  ← 4000 仅本机，不对外
                   │            │ (api)   │ │
                   │            └────┬────┘ │
@@ -59,7 +61,7 @@
 3. 网络：分配公网 IP（必须，否则外网访问不了）
 4. 安全组 / 防火墙：放行端口
    - **80**（HTTP，nginx 对外）
-   - **443**（HTTPS，可选，配 SSL 后用）
+   - **443 TCP/UDP**（HTTPS/HTTP3，必须）
    - **22**（SSH，建议限定来源 IP）
 5. 设置登录密码 / 密钥对，记录公网 IP
 
@@ -122,10 +124,12 @@ nano deploy/.env.production   # 填写下面"必填项"
 | 变量 | 值 | 说明 |
 |---|---|---|
 | `JWT_SECRET` | `openssl rand -hex 32` 生成 | 强随机，不可用默认 |
-| `CLIENT_ORIGIN` | `http://<ECS公网IP>` | 与访问地址同源，CORS |
-| `CLIENT_ORIGINS` | `http://<ECS公网IP>` | 同上 |
+| `PUBLIC_HOST` | `8-217-153-138.sslip.io` | 公网域名，不含协议 |
+| `CLIENT_ORIGIN` | `https://<公网域名>` | 与访问地址同源，CORS |
+| `CLIENT_ORIGINS` | `https://<公网域名>` | 同上 |
 | `MONGODB_ATLAS_URI` | Atlas 控制台复制 | 业务数据+向量 |
 | `MONGODB_DB_NAME` | `aidemo_prod` | 生产独立数据库，必须以 `_prod` 结尾 |
+| `MONGODB_EXPECTED_USERNAME` | `aidemo_prod_app` | 与连接串用户名一致，必须为生产独立用户 |
 | `DASHSCOPE_API_KEY` | DashScope 控制台 | LLM + Embedding |
 
 其余 `RAG_*` / `LLM_MODEL` 等保持模板默认即可。
@@ -140,7 +144,20 @@ docker compose -f deploy/docker-compose.prod.yml run --rm api \
   node server/scripts/migrate-database-environment.mjs --source growth_ai_assistant --apply
 ```
 
-### 3.2 MongoDB Atlas：加 IP 白名单
+### 3.2 创建开发/生产独立 Atlas 应用用户
+
+应用运行时禁止使用 `atlasAdmin`。安装并登录 Atlas CLI 后执行：
+
+```bash
+export ATLAS_PROJECT_ID=<Atlas Project ID>
+bash scripts/provision-atlas-environment-users.sh
+```
+
+脚本创建 `aidemo_dev_app`（仅 `readWrite@aidemo_dev`）和
+`aidemo_prod_app`（仅 `readWrite@aidemo_prod`）。密码只写入被 Git 忽略且权限为
+`0600` 的 `deploy/.atlas-users.env`。将账号分别写入本地和线上密钥配置后删除该文件。
+
+### 3.3 MongoDB Atlas：加 IP 白名单
 
 Atlas 控制台 → Network Access → Add IP Address → 填 ECS 公网 IP（或临时 `0.0.0.0/0`，不安全但能跑通）。
 
@@ -148,13 +165,14 @@ Atlas 控制台 → Network Access → Add IP Address → 填 ECS 公网 IP（�
 
 ```bash
 # 设置前端 API 地址（与 CLIENT_ORIGIN 同源）
-export VITE_API_BASE=http://<ECS公网IP>
+export VITE_API_BASE=https://8-217-153-138.sslip.io
+export PUBLIC_HOST=8-217-153-138.sslip.io
 
 # 一键部署
 bash deploy/deploy.sh
 ```
 
-脚本会：构建后端镜像 → 构建前端镜像（注入 VITE_API_BASE）→ 启动 api + web 容器 → 自检。
+脚本会：校验域名和安全配置 → 构建镜像 → 启动 API/Web/Caddy → 自动申请证书 → 验证 HTTPS、API 和 HTTP 301。
 
 ---
 
@@ -165,12 +183,12 @@ bash deploy/deploy.sh
 curl http://127.0.0.1:4000/health
 # 预期: {"ok":true,"store":"mongo"}
 
-# 本机：nginx 健康
-curl http://127.0.0.1/healthz
+# HTTPS 健康
+curl https://8-217-153-138.sslip.io/healthz
 # 预期: ok
 
 # 外网：手机/电脑浏览器访问
-http://<ECS公网IP>
+https://8-217-153-138.sslip.io
 # 应见 aidemo 工作台首页；登录后能跑通"需求→RAG→Artifact→LLM 流式"
 ```
 
@@ -178,22 +196,12 @@ http://<ECS公网IP>
 
 ---
 
-## 5. 域名 + HTTPS（可选，需备案）
+## 5. 域名 + HTTPS
 
-备案通过后配 SSL，让 `https://aidemo.xxx.com` 可用：
-
-```bash
-# 1. 域名 DNS A 记录指向 ECS 公网 IP
-# 2. 用 certbot 申请免费 Let's Encrypt 证书
-sudo apt install -y certbot
-sudo certbot certonly --standalone -d aidemo.xxx.com
-# 3. 在 deploy/nginx.conf 改 listen 443 ssl + ssl_certificate 路径
-#    并加 80 → 443 跳转
-# 4. .env.production 的 CLIENT_ORIGIN / VITE_API_BASE 都改 https://aidemo.xxx.com
-# 5. 重新 build + up
-export VITE_API_BASE=https://aidemo.xxx.com
-bash deploy/deploy.sh
-```
+Caddy 根据 `PUBLIC_HOST` 自动申请和续期公开可信证书。没有自有域名时，
+`8-217-153-138.sslip.io` 自动解析到 ECS；拥有自有域名后，把 DNS A 记录指向 ECS，
+并同时修改 `PUBLIC_HOST`、`CLIENT_ORIGIN`、`CLIENT_ORIGINS` 和
+`VITE_API_BASE`。HTTP 固定返回 301，HTTPS 响应包含一年期 HSTS。
 
 ---
 
@@ -226,7 +234,8 @@ docker compose -f deploy/docker-compose.prod.yml ps
 前端镜像 build 时注入了 `VITE_API_BASE`，换 IP/域名需重新构建：
 
 ```bash
-export VITE_API_BASE=http://<新地址>
+export VITE_API_BASE=https://<新域名>
+export PUBLIC_HOST=<新域名>
 docker compose -f deploy/docker-compose.prod.yml build web
 docker compose -f deploy/docker-compose.prod.yml up -d
 ```
@@ -252,6 +261,9 @@ docker compose -f deploy/docker-compose.prod.yml up -d
 - [x] `JWT_SECRET` 已用强随机替换（非 `local-demo-secret`）
 - [x] `ALLOW_FILE_STORE_FALLBACK=false`
 - [x] 安全组只开 80/443/22，22 限定来源 IP
+- [x] HTTP 301 到 HTTPS，启用 HSTS 和 Secure Cookie
+- [x] 开发/生产 Atlas 应用用户分离且只拥有各自数据库 `readWrite`
+- [x] 权限拒绝写入 `security.authorization.denied` 审计事件
 - [x] Atlas Network Access 已加 ECS IP（非 0.0.0.0/0）
 - [x] `.env.production` 不入 git（`.gitignore` 已排除 `.env`）
 - [x] DashScope Key 未泄露到日志/截图

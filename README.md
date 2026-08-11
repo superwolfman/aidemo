@@ -540,6 +540,14 @@ the account is created in the database selected explicitly by
 writes an environment marker into each database and refuses to start when the
 marker does not match `NODE_ENV`.
 
+Atlas application credentials are isolated too. Development uses a username
+ending in `_dev_app`, production uses `_prod_app`, and production requires
+`MONGODB_EXPECTED_USERNAME` to match the connection URI username. The server
+refuses to start when its production identity has `atlasAdmin`,
+`readWriteAnyDatabase`, or another cluster-wide administrative role. Run
+`scripts/provision-atlas-environment-users.sh` with an authenticated Atlas CLI
+to create database-scoped identities.
+
 To copy legacy data from `growth_ai_assistant` into the current environment
 database, preview and then apply the idempotent migration:
 
@@ -588,6 +596,10 @@ and start a limited number of Demo Runs. Knowledge import/upload, artifact mutat
 approval, replay/control, export, and tenant switching are denied by the API—not
 merely hidden in the UI. The current limiter is designed for the documented
 single-ECS deployment; use a shared Redis limiter before horizontal scaling.
+Rejected demo mutations and tenant-switch attempts are persisted as
+`security.authorization.denied` telemetry containing actor, tenant, route,
+method, result code, IP and user agent. Request bodies, cookies, authorization
+headers and tokens are deliberately excluded.
 
 Quality commands:
 

@@ -56,8 +56,8 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/api/auth', authRouter(store, auth));
-app.use('/api/copilot', auth, enforceDemoPermissions('copilot'), copilotRouter(store));
-app.use('/api/agent-studio', auth, enforceDemoPermissions('agentStudio'), agentStudioRouter(store));
+app.use('/api/copilot', auth, enforceDemoPermissions(store, 'copilot'), copilotRouter(store));
+app.use('/api/agent-studio', auth, enforceDemoPermissions(store, 'agentStudio'), agentStudioRouter(store));
 
 app.use((err, req, res, next) => {
     console.error(err);

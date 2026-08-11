@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { ROLES } from '../security/roles.js';
 import { SlidingWindowLimiter } from '../security/requestLimiter.js';
+import { recordAuthorizationDenied } from '../security/authorizationAudit.js';
 
 const runLimiter = new SlidingWindowLimiter({
     limit: config.demoRunLimitPerHour,
@@ -40,8 +41,8 @@ export function evaluateDemoPermission ({ role, area, method, path }) {
         : { allowed: false, code: 'DEMO_READ_ONLY' };
 }
 
-export function enforceDemoPermissions (area) {
-    return (req, res, next) => {
+export function enforceDemoPermissions (store, area) {
+    return async (req, res, next) => {
         const permission = evaluateDemoPermission({
             role: req.auth?.role,
             area,
@@ -49,6 +50,10 @@ export function enforceDemoPermissions (area) {
             path: req.path
         });
         if (!permission.allowed) {
+            await recordAuthorizationDenied(store, req, {
+                area,
+                code: permission.code
+            });
             return res.status(403).json({
                 message: '受限演示账号可创建限额 Demo Run 并查看生成结果，但不可执行编辑、确认、导出或复评分操作',
                 code: permission.code
@@ -57,6 +62,11 @@ export function enforceDemoPermissions (area) {
         if (permission.consumesRunQuota) {
             const quota = runLimiter.consume(req.auth.actorId);
             if (!quota.allowed) {
+                await recordAuthorizationDenied(store, req, {
+                    type: 'security.demo.quota.denied',
+                    area,
+                    code: 'DEMO_RUN_QUOTA_EXCEEDED'
+                });
                 res.setHeader('Retry-After', String(quota.retryAfterSeconds));
                 return res.status(429).json({
                     message: '演示运行额度已用完，请稍后再试',

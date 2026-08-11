@@ -1,0 +1,38 @@
+{
+	# 关闭管理接口的公网暴露；配置只通过容器启动时加载。
+	admin off
+}
+
+# 显式使用 301，兼容需要永久重定向语义的安全扫描器。
+http://{$PUBLIC_HOST} {
+	redir https://{$PUBLIC_HOST}{uri} 301
+}
+
+{$PUBLIC_HOST} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# API 直接到 Express，避免多一层代理，并保留 SSE 实时刷新能力。
+	handle /api/* {
+		reverse_proxy api:4000 {
+			flush_interval -1
+		}
+	}
+
+	# 前端静态资源仍由现有 Nginx 容器提供。
+	handle {
+		reverse_proxy web:80
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

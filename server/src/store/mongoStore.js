@@ -15,7 +15,10 @@ import {
     tenantUserFilter
 } from '../security/tenantContext.js';
 import { ROLES } from '../security/roles.js';
-import { ensureMongoDatabaseEnvironment } from './mongoDatabase.js';
+import {
+    ensureMongoDatabaseEnvironment,
+    validateMongoRuntimeRoles
+} from './mongoDatabase.js';
 
 function now () {
     return new Date();
@@ -115,6 +118,19 @@ export class MongoStore {
         });
         await this.client.connect();
         this.db = this.client.db(this.databaseName);
+        if (this.environment === 'production') {
+            const status = await this.client.db('admin').command({
+                connectionStatus: 1,
+                showPrivileges: false
+            });
+            const roleErrors = validateMongoRuntimeRoles({
+                databaseName: this.databaseName,
+                roles: status.authInfo?.authenticatedUserRoles || []
+            });
+            if (roleErrors.length) {
+                throw new Error(`Unsafe MongoDB application identity:\n- ${roleErrors.join('\n- ')}`);
+            }
+        }
         await ensureMongoDatabaseEnvironment(this.db, this.environment);
 
         await this.db.collection('users').createIndex({ email: 1 }, { unique: true });
