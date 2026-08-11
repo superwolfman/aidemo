@@ -31,6 +31,15 @@ test('demo_viewer can start bounded demo runs but cannot mutate knowledge or app
         method: 'POST',
         path: '/eval-cases/ai-product-workflow/score'
     }).allowed, false);
+
+    for (const path of ['/runs/run-1/control', '/runs/run-1/replay', '/runs/run-1/review']) {
+        assert.equal(evaluateDemoPermission({
+            role: 'demo_viewer',
+            area: 'agentStudio',
+            method: 'POST',
+            path
+        }).code, 'DEMO_READ_ONLY');
+    }
 });
 
 test('regular members keep existing route permissions', () => {

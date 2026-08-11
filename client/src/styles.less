@@ -6607,6 +6607,7 @@ kbd {
 }
 
 .delivery-access-notice,
+.ops-access-notice,
 .delivery-run-notice,
 .delivery-readonly-hint {
     margin: 0;
@@ -6618,7 +6619,8 @@ kbd {
     line-height: 1.55;
 }
 
-.delivery-access-notice {
+.delivery-access-notice,
+.ops-access-notice {
     display: flex;
     flex-wrap: wrap;
     gap: 6px 12px;
@@ -6635,7 +6637,9 @@ kbd {
 }
 
 .delivery-artifacts button:disabled,
-.delivery-approval-panel button:disabled {
+.delivery-approval-panel button:disabled,
+.ops-command-actions button:disabled,
+.ops-review-actions button:disabled {
     cursor: not-allowed;
     opacity: .55;
 }

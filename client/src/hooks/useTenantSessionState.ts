@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo } from 'react';
 
 function getNamespace(tenantId: string, userId: string) {
     return `aidemo:tenant-session:${tenantId}:${userId}`;
@@ -54,32 +54,25 @@ export function useTenantSessionState(tenantId: string | undefined, userId: stri
         return getNamespace(tenantId, userId);
     }, [tenantId, userId]);
 
-    // 用 ref 保存当前 ns，避免 setSnapshot 依赖 getSnapshot 导致引用变化
-    const nsRef = useRef(ns);
-    nsRef.current = ns;
-
     const getSnapshot = useCallback((): TenantSessionSnapshot | null => {
-        const key = nsRef.current;
-        if (!key) return null;
-        return read<TenantSessionSnapshot>(key);
-    }, []);
+        if (!ns) return null;
+        return read<TenantSessionSnapshot>(ns);
+    }, [ns]);
 
     const setSnapshot = useCallback((snapshot: TenantSessionSnapshot) => {
-        const key = nsRef.current;
-        if (!key) return;
-        const current = read<TenantSessionSnapshot>(key) || {};
-        write<TenantSessionSnapshot>(key, {
+        if (!ns) return;
+        const current = read<TenantSessionSnapshot>(ns) || {};
+        write<TenantSessionSnapshot>(ns, {
             ...current,
             ...snapshot,
             savedAt: new Date().toISOString()
         });
-    }, []);
+    }, [ns]);
 
     const clearSnapshot = useCallback(() => {
-        const key = nsRef.current;
-        if (!key) return;
-        remove(key);
-    }, []);
+        if (!ns) return;
+        remove(ns);
+    }, [ns]);
 
     return useMemo(
         () => ({ getSnapshot, setSnapshot, clearSnapshot }),

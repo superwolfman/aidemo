@@ -9,6 +9,9 @@ export function capabilitiesForRole (role) {
         canReviewArtifacts: !restrictedDemo,
         canExportArtifacts: !restrictedDemo,
         canScoreEval: !restrictedDemo,
-        canSwitchTenant: !restrictedDemo
+        canSwitchTenant: !restrictedDemo,
+        canControlRuns: !restrictedDemo,
+        canReplayRuns: !restrictedDemo,
+        canReviewRuns: !restrictedDemo
     };
 }

@@ -11,6 +11,7 @@ type Props = {
   selectedScopeLabels: string[];
   running: boolean;
   sessionReady: boolean;
+  readOnlyControls?: boolean;
   activeRun?: AgentRun;
   onCommandChange: (value: string) => void;
   onAgentChange: (id: string) => void;
@@ -30,6 +31,7 @@ export function CommandCenter({
   selectedScopeLabels,
   running,
   sessionReady,
+  readOnlyControls = false,
   activeRun,
   onCommandChange,
   onAgentChange,
@@ -51,7 +53,11 @@ export function CommandCenter({
       <div className="ops-command-layout">
         <label className="ops-command-input">
           <span>Task Instruction</span>
-          <textarea value={command} onChange={(event) => onCommandChange(event.target.value)} />
+          <textarea
+            value={command}
+            placeholder="输入新的 Agent 指令；也可以从 Run Registry 选择历史运行进行审计。"
+            onChange={(event) => onCommandChange(event.target.value)}
+          />
         </label>
         <div className="ops-command-config">
           <div className="ops-config-block">
@@ -94,14 +100,16 @@ export function CommandCenter({
         </div>
         <div className="ops-command-control">
           <strong>Run Control</strong>
-          <span>{running ? 'Agent 正在执行，Trace 会持续写入 Run Registry。' : `准备运行 ${selectedAgent?.name || 'Agent'}，或治理当前选中的 Run。`}</span>
+          <span>{readOnlyControls
+            ? '受限演示账号可创建限额 Demo Run 并查看运行证据，不可暂停、恢复、回滚或重放。'
+            : (running ? 'Agent 正在执行，Trace 会持续写入 Run Registry。' : `准备运行 ${selectedAgent?.name || 'Agent'}，或治理当前选中的 Run。`)}</span>
           <div className="ops-command-actions">
-            <button className="primary-button" onClick={onRun} disabled={!sessionReady || running}><Send size={15} />{running ? '运行中' : '运行 Agent'}</button>
+            <button className="primary-button" onClick={onRun} disabled={!sessionReady || running || !command.trim()}><Send size={15} />{running ? '运行中' : '运行 Agent'}</button>
             <button className="secondary-button" onClick={onRefresh}><RefreshCw size={15} />刷新</button>
-            <button className="secondary-button" onClick={() => onControl('pause')} disabled={!activeRun}><Pause size={15} />暂停</button>
-            <button className="secondary-button" onClick={() => onControl('resume')} disabled={!activeRun}><Play size={15} />恢复</button>
-            <button className="secondary-button" onClick={() => onControl('rollback')} disabled={!activeRun}><RotateCcw size={15} />回滚</button>
-            <button className="secondary-button" onClick={onRerun} disabled={!activeRun || running}><RefreshCw size={15} />重放</button>
+            <button className="secondary-button" title={readOnlyControls ? '受限演示账号不可暂停 Run' : undefined} onClick={() => onControl('pause')} disabled={!activeRun || readOnlyControls}><Pause size={15} />暂停</button>
+            <button className="secondary-button" title={readOnlyControls ? '受限演示账号不可恢复 Run' : undefined} onClick={() => onControl('resume')} disabled={!activeRun || readOnlyControls}><Play size={15} />恢复</button>
+            <button className="secondary-button" title={readOnlyControls ? '受限演示账号不可回滚 Run' : undefined} onClick={() => onControl('rollback')} disabled={!activeRun || readOnlyControls}><RotateCcw size={15} />回滚</button>
+            <button className="secondary-button" title={readOnlyControls ? '受限演示账号不可重放 Run' : undefined} onClick={onRerun} disabled={!activeRun || running || readOnlyControls}><RefreshCw size={15} />重放</button>
           </div>
         </div>
       </div>

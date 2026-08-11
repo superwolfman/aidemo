@@ -14,6 +14,8 @@ import { getAgentStudioBlueprint } from '../../services/blueprintService';
 import * as sessionService from '../../services/sessionService';
 import * as agentRunService from '../../services/agentRunService';
 import { getAgentStudioRun } from '../../services/agentRunService';
+import { useTenantSessionState } from '../../hooks/useTenantSessionState';
+import type { ShellContext } from '../../platform/subapps';
 
 type AgentSession = {
     _id: string;
@@ -174,7 +176,16 @@ const stateOrder = [
     { id: 'review', label: '人工审批' }
 ];
 
-export default function AgentOpsConsole() {
+export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
+    const tenantId = shell?.user?.tenant?.id || shell?.user?.activeTenantId || shell?.user?.tenantId || '';
+    const userId = String(shell?.user?._id || '');
+    const activeRole = shell?.user?.tenant?.role || shell?.user?.role;
+    const permissions = shell?.user?.permissions;
+    const isDemoViewer = permissions?.mode === 'restricted-demo' || activeRole === 'demo_viewer';
+    const canControlRuns = permissions?.canControlRuns !== false && !isDemoViewer;
+    const canReplayRuns = permissions?.canReplayRuns !== false && !isDemoViewer;
+    const canReviewRuns = permissions?.canReviewRuns !== false && !isDemoViewer;
+    const tenantSessionState = useTenantSessionState(tenantId, userId);
     const session = useSession();
     const agentRun = useAgentRun('agent-studio');
     const { sessions, setSessions, active, setActive, load: loadSession, create: createSessionSvc } = session;
@@ -186,7 +197,7 @@ export default function AgentOpsConsole() {
     const [activeTraceId, setActiveTraceId] = useState('');
     const [filter, setFilter] = useState('all');
     const [keyword, setKeyword] = useState('');
-    const [command, setCommand] = useState('为企业内部 AI 产品研发团队建设一个需求到交付 Agent，要求输出 PRD、页面结构、BFF API、测试策略和上线风险。');
+    const [command, setCommand] = useState('');
     const [selectedAgentId, setSelectedAgentId] = useState('product-delivery-agent');
     const [selectedScopes, setSelectedScopes] = useState<string[]>(['architecture', 'standards', 'ai-native', 'frontend']);
     const [controlNote, setControlNote] = useState('运行治理确认：保留审计日志后进入下一步。');
@@ -230,10 +241,18 @@ export default function AgentOpsConsole() {
         if (sessionResult.sessions?.[0]) setActive(sessionResult.sessions[0]);
         else { const created = await sessionService.createAgentStudioSession('AgentOps Command Center 会话'); setActive(created.session); }
         const first = runResult.runs?.[0];
-        if (first) { setActiveRunId((current) => current || first._id); setActiveTraceId((current) => current || first.trace?.[0]?.id || ''); }
+        const linkedRunId = tenantSessionState.getSnapshot()?.activeRunId;
+        const selected = runResult.runs?.find((run: AgentRun) => run._id === activeRunIdRef.current)
+            || runResult.runs?.find((run: AgentRun) => run._id === linkedRunId)
+            || first;
+        if (selected) {
+            setActiveRunId(selected._id);
+            setActiveTraceId((current) => current || selected.trace?.[0]?.id || '');
+            tenantSessionState.setSnapshot({ activeRunId: selected._id, runId: selected.runId });
+        }
 
         // 列表接口出于性能排除 trace/artifacts/logs，若当前有选中的 run，补全详情避免显示空 Trace
-        const targetId = activeRunIdRef.current;
+        const targetId = selected?._id;
         if (targetId) {
             try {
                 const { run } = await getAgentStudioRun(targetId);
@@ -244,7 +263,7 @@ export default function AgentOpsConsole() {
                 console.warn('[AgentOps] hydrate active run failed:', error);
             }
         }
-    }, [setActive, setRuns, setBlueprint]);
+    }, [setActive, setRuns, setBlueprint, tenantSessionState]);
 
     useEffect(() => { load().catch(console.error); }, [load]);
 
@@ -272,7 +291,7 @@ export default function AgentOpsConsole() {
     //     setRuns((items) => items.map((item) => item._id === result.run._id ? result.run : item));
     // }
     async function control(action: string) {
-        if (!activeRunMemo?._id || acting) return;
+        if (!activeRunMemo?._id || acting || !canControlRuns) return;
         setActing(true);
         try {
             const result = await agentRunService.controlRun(activeRunMemo._id, action, controlNote);
@@ -283,7 +302,7 @@ export default function AgentOpsConsole() {
     }
 
     async function review(action: string) {
-        if (!activeRunMemo?._id || acting) return;
+        if (!activeRunMemo?._id || acting || !canReviewRuns) return;
         setActing(true);
         try {
             const result = await agentRunService.reviewRun(activeRunMemo._id, action, controlNote);
@@ -309,29 +328,43 @@ export default function AgentOpsConsole() {
                     setRuns((items) => [payload.run, ...items.filter((item) => item._id !== 'running' && item._id !== payload.run._id)]);
                     setActiveRunId(payload.run._id);
                     setActiveTraceId(payload.run.trace?.[0]?.id || '');
+                    tenantSessionState.setSnapshot({ activeRunId: payload.run._id, runId: payload.run.runId });
                 }
             });
         } finally { setRunning(false); await load(); }
     }
-    async function rerunActive() { if (!activeRunMemo?._id) return; const result = await agentRunService.replayRun(activeRunMemo._id, controlNote || 'AgentOps replay'); setRuns((items) => [result.run, ...items]); setActiveRunId(result.run._id); setActiveTraceId(result.run.trace?.[0]?.id || ''); setCommand(result.run.prompt || activeRunMemo.prompt || command); }
+    async function rerunActive() {
+        if (!activeRunMemo?._id || !canReplayRuns) return;
+        const result = await agentRunService.replayRun(activeRunMemo._id, controlNote || 'AgentOps replay');
+        setRuns((items) => [result.run, ...items]);
+        setActiveRunId(result.run._id);
+        setActiveTraceId(result.run.trace?.[0]?.id || '');
+        tenantSessionState.setSnapshot({ activeRunId: result.run._id, runId: result.run.runId });
+    }
     function toggleScope(scopeId: string) { setSelectedScopes((items) => items.includes(scopeId) ? items.filter((item) => item !== scopeId) : [...items, scopeId]); }
 
     return (
         <div className="ops-console-page">
             <div className="product-page-kicker">AgentOps Runtime Console</div>
             <Header title="AgentOps 控制台" desc="面向运行治理：Run Registry、状态机、Trace Timeline、Tool Call Audit、Run Detail、审批记录和失败回放。" />
+            {isDemoViewer ? (
+                <div className="ops-access-notice" role="status">
+                    <strong>受限演示模式</strong>
+                    <span>可创建限额 Demo Run，并查看当前租户的 Run、RAG、Trace、Artifact 和审计记录；不可暂停、恢复、回滚、重放或审批。</span>
+                </div>
+            ) : null}
             <RuntimeSummary activeRun={activeRunMemo} blueprint={blueprint} ragRuntime={ragRuntime} ragLive={ragLive} />
-            <CommandCenter command={command} selectedAgentId={selectedAgentId} selectedAgent={selectedAgent} capabilities={blueprint?.capabilities || []} selectedScopes={selectedScopes} selectedScopeLabels={selectedScopeLabels} running={running} sessionReady={Boolean(active)} activeRun={activeRunMemo} onCommandChange={setCommand} onAgentChange={setSelectedAgentId} onToggleScope={toggleScope} onRun={() => runCommand()} onRefresh={load} onControl={control} onRerun={rerunActive} />
+            <CommandCenter command={command} selectedAgentId={selectedAgentId} selectedAgent={selectedAgent} capabilities={blueprint?.capabilities || []} selectedScopes={selectedScopes} selectedScopeLabels={selectedScopeLabels} running={running} sessionReady={Boolean(active)} activeRun={activeRunMemo} readOnlyControls={!canControlRuns || !canReplayRuns} onCommandChange={setCommand} onAgentChange={setSelectedAgentId} onToggleScope={toggleScope} onRun={() => runCommand()} onRefresh={load} onControl={control} onRerun={rerunActive} />
             <MetricsGrid metrics={metrics} />
             <RuntimeMetrics metrics={metrics} traceCount={trace.length} metricTrends={metricTrends} blueprint={blueprint} selectedAgent={selectedAgent} selectedScopeLabels={selectedScopeLabels} retrievalView={retrievalView} ragRuntime={ragRuntime} ragLive={ragLive} onOpenDetail={() => { setActiveTraceId(trace[0]?.id || ''); setDetailTab('overview'); setDetailOpen(true); }} />
             <main className="ops-console-layout">
-                <RunRegistry runs={filteredRuns} activeRun={activeRunMemo} keyword={keyword} filter={filter} onKeywordChange={setKeyword} onFilterChange={setFilter} onSelectRun={(run) => { setActiveRunId(run._id); setActiveTraceId(run.trace?.[0]?.id || ''); }} />
+                <RunRegistry runs={filteredRuns} activeRun={activeRunMemo} keyword={keyword} filter={filter} onKeywordChange={setKeyword} onFilterChange={setFilter} onSelectRun={(run) => { setActiveRunId(run._id); setActiveTraceId(run.trace?.[0]?.id || ''); tenantSessionState.setSnapshot({ activeRunId: run._id, runId: run.runId }); }} />
                 <section className="ops-main-stage">
                     <StateMachinePanel stateSteps={stateSteps} activeTrace={activeTrace} trendPath={trendPath} onSelectTrace={setActiveTraceId} />
                     <TraceAuditPanel trace={trace} activeTrace={activeTrace} onSelectTrace={setActiveTraceId} />
                 </section>
                 {/* <RunDetailDock activeRun={activeRunMemo} controlNote={controlNote} onControlNoteChange={setControlNote} onReview={review} /> */}
-                <RunDetailDock activeRun={activeRunMemo} controlNote={controlNote} onControlNoteChange={setControlNote} onReview={review} disabled={acting} />
+                <RunDetailDock activeRun={activeRunMemo} controlNote={controlNote} onControlNoteChange={setControlNote} onReview={review} disabled={acting} readOnly={!canReviewRuns} />
             </main>
             <RunDetailDrawer open={detailOpen} activeRun={activeRunMemo} blueprint={blueprint} detailTab={detailTab} onTabChange={setDetailTab} onClose={() => setDetailOpen(false)} />
         </div>

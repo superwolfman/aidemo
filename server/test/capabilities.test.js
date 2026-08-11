@@ -11,6 +11,9 @@ test('demo viewer receives explicit restricted capabilities', () => {
     assert.equal(capabilities.canExportArtifacts, false);
     assert.equal(capabilities.canScoreEval, false);
     assert.equal(capabilities.canSwitchTenant, false);
+    assert.equal(capabilities.canControlRuns, false);
+    assert.equal(capabilities.canReplayRuns, false);
+    assert.equal(capabilities.canReviewRuns, false);
 });
 
 test('standard roles retain existing product capabilities', () => {
@@ -18,4 +21,7 @@ test('standard roles retain existing product capabilities', () => {
     assert.equal(capabilities.mode, 'standard');
     assert.equal(capabilities.canEditArtifacts, true);
     assert.equal(capabilities.canReviewArtifacts, true);
+    assert.equal(capabilities.canControlRuns, true);
+    assert.equal(capabilities.canReplayRuns, true);
+    assert.equal(capabilities.canReviewRuns, true);
 });

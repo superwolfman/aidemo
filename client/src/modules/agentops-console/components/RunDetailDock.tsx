@@ -9,23 +9,25 @@ type Props = {
   onControlNoteChange: (value: string) => void;
   onReview: (action: string) => void;
   disabled?: boolean;
+  readOnly?: boolean;
 };
 
-export function RunDetailDock({ activeRun, controlNote, onControlNoteChange, onReview, disabled }: Props) {
+export function RunDetailDock({ activeRun, controlNote, onControlNoteChange, onReview, disabled, readOnly = false }: Props) {
+  const actionsDisabled = disabled || readOnly;
   return (
     <aside className="panel ops-detail-dock">
       <div className="section-head">
         <div>
           <h2>Run Detail</h2>
-          <p>审批记录、失败回放和产物留档。</p>
+          <p>{readOnly ? '受限演示模式仅查看审批、控制历史和产物留档。' : '审批记录、失败回放和产物留档。'}</p>
         </div>
         <Workflow size={20} />
       </div>
-      <textarea value={controlNote} onChange={(event) => onControlNoteChange(event.target.value)} />
+      <textarea readOnly={readOnly} value={controlNote} onChange={(event) => onControlNoteChange(event.target.value)} />
       <div className="ops-review-actions">
-        <button className="primary-button" onClick={() => onReview('confirm')} disabled={!activeRun || disabled}><CheckCircle2 size={14} />确认</button>
-        <button className="secondary-button" onClick={() => onReview('revise')} disabled={!activeRun || disabled}>修改</button>
-        <button className="danger-button" onClick={() => onReview('reject')} disabled={!activeRun || disabled}><AlertTriangle size={14} />拒绝</button>
+        <button className="primary-button" title={readOnly ? '受限演示账号不可审批' : undefined} onClick={() => onReview('confirm')} disabled={!activeRun || actionsDisabled}><CheckCircle2 size={14} />确认</button>
+        <button className="secondary-button" title={readOnly ? '受限演示账号不可要求修改' : undefined} onClick={() => onReview('revise')} disabled={!activeRun || actionsDisabled}>修改</button>
+        <button className="danger-button" title={readOnly ? '受限演示账号不可拒绝' : undefined} onClick={() => onReview('reject')} disabled={!activeRun || actionsDisabled}><AlertTriangle size={14} />拒绝</button>
       </div>
       <div className="ops-detail-block">
         <strong>Artifacts</strong>
