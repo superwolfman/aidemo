@@ -105,7 +105,7 @@ export const config = {
     demoTenantId: (process.env.DEMO_TENANT_ID || 'tenant-interview-demo').trim(),
     demoAllowedKnowledgeScopes: listFromEnv(
         'DEMO_ALLOWED_KNOWLEDGE_SCOPES',
-        'copilot,architecture,frontend,ai-native,standards'
+        'copilot,architecture,frontend,ai-native,standards,frontend-observability,engineering-governance,performance,im,sdk'
     ),
     demoAccessExpiresAt: (process.env.DEMO_ACCESS_EXPIRES_AT || '').trim(),
     demoRunLimitPerHour: Number(process.env.DEMO_RUN_LIMIT_PER_HOUR || 20),

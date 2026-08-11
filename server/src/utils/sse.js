@@ -13,8 +13,8 @@ export function sendEvent(res, event, data) {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-export function closeSse(res) {
-  sendEvent(res, 'done', { ok: true });
+export function closeSse(res, result = { ok: true }) {
+  sendEvent(res, 'done', result);
   res.end();
 }
 

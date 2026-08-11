@@ -117,6 +117,13 @@ export async function streamRequest(path: string, body: Record<string, unknown>,
       const data = JSON.parse(raw);
       handlers[event]?.(data);
       handlers.any?.(event, data);
+      if (event === 'error') {
+        throw new ApiError(
+          data.message || 'Stream failed',
+          Number(data.statusCode || 500),
+          data.code
+        );
+      }
     }
   }
 }

@@ -76,6 +76,17 @@ export function useAgentRun(_kind: 'agent-studio' | 'delivery' = 'agent-studio')
             },
             final: (payload: any) => {
                 handlers.final?.(payload);
+            },
+            error: (payload: any) => {
+                handlers.error?.(payload);
+                if (!handlers.error) {
+                    setStatus('failed');
+                    setRunState({
+                        status: 'failed',
+                        label: 'Agent Run 执行失败',
+                        error: payload
+                    });
+                }
             }
         };
 

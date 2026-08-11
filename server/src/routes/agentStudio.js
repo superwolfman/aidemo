@@ -619,11 +619,22 @@ export function agentStudioRouter (store) {
 
     router.post('/sessions/:id/runs/stream', async (req, res) => {
         initSse(res);
+        let runRecord = null;
+        let runId = '';
+        let intent = null;
+        let selectedSkill = null;
+        let plan = [];
+        let logs = [];
+        let trace = [];
         try {
             const session = await store.getRecord('agent_sessions', req.params.id, req.auth);
             if (!session) {
-                sendEvent(res, 'error', { message: 'Session not found' });
-                closeSse(res);
+                sendEvent(res, 'error', {
+                    message: 'Session not found',
+                    code: 'SESSION_NOT_FOUND',
+                    statusCode: 404
+                });
+                closeSse(res, { ok: false, code: 'SESSION_NOT_FOUND' });
                 return;
             }
 
@@ -633,14 +644,14 @@ export function agentStudioRouter (store) {
             const commandOptions = req.body.commandOptions && typeof req.body.commandOptions === 'object' ? req.body.commandOptions : {};
             const modelConfig = req.body.model && typeof req.body.model === 'object' ? req.body.model : {};
             const provider = getProviderStatus(modelConfig);
-            let intent = inferIntent(prompt);
+            intent = inferIntent(prompt);
             if (Array.isArray(commandOptions.scopes) && commandOptions.scopes.length) {
                 intent = { ...intent, scopes: commandOptions.scopes };
             }
             const requestedCapability = agentCapabilities.find((capability) => (
                 capability.id === commandOptions.agentId || capability.id === commandOptions.skillId
             ));
-            const selectedSkill = requestedCapability || selectCapability(intent);
+            selectedSkill = requestedCapability || selectCapability(intent);
             if (requestedCapability && requestedCapability.id !== intent.id) {
                 intent = {
                     ...intent,
@@ -650,13 +661,13 @@ export function agentStudioRouter (store) {
                     signals: [...(intent.signals || []), 'command_center_selected']
                 };
             }
-            let plan = buildAgentPlan(intent);
-            const runId = `run-${crypto.randomUUID()}`;
-            const logs = [
+            plan = buildAgentPlan(intent);
+            runId = `run-${crypto.randomUUID()}`;
+            logs = [
                 auditLog('info', 'Agent Run 已创建', { runId, promptPreview: prompt.slice(0, 80) })
             ];
-            const trace = [];
-            let runRecord = await store.createRecord('agent_runs', {
+            trace = [];
+            runRecord = await store.createRecord('agent_runs', {
                 runId,
                 sessionId: session._id,
                 status: 'created',
@@ -947,9 +958,77 @@ export function agentStudioRouter (store) {
             sendEvent(res, 'final', { run, message: assistantMessage });
             closeSse(res);
         } catch (error) {
-            // 补上 SSE 路由顶层异常边界（P0-C）
-            sendEvent(res, 'error', { message: error.message || 'Internal error' });
-            closeSse(res);
+            const message = error?.message || 'Internal error';
+            const code = error?.code || 'AGENT_RUN_FAILED';
+            const failedAt = now();
+
+            if (runRecord) {
+                const stageByStatus = {
+                    created: ['validate-request', 'request', '校验用户请求'],
+                    intent_detected: ['select-skill', 'skill', 'Skill 自动选择'],
+                    skill_selected: ['retrieve-context', 'rag', 'RAG 上下文检索'],
+                    retrieving: ['retrieve-context', 'rag', 'RAG 上下文检索'],
+                    tool_running: ['run-tools', 'tools', '执行 Agent 工具'],
+                    streaming: ['stream-result', 'llm', 'LLM 生成'],
+                    review_required: ['human-review', 'human', '人工审批']
+                };
+                const [planStepId, traceStepId, traceStepName] = stageByStatus[runRecord.status] || [
+                    'retrieve-context',
+                    'runtime-error',
+                    'Agent Run 执行'
+                ];
+                plan = updatePlan(plan, planStepId, 'failed', { error: { code, message } });
+                trace = upsertTraceStage(trace, traceStepId, {
+                    name: traceStepName,
+                    status: 'failed',
+                    error: message,
+                    code,
+                    at: failedAt
+                });
+                logs.push(auditLog('error', `Agent Run 失败：${message}`, {
+                    code,
+                    status: runRecord.status
+                }));
+
+                try {
+                    runRecord = await applyTransition(store, runRecord, 'failed', {
+                        label: 'Agent Run 执行失败',
+                        actorId: req.user._id,
+                        meta: { code, message, planStepId }
+                    });
+                    runRecord = await store.updateRecord('agent_runs', runRecord._id, {
+                        plan,
+                        trace,
+                        logs,
+                        failure: { code, message, at: failedAt }
+                    });
+                } catch (persistError) {
+                    console.error(`[agent-studio] failed to persist run failure: ${persistError.message}`);
+                }
+
+                sendEvent(res, 'run_status', {
+                    runDbId: runRecord?._id,
+                    runId,
+                    status: 'failed',
+                    label: 'Agent Run 执行失败',
+                    at: failedAt,
+                    error: { code, message },
+                    intent,
+                    selectedSkill,
+                    plan
+                });
+                sendEvent(res, 'plan', { plan, selectedSkill, intent });
+                sendEvent(res, 'trace', trace.find((item) => item.id === traceStepId));
+            }
+
+            sendEvent(res, 'error', {
+                message,
+                code,
+                statusCode: error?.statusCode || 500,
+                runDbId: runRecord?._id,
+                runId
+            });
+            closeSse(res, { ok: false, code, runId });
         }
     })
     return router;

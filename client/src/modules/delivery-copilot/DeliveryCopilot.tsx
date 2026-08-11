@@ -237,6 +237,10 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
                 },
                 artifacts: (payload) => { setArtifacts(payload.artifacts || []); setActiveArtifactId(payload.artifacts?.[0]?.id || ''); setArtifactDraft(stringify(payload.artifacts?.[0]?.content || '')); },
                 delta: (payload) => setAnswer((current) => current + payload.text),
+                error: (payload) => {
+                    setStatus('failed');
+                    setNotice(`运行失败：${payload.message || 'Agent Run 执行失败'}`);
+                },
                 final: (payload: { run: AgentRun }) => {
                     setStatus(payload.run?.status || 'review_required');
                     setAnswer(payload.run?.answer || '');
