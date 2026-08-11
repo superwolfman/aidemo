@@ -577,12 +577,23 @@ Visitor email OTP
 
 Required deployment steps:
 
-1. Put the public hostname behind Cloudflare and create a Self-hosted Access application.
-2. Configure an `Allow` policy with the interviewer's exact email and One-time PIN.
-3. Set the Access application session duration to 30–60 minutes and copy its AUD tag.
-4. Fill `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `CLIENT_ORIGINS` and the `DEMO_*` values in the untracked `deploy/.env.production` file.
-5. Keep `PASSWORD_LOGIN_ENABLED=false`, `SEED_DEMO_ADMIN=false`, and deploy through `deploy/docker-compose.prod.yml`.
-6. After the interview, remove/revoke the Access user or policy. Existing application cookies can also be invalidated immediately by incrementing the user's `tokenVersion` or setting `disabledAt` in the `users` collection.
+1. Register `agentdelivery.com`, add `app.agentdelivery.com` to Cloudflare as a
+   proxied A record, and set SSL/TLS mode to `Full (strict)`.
+2. Keep the origin IP private: public DNS must return Cloudflare anycast addresses,
+   while the ECS security group should allow ports 80/443 only from Cloudflare's
+   published origin ranges. Port 22 must be restricted to the operator's IP.
+3. Create a Self-hosted Access application for `app.agentdelivery.com`.
+4. Configure an `Allow` policy with the interviewer's exact email and One-time PIN.
+5. Set the Access application session duration to 30–60 minutes and copy its AUD tag.
+6. Fill `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `CLIENT_ORIGINS` and the `DEMO_*` values in the untracked `deploy/.env.production` file.
+7. Keep `PASSWORD_LOGIN_ENABLED=false`, `SEED_DEMO_ADMIN=false`, and deploy through `deploy/docker-compose.prod.yml`.
+8. After the interview, remove/revoke the Access user or policy. Existing application cookies can also be invalidated immediately by incrementing the user's `tokenVersion` or setting `disabledAt` in the `users` collection.
+
+`deploy/deploy.sh` fails closed when the public hostname is an IP-derived
+`sslip.io`/`nip.io` name, when DNS still exposes `ORIGIN_PUBLIC_IP`, or when the
+resolved addresses are outside Cloudflare's published IPv4 ranges. Caddy applies
+the same Cloudflare allowlist before routing traffic and only trusts client IP
+headers from those ranges.
 
 Immediate application-side revoke/enable commands (run with production env loaded):
 

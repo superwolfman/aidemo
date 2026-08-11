@@ -11,8 +11,10 @@
 ```
                         手机 / 电脑（公网）
                               │
-                         https://<公网域名>
+                   https://app.agentdelivery.com
                               │
+                     Cloudflare Proxy / Access
+                              │  公网 DNS 不返回源站 IP
                   ┌───────────▼───────────┐
                   │   阿里云 ECS（轻量/ECS）│
                   │   ┌─────────────────┐ │
@@ -60,16 +62,18 @@
    - 存储：60GB SSD 足够
 3. 网络：分配公网 IP（必须，否则外网访问不了）
 4. 安全组 / 防火墙：放行端口
-   - **80**（HTTP，nginx 对外）
-   - **443 TCP/UDP**（HTTPS/HTTP3，必须）
-   - **22**（SSH，建议限定来源 IP）
+   - **80/443 TCP**：只允许 [Cloudflare 官方回源网段](https://www.cloudflare.com/ips/)
+   - **443 UDP**：可选 HTTP/3，同样只允许 Cloudflare 网段
+   - **22**：只允许运维者固定 IP
 5. 设置登录密码 / 密钥对，记录公网 IP
 
-### 1.3 用 IP 访问免备案说明
+### 1.3 域名和备案说明
 
-- **用公网 IP 直接访问**：**无需备案**，立即可用（如 `http://47.116.x.x`）
-- **要用域名**（如 `aidemo.xxx.com`）：域名指向中国大陆 ECS 必须**ICP 备案**（阿里云备案，约 7~20 工作日）
-- 想免备案又用域名：买**中国香港/海外**轻量服务器（贵些），或用 IP 访问
+- 对外只使用 `https://app.agentdelivery.com`，不使用 IP 或 IP 编码域名。
+- `app` 表示用户可访问的正式产品；`prd` / `prod` 是内部环境术语，不出现在公开 URL。
+- 如果以后需要非生产环境，使用受 Cloudflare Access 保护的 `staging.agentdelivery.com`，不对公网开放。
+- 当前 ECS 在中国香港，不要求中国内地 ICP 备案；迁移至内地前必须先备案。
+- Cloudflare 代理记录对外返回 Anycast IP，不在 DNS 中直接公开 ECS IP。
 
 ---
 
@@ -124,9 +128,11 @@ nano deploy/.env.production   # 填写下面"必填项"
 | 变量 | 值 | 说明 |
 |---|---|---|
 | `JWT_SECRET` | `openssl rand -hex 32` 生成 | 强随机，不可用默认 |
-| `PUBLIC_HOST` | `8-217-153-138.sslip.io` | 公网域名，不含协议 |
-| `CLIENT_ORIGIN` | `https://<公网域名>` | 与访问地址同源，CORS |
-| `CLIENT_ORIGINS` | `https://<公网域名>` | 同上 |
+| `PUBLIC_HOST` | `app.agentdelivery.com` | 自有公网域名，不含协议 |
+| `ORIGIN_PUBLIC_IP` | ECS 公网 IP | 只用于部署时检查 DNS 未泄露源站 |
+| `EDGE_PROXY_MODE` | `cloudflare` | 生产必须经过 Cloudflare |
+| `CLIENT_ORIGIN` | `https://app.agentdelivery.com` | 与访问地址同源，CORS |
+| `CLIENT_ORIGINS` | `https://app.agentdelivery.com` | 同上 |
 | `MONGODB_ATLAS_URI` | Atlas 控制台复制 | 业务数据+向量 |
 | `MONGODB_DB_NAME` | `aidemo_prod` | 生产独立数据库，必须以 `_prod` 结尾 |
 | `MONGODB_EXPECTED_USERNAME` | `aidemo_prod_app` | 与连接串用户名一致，必须为生产独立用户 |
@@ -157,16 +163,29 @@ bash scripts/provision-atlas-environment-users.sh
 `aidemo_prod_app`（仅 `readWrite@aidemo_prod`）。密码只写入被 Git 忽略且权限为
 `0600` 的 `deploy/.atlas-users.env`。将账号分别写入本地和线上密钥配置后删除该文件。
 
-### 3.3 MongoDB Atlas：加 IP 白名单
+### 3.3 Cloudflare DNS / TLS / Access
+
+1. 注册 `agentdelivery.com` 并将 Name Server 切换至 Cloudflare。
+2. 新增 `A app -> <ECS 公网 IP>`，Proxy status 选 **Proxied（橙色云）**。
+3. SSL/TLS 模式设为 **Full (strict)**，不得使用 Flexible。
+4. 创建 Self-hosted Access Application，域名为 `app.agentdelivery.com`。
+5. 用面试官精确邮箱 + One-time PIN 建立 Allow Policy。
+
+部署脚本会验证 DNS 只返回 Cloudflare 网段，如果橙色云未开启或
+DNS 泄露 `ORIGIN_PUBLIC_IP`，将直接终止部署。
+
+### 3.4 MongoDB Atlas：加 IP 白名单
 
 Atlas 控制台 → Network Access → Add IP Address → 填 ECS 公网 IP（或临时 `0.0.0.0/0`，不安全但能跑通）。
 
-### 3.3 启动
+### 3.5 启动
 
 ```bash
 # 设置前端 API 地址（与 CLIENT_ORIGIN 同源）
-export VITE_API_BASE=https://8-217-153-138.sslip.io
-export PUBLIC_HOST=8-217-153-138.sslip.io
+export VITE_API_BASE=https://app.agentdelivery.com
+export PUBLIC_HOST=app.agentdelivery.com
+export ORIGIN_PUBLIC_IP=<ECS 公网 IP>
+export EDGE_PROXY_MODE=cloudflare
 
 # 一键部署
 bash deploy/deploy.sh
@@ -184,11 +203,11 @@ curl http://127.0.0.1:4000/health
 # 预期: {"ok":true,"store":"mongo"}
 
 # HTTPS 健康
-curl https://8-217-153-138.sslip.io/healthz
+curl https://app.agentdelivery.com/healthz
 # 预期: ok
 
 # 外网：手机/电脑浏览器访问
-https://8-217-153-138.sslip.io
+https://app.agentdelivery.com
 # 应见 aidemo 工作台首页；登录后能跑通"需求→RAG→Artifact→LLM 流式"
 ```
 
@@ -196,12 +215,12 @@ https://8-217-153-138.sslip.io
 
 ---
 
-## 5. 域名 + HTTPS
+## 5. 自有域名 + Cloudflare + HTTPS
 
-Caddy 根据 `PUBLIC_HOST` 自动申请和续期公开可信证书。没有自有域名时，
-`8-217-153-138.sslip.io` 自动解析到 ECS；拥有自有域名后，把 DNS A 记录指向 ECS，
-并同时修改 `PUBLIC_HOST`、`CLIENT_ORIGIN`、`CLIENT_ORIGINS` 和
-`VITE_API_BASE`。HTTP 固定返回 301，HTTPS 响应包含一年期 HSTS。
+Caddy 根据 `PUBLIC_HOST` 自动申请和续期公开可信证书。Cloudflare 面向访客提供
+边缘 TLS，并以 Full (strict) 验证 Caddy 源站证书。Caddy 仅接受 Cloudflare
+官方网段及本机健康检查流量，只信任这些网段传入的真实客户端 IP。
+HTTP 固定返回 301，HTTPS 响应包含一年期 HSTS。
 
 ---
 
@@ -249,10 +268,10 @@ docker compose -f deploy/docker-compose.prod.yml up -d
 | 阿里云轻量 2C2G3M | ~24 元/月（新用户首单常有优惠 ~9.9 元/月） |
 | MongoDB Atlas 免费 tier | 0（512MB，够 demo） |
 | DashScope LLM | 按量，qwen-flash 极便宜（几元/百万 token） |
-| 域名（可选） | ~30~50 元/年 |
+| `agentdelivery.com` 域名 | 以注册商实时价格为准 |
 | 备案 | 0 |
 
-**最低落地成本**：~24 元/月（IP 访问免域名免备案），即可手机+电脑外网访问。
+**最低落地成本**：ECS 成本 + `agentdelivery.com` 年费；Cloudflare DNS/CDN 可从免费套餐起步。
 
 ---
 

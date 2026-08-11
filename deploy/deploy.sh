@@ -3,10 +3,13 @@
 # aidemo 一键部署/更新脚本（阿里云 ECS + Docker）
 # 用法：
 #   1. 首次：cp deploy/.env.production.example deploy/.env.production 并填写
-#   2. 设置公网访问地址：
-#        export VITE_API_BASE=https://aidemo.xxx.com
-#        export PUBLIC_HOST=aidemo.xxx.com
-#   3. bash deploy/deploy.sh                       # 首次部署 / 代码更新后构建
+#   2. 在 Cloudflare 将 app.agentdelivery.com 的 A 记录设为已代理（橙色云）。
+#   3. 生产模板默认使用：
+#        VITE_API_BASE=https://app.agentdelivery.com
+#        PUBLIC_HOST=app.agentdelivery.com
+#        EDGE_PROXY_MODE=cloudflare
+#        ORIGIN_PUBLIC_IP=<ECS 公网 IP>
+#   4. bash deploy/deploy.sh                       # 首次部署 / 代码更新后构建
 #      bash deploy/deploy.sh --update              # 先拉新代码再构建
 #      bash deploy/deploy.sh --clean               # 强制无缓存重建（首次或换 registry 时用）
 # ============================================================
@@ -20,6 +23,11 @@ cd "$PROJECT_ROOT"
 ENV_FILE="deploy/.env.production"
 COMPOSE="docker compose -f deploy/docker-compose.prod.yml"
 
+read_env_value() {
+  local key="$1"
+  sed -n "s/^${key}=//p" "$ENV_FILE" | tail -n 1 | tr -d '\r'
+}
+
 echo "==== aidemo 部署脚本 ===="
 echo "项目根: $PROJECT_ROOT"
 
@@ -31,30 +39,28 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-# 2. 校验 VITE_API_BASE（前端 API 地址，build 时注入）
+# 2. 校验自有域名与 Cloudflare 代理（前端 API 地址在 build 时注入）
 if [ -z "${VITE_API_BASE:-}" ]; then
-  read -rp "请输入 HTTPS 前端地址 VITE_API_BASE（如 https://aidemo.xxx.com）: " VITE_API_BASE
+  VITE_API_BASE="$(read_env_value CLIENT_ORIGIN)"
 fi
 if [[ "$VITE_API_BASE" != https://* ]]; then
   echo "✗ 生产 VITE_API_BASE 必须使用 https://"
   exit 1
 fi
+PUBLIC_HOST="${PUBLIC_HOST:-$(read_env_value PUBLIC_HOST)}"
 PUBLIC_HOST="${PUBLIC_HOST:-${VITE_API_BASE#https://}}"
 PUBLIC_HOST="${PUBLIC_HOST%%/*}"
-EXPECTED_PUBLIC_IP="${EXPECTED_PUBLIC_IP:-8.217.153.138}"
-if [[ ! "$PUBLIC_HOST" =~ ^[A-Za-z0-9.-]+$ ]]; then
-  echo "✗ PUBLIC_HOST 不是合法主机名: $PUBLIC_HOST"
-  exit 1
-fi
+ORIGIN_PUBLIC_IP="${ORIGIN_PUBLIC_IP:-$(read_env_value ORIGIN_PUBLIC_IP)}"
+EDGE_PROXY_MODE="${EDGE_PROXY_MODE:-$(read_env_value EDGE_PROXY_MODE)}"
 export VITE_API_BASE
 export PUBLIC_HOST
+export ORIGIN_PUBLIC_IP
+export EDGE_PROXY_MODE
 echo "✓ VITE_API_BASE=$VITE_API_BASE"
 echo "✓ PUBLIC_HOST=$PUBLIC_HOST"
+echo "✓ EDGE_PROXY_MODE=$EDGE_PROXY_MODE"
 
-if ! getent ahostsv4 "$PUBLIC_HOST" | awk '{print $1}' | grep -qx "$EXPECTED_PUBLIC_IP"; then
-  echo "✗ $PUBLIC_HOST 尚未解析到 $EXPECTED_PUBLIC_IP，停止申请证书"
-  exit 1
-fi
+node scripts/production-domain.mjs
 
 # 3. 安全检查：JWT_SECRET 不得用 demo 默认值
 if grep -qE "^JWT_SECRET=(replace-with-32-bytes-random|local-demo-secret)" "$ENV_FILE"; then
@@ -86,6 +92,16 @@ fi
 
 if ! grep -q "^CLIENT_ORIGIN=$VITE_API_BASE$" "$ENV_FILE"; then
   echo "✗ CLIENT_ORIGIN 必须与 VITE_API_BASE 完全一致: $VITE_API_BASE"
+  exit 1
+fi
+
+if ! grep -q "^PUBLIC_HOST=$PUBLIC_HOST$" "$ENV_FILE"; then
+  echo "✗ .env.production 中 PUBLIC_HOST 必须与部署域名完全一致: $PUBLIC_HOST"
+  exit 1
+fi
+
+if ! grep -q '^EDGE_PROXY_MODE=cloudflare$' "$ENV_FILE"; then
+  echo "✗ 生产必须设置 EDGE_PROXY_MODE=cloudflare"
   exit 1
 fi
 
@@ -133,12 +149,21 @@ fi
 
 $COMPOSE ps
 
-# 8. 自检
+# 8. 公网入口必须经过 Cloudflare；即使 Access 返回登录跳转，也应携带 cf-ray。
+if ! curl -fsSI --max-time 15 "https://$PUBLIC_HOST/" | grep -qi '^cf-ray:'; then
+  echo "✗ 公网响应未经过 Cloudflare（缺少 cf-ray）"
+  echo "  请确认 DNS 记录为 Proxied（橙色云），SSL/TLS 模式为 Full (strict)"
+  exit 1
+fi
+echo "✓ Cloudflare 公网入口验证通过"
+
+# 9. 自检
 echo ""
 echo "==== 部署完成 ===="
 echo "前端: $VITE_API_BASE"
 echo "API 健康: curl http://127.0.0.1:4000/health   (本机)"
 echo "HTTPS 验证: curl $VITE_API_BASE/healthz        (应返回 ok)"
 echo "重定向验证: curl -I http://$PUBLIC_HOST         (应返回 301)"
+echo "DNS 验证: dig +short $PUBLIC_HOST                 (应只返回 Cloudflare IP)"
 echo "查看日志: $COMPOSE logs -f"
 echo "停止: $COMPOSE down"
