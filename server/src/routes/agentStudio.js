@@ -856,7 +856,7 @@ export function agentStudioRouter (store) {
                     mode = 'streaming';
                     logs.push(auditLog('llm', 'LLM 流式生成成功', { provider: generated.provider }));
                 } else {
-                    // 部分模型（如 qwen-flash-2025-07-28）在流式模式下可能返回空，静默降级到同步调用
+                    // 部分模型在流式模式下可能返回空，静默降级到同步调用
                     logs.push(auditLog('llm', '流式返回为空，降级到同步生成', { provider: generated.provider }));
                     const completed = await generateLlmAnswer({
                         systemPrompt: '你是企业级 AI Agent 产品专家。引用 sources 时必须在正文相关句末内联 [n] 标记（编号与 sources 顺序一致），禁止编造引用编号；未覆盖的问题明确说"未在知识库中找到相关资料"。',
