@@ -10,6 +10,7 @@ import { authRouter } from './routes/auth.js';
 import { copilotRouter } from './routes/copilot.js';
 import { agentStudioRouter } from './routes/agentStudio.js';
 import { seedKnowledgeIfEmpty } from './utils/seedKnowledge.js';
+import { enforceDemoPermissions } from './middleware/demoAuthorization.js';
 
 const store = await createStore();
 const seedResult = await seedKnowledgeIfEmpty(store);
@@ -17,6 +18,7 @@ if (seedResult.seeded) {
     console.log(`[server] auto seeded ${seedResult.count} knowledge documents`);
 }
 const app = express();
+app.set('trust proxy', 1);
 const auth = requireAuth(store);
 
 app.use(
@@ -49,8 +51,8 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/api/auth', authRouter(store, auth));
-app.use('/api/copilot', auth, copilotRouter(store));
-app.use('/api/agent-studio', auth, agentStudioRouter(store));
+app.use('/api/copilot', auth, enforceDemoPermissions('copilot'), copilotRouter(store));
+app.use('/api/agent-studio', auth, enforceDemoPermissions('agentStudio'), agentStudioRouter(store));
 
 app.use((err, req, res, next) => {
     console.error(err);

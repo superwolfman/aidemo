@@ -7,9 +7,10 @@ type Props = {
   artifactSummary: ArtifactSummaryItem[];
   onSelectArtifact: (artifact: Artifact) => void;
   onConfirmArtifact: () => void;
+  readOnly?: boolean;
 };
 
-export function ApprovalPanel({ activeRun, activeArtifact, artifactSummary, onSelectArtifact, onConfirmArtifact }: Props) {
+export function ApprovalPanel({ activeRun, activeArtifact, artifactSummary, onSelectArtifact, onConfirmArtifact, readOnly = false }: Props) {
   const confirmedCount = artifactSummary.filter((item) => item.confirmed).length;
   const readyCount = artifactSummary.filter((item) => item.done).length;
   const latestApproval = activeArtifact?.approvals?.[0];
@@ -54,8 +55,8 @@ export function ApprovalPanel({ activeRun, activeArtifact, artifactSummary, onSe
       </div>
       <div className="approval-current">
         <strong>{activeArtifact?.title || '请选择一个交付物'}</strong>
-        <p>{latestApproval ? `${latestApproval.action} · ${latestApproval.note || '无备注'}` : '确认后会生成审批记录，可在 AgentOps 回查。'}</p>
-        <button type="button" className="primary-button" disabled={!activeArtifact || activeArtifact.reviewStatus === 'approved'} onClick={onConfirmArtifact}>
+        <p>{readOnly ? '受限演示账号可以查看交付物，但不能写入审批记录。' : (latestApproval ? `${latestApproval.action} · ${latestApproval.note || '无备注'}` : '确认后会生成审批记录，可在 AgentOps 回查。')}</p>
+        <button type="button" className="primary-button" title={readOnly ? '受限演示账号不可确认交付物' : undefined} disabled={readOnly || !activeArtifact || activeArtifact.reviewStatus === 'approved'} onClick={onConfirmArtifact}>
           确认当前交付物
         </button>
       </div>

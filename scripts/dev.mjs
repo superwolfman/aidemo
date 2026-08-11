@@ -8,7 +8,9 @@ const commands = [
 const children = commands.map(([name, command, args]) => {
   const child = spawn(command, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
-    shell: process.platform === 'win32'
+    shell: process.platform === 'win32',
+    // 运行模式由启动命令决定，不依赖加载后才读取到的 .env 内容。
+    env: { ...process.env, NODE_ENV: 'development' }
   });
 
   child.stdout.on('data', (chunk) => {

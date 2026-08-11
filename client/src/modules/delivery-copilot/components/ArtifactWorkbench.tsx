@@ -13,6 +13,7 @@ type ArtifactWorkbenchProps = {
     onConfirmArtifact: () => void;
     onReviewArtifact: () => void;
     onExportArtifact: (format: 'markdown' | 'json') => void;
+    readOnly?: boolean;
 };
 
 export function ArtifactWorkbench({
@@ -26,7 +27,8 @@ export function ArtifactWorkbench({
     onSaveArtifact,
     onConfirmArtifact,
     onReviewArtifact,
-    onExportArtifact
+    onExportArtifact,
+    readOnly = false
 }: ArtifactWorkbenchProps) {
     return (
         <section className="panel delivery-artifacts">
@@ -37,6 +39,7 @@ export function ArtifactWorkbench({
                 </div>
                 <span>{artifacts.length} artifacts</span>
             </div>
+            {readOnly ? <p className="delivery-readonly-hint">当前为受限演示账号：生成结果可查看，版本保存、导出、确认和送审已禁用。</p> : null}
             <div className="delivery-artifact-shell">
                 <nav>
                     {artifacts.map((artifact) => (
@@ -58,15 +61,15 @@ export function ArtifactWorkbench({
                                 </div>
                                 <div>
                                     <button className="secondary-button compact" onClick={() => onCopy(artifactDraft)}><Copy size={13} />复制</button>
-                                    <button className="secondary-button compact" disabled={!activeRun} onClick={onSaveArtifact}>保存版本</button>
-                                    <button className="secondary-button compact" disabled={!activeRun} onClick={() => onExportArtifact('markdown')}>导出 MD</button>
-                                    <button className="secondary-button compact" disabled={!activeRun} onClick={() => onExportArtifact('json')}>导出 JSON</button>
-                                    <button className="primary-button compact" disabled={!activeRun} onClick={onConfirmArtifact}><CheckCircle2 size={13} />确认</button>
-                                    <button className="secondary-button compact" disabled={!activeRun} onClick={onReviewArtifact}><Eye size={13} />送审</button>
+                                    <button className="secondary-button compact" disabled={!activeRun || readOnly} title={readOnly ? '受限演示账号不可保存版本' : undefined} onClick={onSaveArtifact}>保存版本</button>
+                                    <button className="secondary-button compact" disabled={!activeRun || readOnly} title={readOnly ? '受限演示账号不可导出' : undefined} onClick={() => onExportArtifact('markdown')}>导出 MD</button>
+                                    <button className="secondary-button compact" disabled={!activeRun || readOnly} title={readOnly ? '受限演示账号不可导出' : undefined} onClick={() => onExportArtifact('json')}>导出 JSON</button>
+                                    <button className="primary-button compact" disabled={!activeRun || readOnly} title={readOnly ? '受限演示账号不可确认' : undefined} onClick={onConfirmArtifact}><CheckCircle2 size={13} />确认</button>
+                                    <button className="secondary-button compact" disabled={!activeRun || readOnly} title={readOnly ? '受限演示账号不可送审' : undefined} onClick={onReviewArtifact}><Eye size={13} />送审</button>
                                 </div>
                             </header>
                             <div className="delivery-artifact-editor">
-                                <textarea value={artifactDraft} onChange={(event) => onArtifactDraftChange(event.target.value)} />
+                                <textarea readOnly={readOnly} value={artifactDraft} onChange={(event) => onArtifactDraftChange(event.target.value)} />
                                 <aside>
                                     <strong>版本与审批</strong>
                                     <span>Trace · {activeArtifact.generatedBy?.traceStepId || activeArtifact.traceStepId || 'unknown'}</span>

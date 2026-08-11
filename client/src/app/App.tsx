@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { BrainCircuit, LogOut, PanelLeftClose, PanelLeftOpen, ShieldCheck, Users } from 'lucide-react';
-import { request, tokenKey } from '../api/client';
+import { ApiError, configureAccessSession, request, tokenKey } from '../api/client';
 import { TenantSwitcher } from './TenantSwitcher';
 import { Header } from '../components/ui';
 import { eventBus, AppEvents } from '../platform/events';
@@ -12,8 +12,8 @@ import type { ShellContext } from '../platform/subapps';
 import { i18n } from '../platform/i18n';
 
 function Login({ onLogin }: { onLogin: (user: any) => void }) {
-  const [email, setEmail] = useState('removed-default-admin@example.invalid');
-  const [password, setPassword] = useState('removed-public-password');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -24,7 +24,7 @@ function Login({ onLogin }: { onLogin: (user: any) => void }) {
         method: 'POST',
         body: JSON.stringify({ email, password })
       });
-      localStorage.setItem(tokenKey, result.token);
+      localStorage.removeItem(tokenKey);
       localStorage.setItem('tenantId', result.tenant?.id || '');
       onLogin({ ...result.user, tenant: result.tenant, tenants: result.tenants });
     } catch (err) {
@@ -42,12 +42,47 @@ function Login({ onLogin }: { onLogin: (user: any) => void }) {
             <p>面向架构师的 Agent 工程系统：多会话 Chat、Skill Runtime、Tool Calling、RAG、人工确认和 Trace。</p>
           </div>
         </div>
-        <form className="form-stack" onSubmit={submit}>
-          <label>邮箱<input value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-          <label>密码<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+        <form className="form-stack" onSubmit={submit} autoComplete="off">
+          <label>邮箱<input name="aidemo-local-email" autoComplete="off" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+          <label>密码<input name="aidemo-local-password" autoComplete="new-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
           {error ? <div className="error">{error}</div> : null}
           <button className="primary-button" type="submit"><ShieldCheck size={16} />进入平台</button>
         </form>
+      </section>
+    </main>
+  );
+}
+
+function AccessUnavailable({ message }: { message: string }) {
+  return (
+    <main className="login-shell">
+      <section className="login-panel">
+        <div className="brand-row">
+          <div className="brand-mark"><ShieldCheck size={26} /></div>
+          <div>
+            <h1>访问授权未完成</h1>
+            <p>{message || '请使用受邀邮箱完成 Cloudflare Access 邮箱验证码验证。'}</p>
+          </div>
+        </div>
+        <button className="primary-button" type="button" onClick={() => window.location.reload()}>
+          重新验证访问权限
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function AuthenticationDisabled() {
+  return (
+    <main className="login-shell">
+      <section className="login-panel">
+        <div className="brand-row">
+          <div className="brand-mark"><ShieldCheck size={26} /></div>
+          <div>
+            <h1>认证入口未配置</h1>
+            <p>当前没有启用公共默认账号。公网请配置 Cloudflare Access；本地开发请在私有 .env 中显式开启密码登录并设置自己的账号。</p>
+          </div>
+        </div>
       </section>
     </main>
   );
@@ -162,27 +197,75 @@ function Shell({ user, onLogout, onSwitchTenant }: { user: any; onLogout: () => 
 export default function App() {
   const [user, setUser] = useState(null);
   const [booting, setBooting] = useState(true);
+  const [authMode, setAuthMode] = useState<'disabled' | 'password' | 'cloudflare-access'>('disabled');
+  const [authError, setAuthError] = useState('');
+  const accessLogoutUrlRef = useRef('');
 
   useEffect(() => {
     const off = eventBus.on(AppEvents.AUTH_LOGOUT, () => {
-      localStorage.removeItem(tokenKey);
-      setUser(null);
+      void request('/api/auth/logout', { method: 'POST' })
+        .catch(() => undefined)
+        .finally(() => {
+          localStorage.removeItem(tokenKey);
+          localStorage.removeItem('tenantId');
+          setUser(null);
+          if (accessLogoutUrlRef.current) {
+            window.location.assign(accessLogoutUrlRef.current);
+          }
+        });
     });
 
-    if (!localStorage.getItem(tokenKey)) {
-      setBooting(false);
-      return off;
+    async function restoreAuthentication() {
+      let resolvedMode: 'disabled' | 'password' | 'cloudflare-access' = 'disabled';
+      try {
+        // One-time migration: legacy Bearer tokens must not remain in browser storage.
+        localStorage.removeItem(tokenKey);
+        const bootstrap = await request('/api/auth/bootstrap');
+        const mode = bootstrap.mode === 'cloudflare-access'
+          ? 'cloudflare-access'
+          : (bootstrap.mode === 'password' ? 'password' : 'disabled');
+        resolvedMode = mode;
+        configureAccessSession(mode === 'cloudflare-access');
+        accessLogoutUrlRef.current = bootstrap.accessLogoutUrl || '';
+        setAuthMode(mode);
+
+        if (mode === 'disabled') {
+          return;
+        }
+
+        try {
+          const current = await request('/api/auth/me');
+          setUser({ ...current.user, tenant: current.tenant, tenants: current.tenants });
+          return;
+        } catch (error) {
+          if (!(error instanceof ApiError) || error.status !== 401 || mode !== 'cloudflare-access') {
+            throw error;
+          }
+        }
+
+        const exchanged = await request('/api/auth/access/session', { method: 'POST' });
+        localStorage.removeItem(tokenKey);
+        localStorage.setItem('tenantId', exchanged.tenant?.id || '');
+        setUser({ ...exchanged.user, tenant: exchanged.tenant, tenants: exchanged.tenants });
+      } catch (error) {
+        localStorage.removeItem(tokenKey);
+        if (resolvedMode === 'cloudflare-access') {
+          setAuthMode('cloudflare-access');
+          setAuthError((error as Error).message);
+        }
+      } finally {
+        setBooting(false);
+      }
     }
 
-    request('/api/auth/me')
-      .then((res) => setUser({ ...res.user, tenant: res.tenant, tenants: res.tenants }))
-      .catch(() => localStorage.removeItem(tokenKey))
-      .finally(() => setBooting(false));
+    void restoreAuthentication();
 
     return off;
   }, []);
 
   if (booting) return <div className="boot">Loading...</div>;
+  if (!user && authMode === 'disabled') return <AuthenticationDisabled />;
+  if (!user && authMode === 'cloudflare-access') return <AccessUnavailable message={authError} />;
   if (!user) return <Login onLogin={setUser} />;
 
   return (

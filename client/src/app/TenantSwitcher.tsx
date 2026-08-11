@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Loader2, Search, Shield, Users } from 'lucide-react';
-import { request, tokenKey } from '../api/client';
+import { request } from '../api/client';
 
 interface TenantEntry {
   tenantId: string;
@@ -131,8 +131,8 @@ export function TenantSwitcher({ user, onSwitchTenant }: TenantSwitcherProps) {
     const spaceAbove = rect.top - gap;
     const spaceBelow = viewportHeight - rect.bottom - gap;
 
-    let nextPlacement: 'top' | 'bottom' = 'top';
-    let top = 0;
+    let nextPlacement: 'top' | 'bottom';
+    let top: number;
     if (spaceAbove >= dropdownHeight || spaceAbove >= spaceBelow) {
       nextPlacement = 'top';
       top = rect.top - gap; // CSS 用 bottom 锚定，这里先占位
@@ -184,7 +184,6 @@ export function TenantSwitcher({ user, onSwitchTenant }: TenantSwitcherProps) {
       window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', onResize, true);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, tenantList.length]);
 
   useEffect(() => {
@@ -213,7 +212,6 @@ export function TenantSwitcher({ user, onSwitchTenant }: TenantSwitcherProps) {
         method: 'POST',
         body: JSON.stringify({ tenantId: target.tenantId })
       });
-      localStorage.setItem(tokenKey, result.token);
       localStorage.setItem('tenantId', result.tenant?.id || target.tenantId);
 
       clearTenantRuntimeState(currentTenantId);

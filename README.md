@@ -91,7 +91,7 @@ Typical use cases:
 |---|---|
 | Frontend stack | React 19, TypeScript, Vite, Less |
 | Backend stack | Node.js, Express, MongoDB / file fallback |
-| Authentication | Employee login, JWT auth, protected APIs |
+| Authentication | Cloudflare Access identity, short-lived HttpOnly session, server-side revocation, development password fallback |
 | LLM provider | DeepSeek / OpenAI-compatible / DashScope adapter with fallback status |
 | RAG | Local hash fallback + MongoDB Atlas Vector Search adapter |
 | Skill runtime | Skill definition, allowed tools, knowledge scopes, prompt contract |
@@ -350,8 +350,11 @@ The current `agentStudio.js` route still owns part of orchestration glue. The ne
 Authentication:
 
 ```text
-POST /api/auth/login
+GET  /api/auth/bootstrap
+POST /api/auth/access/session
+POST /api/auth/login              # development fallback only
 GET  /api/auth/me
+POST /api/auth/logout
 ```
 
 Copilot / legacy runtime:
@@ -517,12 +520,61 @@ Backend:  http://127.0.0.1:4000
 Health:   http://127.0.0.1:4000/health
 ```
 
-Default login:
+Create a private local `.env` and set a development-only account before starting:
+
+```env
+PASSWORD_LOGIN_ENABLED=true
+LEGACY_BEARER_ENABLED=false
+SEED_DEMO_ADMIN=true
+DEMO_ADMIN_EMAIL=xubin.local@aidemo.invalid
+DEMO_ADMIN_PASSWORD=use-a-private-local-password
+```
+
+`.env.example` is a committed template and is never loaded directly. Copy the
+required values into the untracked root `.env`. With `RAG_BACKEND=mongodb-atlas`,
+the account is created in the database selected by `MONGODB_ATLAS_URI`; use a
+development database rather than the production database.
+
+There are no usable credentials in the repository. Production must set
+`PASSWORD_LOGIN_ENABLED=false`, `LEGACY_BEARER_ENABLED=false`, and
+`SEED_DEMO_ADMIN=false`.
+
+## Public Interview Demo Authentication
+
+The production demo uses one login boundary and no second application password:
 
 ```text
-removed-default-admin@example.invalid
-removed-public-password
+Visitor email OTP
+  -> Cloudflare Access exact-email policy
+  -> signed Cf-Access-Jwt-Assertion
+  -> API verifies signature + issuer + audience
+  -> existing users collection (auto-provision demo_viewer when enabled)
+  -> dedicated tenant-interview-demo
+  -> short-lived HttpOnly/Secure/SameSite cookie
+  -> existing Session / Run / Artifact / Trace APIs
 ```
+
+Required deployment steps:
+
+1. Put the public hostname behind Cloudflare and create a Self-hosted Access application.
+2. Configure an `Allow` policy with the interviewer's exact email and One-time PIN.
+3. Set the Access application session duration to 30–60 minutes and copy its AUD tag.
+4. Fill `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `CLIENT_ORIGINS` and the `DEMO_*` values in the untracked `deploy/.env.production` file.
+5. Keep `PASSWORD_LOGIN_ENABLED=false`, `SEED_DEMO_ADMIN=false`, and deploy through `deploy/docker-compose.prod.yml`.
+6. After the interview, remove/revoke the Access user or policy. Existing application cookies can also be invalidated immediately by incrementing the user's `tokenVersion` or setting `disabledAt` in the `users` collection.
+
+Immediate application-side revoke/enable commands (run with production env loaded):
+
+```bash
+npm run access:manage --workspace server -- --action revoke --email interviewer@example.com
+npm run access:manage --workspace server -- --action enable --email interviewer@example.com --expires-at 2026-08-12T12:00:00+08:00
+```
+
+`demo_viewer` can read its tenant data, create sessions, search permitted knowledge,
+and start a limited number of Demo Runs. Knowledge import/upload, artifact mutation,
+approval, replay/control, export, and tenant switching are denied by the API—not
+merely hidden in the UI. The current limiter is designed for the documented
+single-ECS deployment; use a shared Redis limiter before horizontal scaling.
 
 Quality commands:
 
@@ -660,4 +712,3 @@ const run = await persistRun({
 4. **并发安全** —— `applyTransition` 内部为单次原子 `store.updateRecord`，避免多客户端并发改 `status` 导致状态冲突。
 5. **路由只发指令** —— `agentStudio.js` 不再自己拼 `status + stateTransitions`，业务规则下沉到 service。
 6. **为 P2 打底** —— 后续「谁对 Run 做了什么」「SLA 耗时」「失败率统计」「权限审计」均可直接消费 `stateTransitions` 事件流，无需返工补埋点。
-

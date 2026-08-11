@@ -166,11 +166,11 @@ export class MongoStore {
 
     async seed () {
         const users = this.db.collection('users');
-        let existingUser = await users.findOne({ email: 'removed-default-admin@example.invalid' });
-        if (!existingUser) {
+        let existingUser = await users.findOne({ email: config.demoAdminEmail });
+        if (config.seedDemoAdmin && !existingUser) {
             const result = await users.insertOne({
                 name: '增长平台管理员',
-                email: 'removed-default-admin@example.invalid',
+                email: config.demoAdminEmail,
                 role: ROLES.ADMIN,
                 tenantId: DEFAULT_TENANT_ID,
                 tenants: [
@@ -180,11 +180,12 @@ export class MongoStore {
                 activeTenantId: DEFAULT_TENANT_ID,
                 allowedKnowledgeScopes: ['*'],
                 department: '用户增长',
-                passwordHash: hashPassword('removed-public-password'),
+                passwordHash: hashPassword(config.demoAdminPassword),
+                tokenVersion: 0,
                 createdAt: now()
             });
             existingUser = await users.findOne({ _id: result.insertedId });
-        } else if (!existingUser.tenantId || !Array.isArray(existingUser.allowedKnowledgeScopes) || !Array.isArray(existingUser.tenants)) {
+        } else if (existingUser && (!existingUser.tenantId || !Array.isArray(existingUser.allowedKnowledgeScopes) || !Array.isArray(existingUser.tenants))) {
             const tenants = Array.isArray(existingUser.tenants) && existingUser.tenants.length
                 ? existingUser.tenants
                 : [{ tenantId: existingUser.tenantId || DEFAULT_TENANT_ID, role: existingUser.role || ROLES.ADMIN }];
@@ -203,19 +204,22 @@ export class MongoStore {
         }
 
         // 多租户 seed：为当前用户关联的每个租户单独注入 seed 文档，避免 tenant-demo-2 无数据
-        const uniqueTenantIds = [
+        const uniqueTenantIds = existingUser ? [
             ...new Set([
                 existingUser.tenantId || DEFAULT_TENANT_ID,
                 ...(Array.isArray(existingUser.tenants) ? existingUser.tenants.map((t) => t.tenantId) : [])
             ].filter(Boolean))
-        ];
+        ] : [config.demoTenantId || DEFAULT_TENANT_ID];
         for (const tenantId of uniqueTenantIds) {
-            await seedKnowledgeIfEmpty(this, { tenantId, actorId: String(existingUser._id) });
+            await seedKnowledgeIfEmpty(this, {
+                tenantId,
+                actorId: existingUser ? String(existingUser._id) : 'system-seed'
+            });
         }
     }
 
     async findUserByEmail (email) {
-        return this.db.collection('users').findOne({ email });
+        return this.db.collection('users').findOne({ email: String(email || '').trim().toLowerCase() });
     }
 
     async findUserById (id) {

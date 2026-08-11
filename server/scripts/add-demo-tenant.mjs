@@ -8,7 +8,11 @@ if (!uri) {
     process.exit(1);
 }
 
-const email = process.argv[2] || 'removed-default-admin@example.invalid';
+const email = String(process.argv[2] || '').trim().toLowerCase();
+if (!email) {
+    console.error('请显式传入目标用户邮箱，脚本不再使用公共默认管理员账号');
+    process.exit(1);
+}
 const DEMO_TENANT = 'tenant-demo-2';
 
 const client = new MongoClient(uri);

@@ -6606,6 +6606,40 @@ kbd {
     min-width: 0;
 }
 
+.delivery-access-notice,
+.delivery-run-notice,
+.delivery-readonly-hint {
+    margin: 0;
+    border: 1px solid #f0c96b;
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: #7a4b00;
+    background: #fff8df;
+    line-height: 1.55;
+}
+
+.delivery-access-notice {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+}
+
+.delivery-run-notice {
+    border-color: #99d8ca;
+    color: #0f766e;
+    background: #ecfdf8;
+}
+
+.delivery-readonly-hint {
+    font-size: 12px;
+}
+
+.delivery-artifacts button:disabled,
+.delivery-approval-panel button:disabled {
+    cursor: not-allowed;
+    opacity: .55;
+}
+
 .product-page-kicker {
     color: #0f766e;
     font-size: 12px;

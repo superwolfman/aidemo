@@ -25,6 +25,35 @@ const selectedMongoUri =
         ? atlasCandidateUri
         : defaultMongoUri;
 
+function booleanFromEnv (name, fallback = false) {
+    const value = process.env[name];
+    if (value === undefined) return fallback;
+    return value === 'true';
+}
+
+function listFromEnv (name, fallback = '') {
+    return (process.env[name] || fallback)
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+}
+
+function normalizeAccessTeamDomain (value) {
+    return String(value || '')
+        .trim()
+        .replace(/^https?:\/\//, '')
+        .replace(/\/$/, '');
+}
+
+const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
+const clientOrigins = [...new Set([
+    clientOrigin,
+    ...listFromEnv(
+        'CLIENT_ORIGINS',
+        'http://localhost:5173,http://127.0.0.1:5173'
+    )
+])];
+
 function redactConnection (uri) {
     if (!uri) return 'not configured';
     try {
@@ -41,6 +70,41 @@ export const config = {
     port: Number(process.env.PORT || 4000),
     host: process.env.HOST || '127.0.0.1',
     jwtSecret: process.env.JWT_SECRET || (nodeEnv === 'development' ? 'local-demo-secret' : ''),
+    sessionCookieName:
+        process.env.SESSION_COOKIE_NAME ||
+        (nodeEnv === 'production' ? '__Host-aidemo_session' : 'aidemo_session'),
+    sessionTtlSeconds: Number(process.env.SESSION_TTL_SECONDS || 3600),
+    sessionCookieSecure:
+        booleanFromEnv('SESSION_COOKIE_SECURE', nodeEnv === 'production'),
+    passwordLoginEnabled: booleanFromEnv(
+        'PASSWORD_LOGIN_ENABLED',
+        false
+    ),
+    legacyBearerEnabled: booleanFromEnv(
+        'LEGACY_BEARER_ENABLED',
+        false
+    ),
+    seedDemoAdmin: booleanFromEnv(
+        'SEED_DEMO_ADMIN',
+        false
+    ),
+    demoAdminEmail: (process.env.DEMO_ADMIN_EMAIL || '').trim().toLowerCase(),
+    demoAdminPassword: process.env.DEMO_ADMIN_PASSWORD || '',
+    cloudflareAccessEnabled: booleanFromEnv('CF_ACCESS_ENABLED'),
+    cloudflareAccessTeamDomain: normalizeAccessTeamDomain(process.env.CF_ACCESS_TEAM_DOMAIN),
+    cloudflareAccessAudience: (process.env.CF_ACCESS_AUD || '').trim(),
+    cloudflareAccessAllowedEmails: listFromEnv('CF_ACCESS_ALLOWED_EMAILS')
+        .map((email) => email.toLowerCase()),
+    demoAutoProvision: booleanFromEnv('DEMO_AUTO_PROVISION'),
+    demoTenantId: (process.env.DEMO_TENANT_ID || 'tenant-interview-demo').trim(),
+    demoAllowedKnowledgeScopes: listFromEnv(
+        'DEMO_ALLOWED_KNOWLEDGE_SCOPES',
+        'copilot,architecture,frontend,ai-native,standards'
+    ),
+    demoAccessExpiresAt: (process.env.DEMO_ACCESS_EXPIRES_AT || '').trim(),
+    demoRunLimitPerHour: Number(process.env.DEMO_RUN_LIMIT_PER_HOUR || 20),
+    loginAttemptLimit: Number(process.env.LOGIN_ATTEMPT_LIMIT || 5),
+    loginAttemptWindowMs: Number(process.env.LOGIN_ATTEMPT_WINDOW_MS || 900000),
     // 只负责读取配置，不在这里隐藏生产环境配置错误。
     allowFileStoreFallback:
         process.env.ALLOW_FILE_STORE_FALLBACK === 'true',
@@ -49,15 +113,8 @@ export const config = {
     mcpAllowedKnowledgeScopes: (
         process.env.MCP_ALLOWED_KNOWLEDGE_SCOPES || '*'
     ).split(',').map((scope) => scope.trim()).filter(Boolean),
-    clientOrigin:
-        process.env.CLIENT_ORIGIN ||
-        'http://localhost:5173',
-    clientOrigins: (
-        process.env.CLIENT_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173'
-    )
-        .split(',')
-        .map((origin) => origin.trim())
-        .filter(Boolean),
+    clientOrigin,
+    clientOrigins,
     mongodbUri: selectedMongoUri,
     mongodbAtlasUri,
     mongodbAtlasConfigured:

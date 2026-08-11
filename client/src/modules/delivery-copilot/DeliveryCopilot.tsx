@@ -46,7 +46,9 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
     const abortRef = useRef<AbortController | null>(null);
     const outputRef = useRef<HTMLDivElement | null>(null);
     const [confirming, setConfirming] = useState(false);
+    const [notice, setNotice] = useState('');
     const loadedRef = useRef(false);
+    const isDemoViewer = (shell?.user?.tenant?.role || shell?.user?.role) === 'demo_viewer';
 
     const session = useSession();
     const agentRun = useAgentRun('delivery');
@@ -55,7 +57,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
 
     const { setActive, active } = session;
     const { status, setStatus, answer, setAnswer, trace, setTrace, sources, setSources, filteredChunks, setFilteredChunks, ragDiagnostics, setRagDiagnostics, artifacts, setArtifacts, quality, setQuality, activeRun, setActiveRun, start } = agentRun;
-    const { cases, setCases, load: loadEvalCases, refresh: refreshEval, score } = evalCase;
+    const { cases, setCases, load: loadEvalCases, refresh: refreshEval } = evalCase;
 
     const activeArtifact = useMemo(() => artifacts.find((item) => item.id === activeArtifactId) || artifacts[0], [activeArtifactId, artifacts]);
     const activeTaskMode = useMemo(() => deliveryTaskModes.find((item) => item.id === taskModeId) || deliveryTaskModes[0], [taskModeId]);
@@ -215,6 +217,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
         setTrace([]);
         setQuality(null);
         setStatus('validating');
+        setNotice('');
         try {
             await start(active._id, {
                 message: nextPrompt,
@@ -244,7 +247,17 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
                     setActiveRun(payload.run || null);
                     setActiveArtifactId(payload.run?.artifacts?.[0]?.id || '');
                     setArtifactDraft(stringify(payload.run?.artifacts?.[0]?.content || ''));
-                    if (evalCaseId && payload.run?._id) void scoreEvalCase(payload.run, evalCaseId);
+                    // Run 主链路已经在服务端生成并持久化 quality/evalResult。
+                    // 这里只刷新 Eval Case 展示，避免再发起一次有副作用的重复评分请求。
+                    if (evalCaseId) {
+                        void refreshEvalCases().catch((error) => {
+                            console.warn('Eval cases refresh failed', error);
+                            setNotice('Run 已完成并保存，但评估列表刷新失败，可稍后刷新页面重试。');
+                        });
+                    }
+                    if (isDemoViewer) {
+                        setNotice('受限 Demo Run 已完成：本次生成结果可查看；编辑、确认、导出和复评分不可用。');
+                    }
                 }
             }, controller.signal);
         } catch (error) {
@@ -262,15 +275,6 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
     }
 
     async function refreshEvalCases() { await refreshEval(); }
-
-    async function scoreEvalCase(run: AgentRun, evalCaseId: string) {
-        if (!run?._id || !evalCaseId) return;
-        try {
-            const result = await score(evalCaseId, run._id);
-            if (result) syncRun(result);
-            await refreshEvalCases();
-        } catch (error) { console.warn('Eval scoring failed', error); }
-    }
 
     async function copy(text: string) { await navigator.clipboard?.writeText(text); }
 
@@ -323,6 +327,13 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
         <div className="delivery-page">
             <div className="product-page-kicker">Delivery Copilot Workbench</div>
             <Header title="Copilot 交付工作台" desc="面向业务交付：从需求输入、RAG 上下文、流式分析到 PRD / 页面结构 / API / 任务拆解 Artifact。" />
+            {isDemoViewer ? (
+                <div className="delivery-access-notice" role="status">
+                    <strong>受限演示模式</strong>
+                    <span>可创建限额 Demo Run 并查看本次生成的 RAG、Trace 和 Artifact；不可编辑、确认、导出或复评分。</span>
+                </div>
+            ) : null}
+            {notice ? <div className="delivery-run-notice" role="status">{notice}</div> : null}
             <SessionPanel blueprint={blueprint} ragRuntime={ragRuntime} ragLive={ragLive} quality={quality} />
             <ArtifactOverview artifactSummary={artifactSummary} activeArtifactId={activeArtifact?.id} onSelectArtifact={selectArtifact} />
             <main className="delivery-workspace delivery-workspace-v2">
@@ -347,10 +358,10 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
                     <KnowledgeContext ragLive={ragLive} ragRuntime={ragRuntime} retrievalView={retrievalView} requirement={requirement} sources={sources} filteredChunks={filteredChunks} diagnostics={ragDiagnostics} trace={trace} />
                 </section>
                 <section className="delivery-region-5">
-                    <ApprovalPanel activeRun={activeRun} activeArtifact={activeArtifact} artifactSummary={artifactSummary} onSelectArtifact={selectArtifact} onConfirmArtifact={confirmArtifact} />
+                    <ApprovalPanel activeRun={activeRun} activeArtifact={activeArtifact} artifactSummary={artifactSummary} onSelectArtifact={selectArtifact} onConfirmArtifact={confirmArtifact} readOnly={isDemoViewer} />
                 </section>
             </section>
-            <ArtifactWorkbench artifacts={artifacts} activeArtifact={activeArtifact} activeRun={activeRun} artifactDraft={artifactDraft} onArtifactDraftChange={setArtifactDraft} onSelectArtifact={selectArtifact} onCopy={copy} onSaveArtifact={saveArtifact} onConfirmArtifact={confirmArtifact} onReviewArtifact={reviewArtifact} onExportArtifact={exportArtifact} />
+            <ArtifactWorkbench artifacts={artifacts} activeArtifact={activeArtifact} activeRun={activeRun} artifactDraft={artifactDraft} onArtifactDraftChange={setArtifactDraft} onSelectArtifact={selectArtifact} onCopy={copy} onSaveArtifact={saveArtifact} onConfirmArtifact={confirmArtifact} onReviewArtifact={reviewArtifact} onExportArtifact={exportArtifact} readOnly={isDemoViewer} />
         </div>
     );
 }

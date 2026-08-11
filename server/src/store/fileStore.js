@@ -14,11 +14,11 @@ import {
     requireTenantContext
 } from '../security/tenantContext.js';
 import { ROLES } from '../security/roles.js';
+import { config } from '../config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, '../../data');
 const DB_FILE = path.join(DATA_DIR, 'demo-db.json');
-const DEMO_ADMIN_PASSWORD_HASH = hashPassword('removed-public-password', 'aidemo-local-demo-admin');
 
 const seedDocs = [
     {
@@ -68,7 +68,7 @@ function createDemoAdmin () {
     return {
         _id: crypto.randomUUID(),
         name: 'AI Copilot 管理员',
-        email: 'removed-default-admin@example.invalid',
+        email: config.demoAdminEmail,
         role: ROLES.ADMIN,
         tenantId: DEFAULT_TENANT_ID,
         tenants: [
@@ -78,14 +78,16 @@ function createDemoAdmin () {
         activeTenantId: DEFAULT_TENANT_ID,
         allowedKnowledgeScopes: ['*'],
         department: 'AI 产品研发',
-        passwordHash: DEMO_ADMIN_PASSWORD_HASH,
+        passwordHash: hashPassword(config.demoAdminPassword),
+        tokenVersion: 0,
         createdAt: now()
     };
 }
 
 async function ensureDemoAdmin (db) {
+    if (!config.seedDemoAdmin) return false;
     db.users = Array.isArray(db.users) ? db.users : [];
-    const existing = db.users.find((user) => user.email === 'removed-default-admin@example.invalid');
+    const existing = db.users.find((user) => user.email === config.demoAdminEmail);
     if (existing) {
         const tenants = Array.isArray(existing.tenants) && existing.tenants.length
             ? existing.tenants
@@ -97,8 +99,8 @@ async function ensureDemoAdmin (db) {
             tenants,
             activeTenantId: existing.activeTenantId || (existing.tenantId || DEFAULT_TENANT_ID),
             allowedKnowledgeScopes: Array.isArray(existing.allowedKnowledgeScopes) ? existing.allowedKnowledgeScopes : ['*'],
-            department: 'AI 产品研发',
-            passwordHash: DEMO_ADMIN_PASSWORD_HASH
+            department: existing.department || 'AI 产品研发',
+            tokenVersion: Number(existing.tokenVersion || 0)
         };
         const changed = Object.entries(next).some(([key, value]) => existing[key] !== value);
         Object.assign(existing, next);
@@ -119,10 +121,10 @@ export class FileStore {
         this.cache = await readDb();
         let changed = false;
         changed = await ensureDemoAdmin(this.cache) || changed;
-        const seedUser = this.cache.users.find((user) => user.email === 'removed-default-admin@example.invalid');
+        const seedUser = this.cache.users.find((user) => user.email === config.demoAdminEmail);
         const seedContext = createServiceTenantContext({
-            tenantId: seedUser.tenantId,
-            actorId: seedUser._id
+            tenantId: seedUser?.tenantId || config.demoTenantId || DEFAULT_TENANT_ID,
+            actorId: seedUser?._id || 'system-seed'
         });
         const tenantDocuments = this.cache.documents.filter((doc) => doc.tenantId === seedContext.tenantId);
         if (!tenantDocuments.length) {
@@ -249,13 +251,11 @@ export class FileStore {
 
     async findUserByEmail (email) {
         const db = await readDb();
-        if (await ensureDemoAdmin(db)) await writeDb(db);
-        return db.users.find((user) => user.email === email) || null;
+        return db.users.find((user) => user.email === String(email || '').trim().toLowerCase()) || null;
     }
 
     async findUserById (id) {
         const db = await readDb();
-        if (await ensureDemoAdmin(db)) await writeDb(db);
         return publicUser(db.users.find((user) => user._id === id));
     }
 
