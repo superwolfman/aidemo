@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { MongoClient } from 'mongodb';
 import { config } from '../src/config.js';
 import { ROLES } from '../src/security/roles.js';
@@ -12,9 +14,10 @@ function argument (name) {
 const action = argument('action');
 const email = (argument('email') || 'interviewer.demo@aidemo.invalid').toLowerCase();
 const requestedExpiry = argument('expires-at');
+const requestedCredentialFile = argument('credential-file');
 
 if (!['create', 'revoke'].includes(action)) {
-    console.error('Usage: node server/scripts/manage-password-demo.mjs --action <create|revoke> [--email <email>] [--expires-at <ISO-8601>]');
+    console.error('Usage: node server/scripts/manage-password-demo.mjs --action <create|revoke> [--email <email>] [--expires-at <ISO-8601>] [--credential-file <private-file>]');
     process.exitCode = 2;
 } else if (requestedExpiry && Number.isNaN(Date.parse(requestedExpiry))) {
     console.error('--expires-at must be a valid ISO-8601 date-time');
@@ -64,9 +67,22 @@ if (!['create', 'revoke'].includes(action)) {
                 },
                 { upsert: true }
             );
-            console.log(`DEMO_EMAIL=${email}`);
-            console.log(`DEMO_PASSWORD=${password}`);
-            console.log(`DEMO_EXPIRES_AT=${expiresAt.toISOString()}`);
+            const credentialFile = path.resolve(
+                requestedCredentialFile || '.local/credentials/demo-account.env'
+            );
+            await fs.mkdir(path.dirname(credentialFile), { recursive: true, mode: 0o700 });
+            await fs.writeFile(
+                credentialFile,
+                `DEMO_EMAIL=${email}\nDEMO_PASSWORD=${password}\nDEMO_EXPIRES_AT=${expiresAt.toISOString()}\n`,
+                { encoding: 'utf8', mode: 0o600 }
+            );
+            await fs.chmod(credentialFile, 0o600);
+            console.log(JSON.stringify({
+                created: true,
+                email,
+                expiresAt: expiresAt.toISOString(),
+                credentialFile
+            }));
         }
     } finally {
         await client.close();

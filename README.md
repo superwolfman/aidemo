@@ -522,15 +522,20 @@ Backend:  http://127.0.0.1:4000
 Health:   http://127.0.0.1:4000/health
 ```
 
-Create a private local `.env` and set a development-only account before starting:
+Create a private local `.env` before starting. The committed defaults do not
+create a shared administrator account:
 
 ```env
 PASSWORD_LOGIN_ENABLED=true
 LEGACY_BEARER_ENABLED=false
-SEED_DEMO_ADMIN=true
-DEMO_ADMIN_EMAIL=xubin.local@aidemo.invalid
-DEMO_ADMIN_PASSWORD=use-a-private-local-password
+SEED_DEMO_ADMIN=false
 ```
+
+If a development administrator must be bootstrapped, set
+`SEED_DEMO_ADMIN=true`, `DEMO_ADMIN_EMAIL` and `DEMO_ADMIN_PASSWORD` only in
+the ignored local `.env`, start the service once, then immediately restore
+`SEED_DEMO_ADMIN=false`. Never publish shared login credentials in source,
+documentation, images or deployment logs.
 
 `.env.example` is a committed template and is never loaded directly. Copy the
 required values into the untracked root `.env`. With `RAG_BACKEND=mongodb-atlas`,

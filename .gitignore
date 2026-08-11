@@ -6,6 +6,8 @@ server/.env
 client/.env
 server/data/demo-db.json
 .local/
+.secrets/
+*.credentials.env
 *.md
 !.githooks/**/*.md
 npm-debug.log*
@@ -13,6 +15,7 @@ npm-debug.log*
 # 部署：生产密钥不入库（.example 保留）
 deploy/.env.production
 deploy/.atlas-users.env
+deploy/.admin-*.env
 
 # 本地缓存与诊断脚本
 .cache/

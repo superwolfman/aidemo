@@ -6,6 +6,9 @@ set -e
 
 changed=$(git diff --cached --name-only --diff-filter=ACM || true)
 
+echo "[pre-commit] scanning staged content for credential leaks..."
+node scripts/scan-secrets.mjs --staged
+
 echo "[pre-commit] syntax checking changed JS files..."
 changed_js=$(echo "$changed" | grep -E '\.(js|mjs|cjs)$' || true)
 if [ -n "$changed_js" ]; then
