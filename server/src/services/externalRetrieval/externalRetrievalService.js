@@ -16,6 +16,26 @@ import {
 
 const MIN_PARAGRAPH_CHARS = 24;
 const MAX_PARAGRAPH_CHARS = 600;
+const PROMPT_INJECTION_PATTERN = /(ignore|disregard|override)\s+(all\s+)?(previous|prior|system)\s+(instructions?|prompts?)|忽略.{0,12}(此前|之前|系统).{0,8}(指令|提示)|system\s*prompt|developer\s*message/i;
+
+function normalizeExternalText (value, maxChars) {
+    return String(value || '')
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, maxChars);
+}
+
+function redactQuery (value) {
+    return String(value || '')
+        .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]')
+        .replace(/\b1[3-9]\d{9}\b/g, '[phone]')
+        .replace(/\b(?:sk|api)[-_][A-Za-z0-9._-]{12,}\b/gi, '[secret]')
+        .slice(0, 1000);
+}
 
 export function hashContent (text) {
     return crypto.createHash('sha256').update(String(text || ''), 'utf8').digest('hex');
@@ -50,11 +70,11 @@ export function splitParagraphs (content) {
     return paragraphs.map((text, index) => ({ index, text }));
 }
 
-async function findExistingSnapshot (store, contentHash) {
+async function findExistingSnapshot (store, contentHash, sourceUrl, context) {
     if (!store || typeof store.listRecords !== 'function') return null;
     try {
-        const records = await store.listRecords('external_snapshots', 200);
-        return records.find((item) => item.contentHash === contentHash) || null;
+        const records = await store.listRecords('external_snapshots', 200, null, context);
+        return records.find((item) => item.contentHash === contentHash && item.url === sourceUrl) || null;
     } catch {
         return null;
     }
@@ -83,15 +103,18 @@ function toExternalSource (raw, paragraphs, authorityLevel, crawlTime) {
         publishedAt: raw.publishedAt || null,
         authorityLevel,
         authorityLabel: EXTERNAL_AUTHORITY_LABELS[authorityLevel] || '未验证',
+        contentOrigin: raw.contentOrigin || 'provider-snippet',
+        providerScore: Number.isFinite(raw.providerScore) ? raw.providerScore : null,
         domainWhitelisted: true,
         retrievalBackend: 'external-online-search',
         // 外部内容不参与向量分数，relevance 由权威等级与时效决定，明确不是 confidence
         score: null,
-        relevance: Number((0.6 - authorityLevel * 0.08).toFixed(3)),
+        relevance: 0,
         citation: {
             url: raw.url,
             crawlTime,
-            paragraphCount: paragraphs.length
+            paragraphCount: paragraphs.length,
+            paragraphHashes: paragraphs.map((paragraph) => hashContent(paragraph.text))
         },
         // 外部证据不得直接触发写操作；高风险 scope 强制人工确认
         evidenceProvenance: 'external',
@@ -106,6 +129,7 @@ export async function retrieveExternalKnowledge ({ store, context, query, scopes
     const cfg = getExternalRetrievalConfig();
     const baseStatus = {
         enabled: cfg.enabled,
+        configured: cfg.configured,
         provider: cfg.provider,
         eligible: isScopeExternalEligible(scopes),
         highRisk: isHighRiskScope(scopes)
@@ -114,12 +138,20 @@ export async function retrieveExternalKnowledge ({ store, context, query, scopes
     if (!isExternalRetrievalEnabled()) {
         return { externalSources: [], externalStatus: { ...baseStatus, status: 'disabled' }, externalDiagnostics: { reason: 'EXTERNAL_SEARCH_ENABLED=false' } };
     }
+    if (!cfg.configured) {
+        return {
+            externalSources: [],
+            externalStatus: { ...baseStatus, status: 'not-configured', error: cfg.configurationError },
+            externalDiagnostics: { reason: cfg.configurationError }
+        };
+    }
     if (!isScopeExternalEligible(scopes)) {
         return { externalSources: [], externalStatus: { ...baseStatus, status: 'scope-not-eligible' }, externalDiagnostics: { reason: '当前 scope 不在 EXTERNAL_ENABLED_SCOPES 中', scopes } };
     }
 
     const startedAt = Date.now();
-    const searchResult = await searchExternal({ query, maxResults: cfg.maxResults, signal });
+    const safeQuery = redactQuery(query);
+    const searchResult = await searchExternal({ query: safeQuery, maxResults: cfg.maxResults, signal });
 
     if (!searchResult.results.length) {
         return {
@@ -139,8 +171,13 @@ export async function retrieveExternalKnowledge ({ store, context, query, scopes
             skipped.push({ url: raw?.url, reason: 'domain-not-whitelisted' });
             continue;
         }
+        const normalizedContent = normalizeExternalText(raw.content, cfg.maxContentChars);
+        if (PROMPT_INJECTION_PATTERN.test(normalizedContent)) {
+            skipped.push({ url: raw.url, reason: 'prompt-injection-detected' });
+            continue;
+        }
         const authorityLevel = resolveAuthority(raw.url);
-        const paragraphs = splitParagraphs(raw.content);
+        const paragraphs = splitParagraphs(normalizedContent);
         if (!paragraphs.length) {
             skipped.push({ url: raw.url, reason: 'no-extractable-paragraphs' });
             continue;
@@ -149,13 +186,13 @@ export async function retrieveExternalKnowledge ({ store, context, query, scopes
         source.requiresHumanReview = highRisk; // 高风险投研结论必须人工确认
         source.taskModeId = taskModeId || null;
         // 快照持久化 + 哈希去重
-        const existing = await findExistingSnapshot(store, source.contentHash);
+        const existing = await findExistingSnapshot(store, source.contentHash, source.sourceUrl, context);
         if (!existing) {
             await persistSnapshot(store, {
                 contentHash: source.contentHash,
                 url: source.sourceUrl,
                 title: source.documentTitle,
-                content: raw.content,
+                content: normalizedContent,
                 paragraphs,
                 crawlTime,
                 publishedAt: source.publishedAt,
@@ -163,11 +200,41 @@ export async function retrieveExternalKnowledge ({ store, context, query, scopes
                 authorityLabel: source.authorityLabel,
                 scopes,
                 taskModeId: taskModeId || null,
-                tenantId: context?.tenantId || null
+                tenantId: context?.tenantId || null,
+                createdBy: context?.actorId || 'system',
+                expiresAt: new Date(Date.now() + cfg.snapshotTtlDays * 86_400_000)
             });
         }
         externalSources.push(source);
     }
+
+    const nowMs = Date.now();
+    for (const source of externalSources) {
+        const publishedMs = source.publishedAt ? Date.parse(source.publishedAt) : NaN;
+        const ageDays = Number.isFinite(publishedMs) ? Math.max(0, (nowMs - publishedMs) / 86_400_000) : null;
+        const freshness = ageDays === null ? 0.45 : Math.max(0.1, Math.exp(-ageDays / 180));
+        const authority = Math.max(0.2, 1 - (source.authorityLevel - 1) * 0.18);
+        const providerRelevance = Number.isFinite(source.providerScore) ? Math.max(0, Math.min(1, source.providerScore)) : 0.5;
+        source.relevance = Number((authority * 0.45 + freshness * 0.3 + providerRelevance * 0.25).toFixed(4));
+        source.rankingSignals = { authority, freshness: Number(freshness.toFixed(4)), providerRelevance, ageDays: ageDays === null ? null : Math.round(ageDays) };
+    }
+    externalSources.sort((a, b) => b.relevance - a.relevance);
+
+    try {
+        await store?.createTelemetry?.({
+            type: 'external_retrieval',
+            tenantId: context?.tenantId,
+            actorId: context?.actorId,
+            queryHash: hashContent(safeQuery),
+            provider: cfg.provider,
+            taskModeId: taskModeId || null,
+            scopes,
+            fetched: searchResult.results.length,
+            accepted: externalSources.length,
+            skipped: skipped.length,
+            latencyMs: Date.now() - startedAt
+        });
+    } catch { /* 审计写入失败不得阻断只读检索 */ }
 
     return {
         externalSources,
@@ -180,6 +247,7 @@ export async function retrieveExternalKnowledge ({ store, context, query, scopes
         },
         externalDiagnostics: {
             latencyMs: Date.now() - startedAt,
+            queryRedacted: safeQuery !== String(query || ''),
             skipped,
             providerStatus: searchResult.status
         }

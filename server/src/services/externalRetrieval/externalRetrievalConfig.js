@@ -46,15 +46,56 @@ function numberFromEnv (name, fallback) {
     return Number.isFinite(value) ? value : fallback;
 }
 
+function boundedNumberFromEnv (name, fallback, min, max) {
+    return Math.min(max, Math.max(min, numberFromEnv(name, fallback)));
+}
+
+function normalizeDomain (value) {
+    return String(value || '').trim().toLowerCase().replace(/^\.+|\.+$/g, '');
+}
+
+function isSafeProviderEndpoint (endpoint) {
+    try {
+        const parsed = new URL(endpoint);
+        if (parsed.protocol === 'https:') return true;
+        return process.env.NODE_ENV !== 'production' && parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
+    } catch {
+        return false;
+    }
+}
+
 export function getExternalRetrievalConfig () {
+    const enabled = booleanFromEnv('EXTERNAL_SEARCH_ENABLED', false);
+    const provider = String(process.env.EXTERNAL_SEARCH_PROVIDER || 'none').trim().toLowerCase();
+    const endpoint = String(process.env.EXTERNAL_SEARCH_ENDPOINT || '').trim();
+    const apiKey = process.env.EXTERNAL_SEARCH_API_KEY || '';
+    const apiKeyRequired = booleanFromEnv('EXTERNAL_SEARCH_REQUIRE_API_KEY', true);
+    const configured = enabled && provider !== 'none' && isSafeProviderEndpoint(endpoint) && (!apiKeyRequired || Boolean(apiKey));
     return {
-        enabled: booleanFromEnv('EXTERNAL_SEARCH_ENABLED', false),
-        provider: process.env.EXTERNAL_SEARCH_PROVIDER || 'none',
-        endpoint: process.env.EXTERNAL_SEARCH_ENDPOINT || '',
+        enabled,
+        configured,
+        configurationError: !enabled
+            ? null
+            : provider === 'none'
+                ? 'EXTERNAL_SEARCH_PROVIDER is required'
+                : !isSafeProviderEndpoint(endpoint)
+                    ? 'EXTERNAL_SEARCH_ENDPOINT must use HTTPS in production'
+                    : apiKeyRequired && !apiKey
+                        ? 'EXTERNAL_SEARCH_API_KEY is required'
+                        : null,
+        provider,
+        endpoint,
+        apiKeyRequired,
         apiKey: process.env.EXTERNAL_SEARCH_API_KEY || '',
-        timeoutMs: numberFromEnv('EXTERNAL_SEARCH_TIMEOUT_MS', 8000),
-        maxResults: numberFromEnv('EXTERNAL_SEARCH_MAX_RESULTS', 5),
-        domainWhitelist: listFromEnv('EXTERNAL_DOMAIN_WHITELIST', DEFAULT_WHITELIST.join(',')),
+        timeoutMs: boundedNumberFromEnv('EXTERNAL_SEARCH_TIMEOUT_MS', 5000, 1000, 15000),
+        maxResults: boundedNumberFromEnv('EXTERNAL_SEARCH_MAX_RESULTS', 5, 1, 10),
+        maxResponseBytes: boundedNumberFromEnv('EXTERNAL_SEARCH_MAX_RESPONSE_BYTES', 1_000_000, 10_000, 5_000_000),
+        maxContentChars: boundedNumberFromEnv('EXTERNAL_SEARCH_MAX_CONTENT_CHARS', 12_000, 500, 50_000),
+        maxConcurrentRequests: boundedNumberFromEnv('EXTERNAL_SEARCH_MAX_CONCURRENCY', 4, 1, 20),
+        circuitFailureThreshold: boundedNumberFromEnv('EXTERNAL_SEARCH_CIRCUIT_FAILURES', 3, 1, 20),
+        circuitOpenMs: boundedNumberFromEnv('EXTERNAL_SEARCH_CIRCUIT_OPEN_MS', 60_000, 5_000, 600_000),
+        snapshotTtlDays: boundedNumberFromEnv('EXTERNAL_SEARCH_SNAPSHOT_TTL_DAYS', 30, 1, 365),
+        domainWhitelist: listFromEnv('EXTERNAL_DOMAIN_WHITELIST', DEFAULT_WHITELIST.join(',')).map(normalizeDomain),
         enabledScopes: listFromEnv('EXTERNAL_ENABLED_SCOPES', DEFAULT_ENABLED_SCOPES.join(',')),
         highRiskScopes: listFromEnv('EXTERNAL_HIGH_RISK_SCOPES', DEFAULT_HIGH_RISK_SCOPES.join(',')),
         authorityRegistry: { ...AUTHORITY_REGISTRY }
@@ -81,7 +122,7 @@ export function resolveAuthority (url) {
         const host = new URL(url).hostname.replace(/^www\./, '');
         // 精确匹配或后缀匹配（如 gov.cn 匹配 xxx.gov.cn）
         if (cfg.authorityRegistry[host] !== undefined) return cfg.authorityRegistry[host];
-        const suffixMatch = Object.keys(cfg.authorityRegistry).find((domain) => host.endsWith(domain));
+        const suffixMatch = Object.keys(cfg.authorityRegistry).find((domain) => host === domain || host.endsWith(`.${domain}`));
         return suffixMatch ? cfg.authorityRegistry[suffixMatch] : 3;
     } catch {
         return 5; // 无法解析的 URL 给最低权威
@@ -90,8 +131,11 @@ export function resolveAuthority (url) {
 
 export function isDomainAllowed (url, whitelist = getExternalRetrievalConfig().domainWhitelist) {
     try {
-        const host = new URL(url).hostname.replace(/^www\./, '');
-        return whitelist.some((domain) => host === domain || host.endsWith(`.${domain}`) || host.endsWith(domain));
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'https:' && process.env.NODE_ENV === 'production') return false;
+        if (!['https:', 'http:'].includes(parsed.protocol)) return false;
+        const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+        return whitelist.map(normalizeDomain).some((domain) => domain && (host === domain || host.endsWith(`.${domain}`)));
     } catch {
         return false;
     }

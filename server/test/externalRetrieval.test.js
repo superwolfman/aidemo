@@ -103,7 +103,8 @@ test('retrieveExternalKnowledge filters non-whitelisted domains and tags high-ri
     const restore = withEnv({
         EXTERNAL_SEARCH_ENABLED: 'true',
         EXTERNAL_SEARCH_PROVIDER: 'http-json',
-        EXTERNAL_SEARCH_ENDPOINT: 'http://test-search.local/search',
+        EXTERNAL_SEARCH_ENDPOINT: 'http://127.0.0.1/search',
+        EXTERNAL_SEARCH_API_KEY: 'test-key',
         EXTERNAL_DOMAIN_WHITELIST: 'cninfo.com.cn'
     });
     const originalFetch = global.fetch;
@@ -137,7 +138,8 @@ test('retrieveExternalKnowledge does not tag HITL for non-high-risk scopes', asy
     const restore = withEnv({
         EXTERNAL_SEARCH_ENABLED: 'true',
         EXTERNAL_SEARCH_PROVIDER: 'http-json',
-        EXTERNAL_SEARCH_ENDPOINT: 'http://test-search.local/search',
+        EXTERNAL_SEARCH_ENDPOINT: 'http://127.0.0.1/search',
+        EXTERNAL_SEARCH_API_KEY: 'test-key',
         EXTERNAL_ENABLED_SCOPES: 'company-filings',
         EXTERNAL_HIGH_RISK_SCOPES: 'investment-research'
     });
@@ -159,7 +161,8 @@ test('retrieveExternalKnowledge persists snapshot and dedups by content hash', a
     const restore = withEnv({
         EXTERNAL_SEARCH_ENABLED: 'true',
         EXTERNAL_SEARCH_PROVIDER: 'http-json',
-        EXTERNAL_SEARCH_ENDPOINT: 'http://test-search.local/search',
+        EXTERNAL_SEARCH_ENDPOINT: 'http://127.0.0.1/search',
+        EXTERNAL_SEARCH_API_KEY: 'test-key',
         EXTERNAL_DOMAIN_WHITELIST: 'cninfo.com.cn',
         EXTERNAL_ENABLED_SCOPES: 'company-filings',
         EXTERNAL_HIGH_RISK_SCOPES: 'investment-research'

@@ -313,11 +313,19 @@ async function retrieveKnowledgeLocal ({ store, context, query, scopes, limit = 
  * 外部结果以 externalSources 单独返回，绝不静默替换本地引用，也不阻断主链路。
  */
 export async function retrieveKnowledge ({ store, context, query, scopes, limit = 5, taskModeId }) {
-    const local = await retrieveKnowledgeLocal({ store, context, query, scopes, limit, taskModeId });
+    requireTenantContext(context);
+    const authorizedScopes = authorizeKnowledgeScopes(context, scopes);
     let external = { externalSources: [], externalStatus: { status: 'skipped' }, externalDiagnostics: {} };
-    try {
-        external = await retrieveExternalKnowledge({ store, context, query, scopes, taskModeId });
-    } catch (error) {
+    const [localResult, externalResult] = await Promise.allSettled([
+        retrieveKnowledgeLocal({ store, context, query, scopes: authorizedScopes, limit, taskModeId }),
+        retrieveExternalKnowledge({ store, context, query, scopes: authorizedScopes, taskModeId })
+    ]);
+    if (localResult.status === 'rejected') throw localResult.reason;
+    const local = localResult.value;
+    if (externalResult.status === 'fulfilled') {
+        external = externalResult.value;
+    } else {
+        const error = externalResult.reason;
         external = {
             externalSources: [],
             externalStatus: { status: 'error', error: error.message },

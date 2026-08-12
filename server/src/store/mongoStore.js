@@ -175,6 +175,8 @@ export class MongoStore {
         await this.db.collection('agent_runs').createIndex({ createdAt: -1 });
         await this.db.collection('runtime_settings').createIndex({ key: 1 }, { unique: true });
         await this.db.collection('runtime_setting_versions').createIndex({ settingKey: 1, version: -1 }, { unique: true });
+        await this.db.collection('external_snapshots').createIndex({ tenantId: 1, createdBy: 1, url: 1, contentHash: 1 }, { unique: true });
+        await this.db.collection('external_snapshots').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
         await this.ensureVectorIndex();
         await this.ensureTextIndex();
 

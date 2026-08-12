@@ -36,6 +36,7 @@ type ExternalSource = {
 
 type ExternalStatus = {
     enabled?: boolean;
+    configured?: boolean;
     provider?: string;
     eligible?: boolean;
     highRisk?: boolean;
@@ -233,16 +234,22 @@ export function RagDebugPanel({ query, sources, externalSources = [], externalSt
                         {!externalSources.length ? (
                             <div className="rag-debug-external-empty">
                                 {externalStatus.status === 'disabled' || externalStatus.enabled === false
-                                    ? '外部在线检索未启用（EXTERNAL_SEARCH_ENABLED=false），未请求实时网络来源。'
+                                    ? '外部在线检索已关闭：请在服务端私有环境变量设置 EXTERNAL_SEARCH_ENABLED=true，并配置 Provider、HTTPS Endpoint 与 API Key。'
+                                    : externalStatus.status === 'not-configured' || externalStatus.configured === false
+                                        ? `外部在线检索尚未完成配置：${externalStatus.error || '缺少 Provider、HTTPS Endpoint 或服务端 API Key'}。`
                                     : (externalStatus.status === 'not-eligible' || externalStatus.status === 'scope-not-eligible')
                                         ? '当前 Task Mode / scope 不在外部检索白名单内，仅使用本地 Atlas 知识库。'
                                         : externalStatus.status === 'no-hits'
                                             ? '外部检索已执行，未命中白名单内的相关结果。'
-                                            : externalStatus.status === 'error'
+                                            : externalStatus.status === 'error' || externalStatus.status === 'provider-error'
                                                 ? `外部检索失败：${externalStatus.error || 'unknown'}`
                                                 : externalStatus.status === 'timeout'
                                                     ? '外部检索超时，已降级为仅使用本地 Atlas。'
-                                                    : externalStatus.status === 'skipped'
+                                                    : externalStatus.status === 'circuit-open'
+                                                        ? '外部检索供应商连续失败，熔断器已开启；当前 Run 仅使用本地 Atlas。'
+                                                        : externalStatus.status === 'rate-limited'
+                                                            ? '外部检索达到并发上限；当前 Run 仅使用本地 Atlas。'
+                                                            : externalStatus.status === 'skipped'
                                                         ? '外部检索被跳过。'
                                                         : '外部检索未返回结果。'}
                             </div>
