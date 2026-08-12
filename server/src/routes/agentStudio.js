@@ -16,6 +16,7 @@ import {
     publishRuntimeTimeoutSettings,
     rollbackRuntimeTimeoutSettings
 } from '../services/runtimeTimeoutSettings.js';
+import { getLlmTimingStats, suggestThresholds } from '../services/llmTimingMetrics.js';
 import { ROLES } from '../security/roles.js';
 import { recordAuthorizationDenied } from '../security/authorizationAudit.js';
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
@@ -263,6 +264,13 @@ export function agentStudioRouter (store) {
 
     router.get('/runtime-settings/timeout', requireModelAdmin, async (req, res, next) => {
         try { res.json(await getRuntimeTimeoutSettingsView()); } catch (error) { next(error); }
+    });
+
+    router.get('/runtime-settings/timeout/stats', requireModelAdmin, async (req, res, next) => {
+        try {
+            const model = String(req.query?.model || '').trim();
+            res.json({ stats: getLlmTimingStats(), suggestions: model ? { [model]: suggestThresholds(model) } : {} });
+        } catch (error) { next(error); }
     });
 
     router.put('/runtime-settings/timeout', requireModelAdmin, async (req, res, next) => {

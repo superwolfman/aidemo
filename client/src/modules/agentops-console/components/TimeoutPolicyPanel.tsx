@@ -1,10 +1,12 @@
-import { CheckCircle2, History, RotateCcw, Save, ShieldCheck, Trash2 } from 'lucide-react';
+import { Activity, CheckCircle2, History, RotateCcw, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '../../../api/client';
 import {
+    getLlmTimingStats,
     getRuntimeTimeoutSettings,
     publishRuntimeTimeoutSettings,
     rollbackRuntimeTimeoutSettings,
+    type LlmTimingStats,
     type RuntimeTimeoutSettingsResponse,
     type TimeoutDefaults
 } from '../../../services/runtimeTimeoutSettingsService';
@@ -45,6 +47,7 @@ export function TimeoutPolicyPanel() {
     const [changeNote, setChangeNote] = useState('');
     const [busy, setBusy] = useState('');
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [stats, setStats] = useState<LlmTimingStats | null>(null);
 
     const hydrate = useCallback((result: RuntimeTimeoutSettingsResponse) => {
         setData(result);
@@ -57,7 +60,10 @@ export function TimeoutPolicyPanel() {
 
     const load = useCallback(async () => {
         setBusy('load');
-        try { hydrate(await getRuntimeTimeoutSettings()); }
+        try {
+            hydrate(await getRuntimeTimeoutSettings());
+            try { const timing = await getLlmTimingStats(); setStats(timing.stats); } catch { setStats(null); }
+        }
         catch (error) { setMessage({ type: 'error', text: error instanceof Error ? error.message : '加载超时策略失败' }); }
         finally { setBusy(''); }
     }, [hydrate]);
@@ -232,6 +238,23 @@ export function TimeoutPolicyPanel() {
                         <input type="number" min={0} max={3} value={maxRetries} onChange={(event) => setMaxRetries(Number(event.target.value))} />
                     </label>
                 </div>
+            </section>
+
+            <section className="ops-model-settings-card">
+                <div className="section-head"><div><h2><Activity size={19} />实时耗时与自适应建议</h2><p>基于近 100 次成功样本的 P95（只读，不自动改配置）。</p></div></div>
+                {stats && Object.keys(stats).length > 0 ? (
+                    <div className="ops-model-history">
+                        {Object.entries(stats).map(([model, s]) => (
+                            <article key={model}>
+                                <div><b>{model}</b><span>样本 {s.count} · 超时率 {(s.timeoutRate * 100).toFixed(1)}%</span></div>
+                                <span>TTFT P50 {s.ttftP50 ?? '-'}ms / P95 {s.ttftP95 ?? '-'}ms</span>
+                                <span>总耗时 P50 {s.totalP50 ?? '-'}ms / P95 {s.totalP95 ?? '-'}ms</span>
+                                <span>超时 {s.timeoutCount} 次</span>
+                                <em>建议首字 ≈ {s.ttftP95 ? Math.round(s.ttftP95 * 1.5) : '-'}ms · 建议总超时 ≈ {s.totalP95 ? Math.round(s.totalP95 * 1.5) : '-'}ms</em>
+                            </article>
+                        ))}
+                    </div>
+                ) : <div className="ops-fallback-empty">暂无耗时样本（发起一次 LLM 调用后此处会出现统计数据）。</div>}
             </section>
 
             <section className="ops-model-settings-card">

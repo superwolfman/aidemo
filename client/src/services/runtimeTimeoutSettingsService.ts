@@ -72,3 +72,26 @@ export function rollbackRuntimeTimeoutSettings(payload: {
         body: JSON.stringify(payload)
     });
 }
+
+export type LlmTimingStats = Record<string, {
+    count: number;
+    timeoutCount: number;
+    timeoutRate: number;
+    ttftP50: number | null;
+    ttftP95: number | null;
+    totalP50: number | null;
+    totalP95: number | null;
+}>;
+
+export type ThresholdSuggestion = {
+    firstTokenTimeoutMs: number | null;
+    streamTotalTimeoutMs: number;
+    requestTimeoutMs: number;
+    sampleCount: number;
+    ttftP95: number | null;
+    totalP95: number | null;
+} | null;
+
+export function getLlmTimingStats(): Promise<{ stats: LlmTimingStats; suggestions: Record<string, ThresholdSuggestion> }> {
+    return request('/api/agent-studio/runtime-settings/timeout/stats');
+}

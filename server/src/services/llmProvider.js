@@ -9,6 +9,7 @@ import {
     resolveTimeoutsForModel,
     shouldFallbackOn
 } from './runtimeTimeoutSettings.js';
+import { recordLlmTiming } from './llmTimingMetrics.js';
 
 const providerDefaults = {
     openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini' },
@@ -247,6 +248,7 @@ async function generateOnce ({ candidate, systemPrompt, prompt, sources, toolRes
     const ms = modelConfig.timeoutMs || timeouts.requestTimeoutMs;
     const userCancelled = () => Boolean(modelConfig.signal?.aborted);
     const { signal, cleanup, didTimeout } = makeTimeoutController(ms, modelConfig.signal, 'request');
+    const startedAt = Date.now();
     try {
         const response = await fetch(`${normalizeBaseUrl(resolved.baseUrl)}/chat/completions`, {
             method: 'POST',
@@ -256,9 +258,16 @@ async function generateOnce ({ candidate, systemPrompt, prompt, sources, toolRes
         });
         if (!response.ok) throw parseProviderFailure(response.status, await response.text(), 'LLM provider failed');
         const payload = await response.json();
+        const totalMs = Date.now() - startedAt;
+        recordLlmTiming({ model: resolved.requestedModel, ttftMs: totalMs, totalMs, timedOut: false });
         return { resolved, text: payload?.choices?.[0]?.message?.content || '' };
     } catch (error) {
-        if (isAbortError(error) && didTimeout() && !userCancelled()) throw buildTimeoutError('request', ms);
+        const timedOut = isAbortError(error) && didTimeout() && !userCancelled();
+        if (timedOut) {
+            const timeoutError = buildTimeoutError('request', ms);
+            recordLlmTiming({ model: resolved.requestedModel, ttftMs: Date.now() - startedAt, totalMs: Date.now() - startedAt, timedOut: true, timeoutType: 'request' });
+            throw timeoutError;
+        }
         throw error;
     } finally {
         cleanup();
@@ -317,6 +326,8 @@ async function streamOnce ({ candidate, systemPrompt, prompt, sources, toolResul
         firstTokenTimer = null;
     };
     let emitted = false;
+    let firstTokenAt = 0;
+    const startedAt = Date.now();
     try {
         const response = await fetch(`${normalizeBaseUrl(resolved.baseUrl)}/chat/completions`, {
             method: 'POST',
@@ -341,10 +352,14 @@ async function streamOnce ({ candidate, systemPrompt, prompt, sources, toolResul
                 for (const line of frame.split('\n').map((item) => item.trim()).filter(Boolean)) {
                     if (!line.startsWith('data:')) continue;
                     const raw = line.replace(/^data:\s*/, '');
-                    if (raw === '[DONE]') return { resolved, streamed: true, text };
+                    if (raw === '[DONE]') {
+                        recordLlmTiming({ model: resolved.requestedModel, ttftMs: firstTokenAt ? firstTokenAt - startedAt : Date.now() - startedAt, totalMs: Date.now() - startedAt, timedOut: false });
+                        return { resolved, streamed: true, text };
+                    }
                     const delta = JSON.parse(raw)?.choices?.[0]?.delta?.content || '';
                     if (delta) {
                         clearFirstTokenTimer();
+                        if (!emitted) firstTokenAt = Date.now();
                         emitted = true;
                         text += delta;
                         await onDelta?.(delta);
@@ -352,11 +367,13 @@ async function streamOnce ({ candidate, systemPrompt, prompt, sources, toolResul
                 }
             }
         }
+        recordLlmTiming({ model: resolved.requestedModel, ttftMs: firstTokenAt ? firstTokenAt - startedAt : Date.now() - startedAt, totalMs: Date.now() - startedAt, timedOut: false });
         return { resolved, streamed: true, text };
     } catch (error) {
         if (isAbortError(error) && (didTimeout() || abortType) && !userCancelled()) {
             const type = abortType || 'total';
             const timeoutError = buildTimeoutError(type, type === 'first_token' ? firstTokenMs : (type === 'idle' ? idleMs : totalTimeoutMs));
+            recordLlmTiming({ model: resolved.requestedModel, ttftMs: firstTokenAt ? firstTokenAt - startedAt : Date.now() - startedAt, totalMs: Date.now() - startedAt, timedOut: true, timeoutType: type });
             // 已向客户端推送过 delta 的中途超时不能安全切 fallback，直接抛出。
             if (emitted && type !== 'first_token') timeoutError.partialStreamEmitted = true;
             throw timeoutError;
