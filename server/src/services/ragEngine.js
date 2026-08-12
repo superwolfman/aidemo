@@ -314,11 +314,22 @@ async function retrieveKnowledgeLocal ({ store, context, query, scopes, limit = 
  */
 export async function retrieveKnowledge ({ store, context, query, scopes, limit = 5, taskModeId }) {
     requireTenantContext(context);
-    const authorizedScopes = authorizeKnowledgeScopes(context, scopes);
+    const authorizedRequestedScopes = authorizeKnowledgeScopes(context, scopes);
+    const allowedScopes = new Set(context.allowedKnowledgeScopes || []);
+    // 本地 Atlas 与外部在线检索必须共享同一份 Query Plan。否则“交付质量评审 +
+    // 投研报告场景”只会让本地链路识别出 investment-research，外部链路仍使用原始
+    // task-mode scope，最终被错误判定为 scope-not-eligible。
+    const queryPlan = buildRetrievalPlan({
+        query,
+        scopes: authorizedRequestedScopes,
+        taskModeId
+    });
+    const effectiveScopes = queryPlan.scopes
+        .filter((scope) => allowedScopes.has('*') || allowedScopes.has(scope));
     let external = { externalSources: [], externalStatus: { status: 'skipped' }, externalDiagnostics: {} };
     const [localResult, externalResult] = await Promise.allSettled([
-        retrieveKnowledgeLocal({ store, context, query, scopes: authorizedScopes, limit, taskModeId }),
-        retrieveExternalKnowledge({ store, context, query, scopes: authorizedScopes, taskModeId })
+        retrieveKnowledgeLocal({ store, context, query, scopes: authorizedRequestedScopes, limit, taskModeId }),
+        retrieveExternalKnowledge({ store, context, query: queryPlan.semanticQuery, scopes: effectiveScopes, taskModeId })
     ]);
     if (localResult.status === 'rejected') throw localResult.reason;
     const local = localResult.value;
