@@ -9,6 +9,7 @@ import { RuntimeSummary } from './components/RuntimeSummary';
 import { StateMachinePanel } from './components/StateMachinePanel';
 import { TraceAuditPanel } from './components/TraceAuditPanel';
 import { ModelSettingsPanel } from './components/ModelSettingsPanel';
+import { TimeoutPolicyPanel } from './components/TimeoutPolicyPanel';
 import { useSession } from '../../hooks/useSession';
 import { useAgentRun } from '../../hooks/useAgentRun';
 import { getAgentStudioBlueprint } from '../../services/blueprintService';
@@ -200,7 +201,7 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
     const canReplayRuns = permissions?.canReplayRuns !== false && !isDemoViewer;
     const canReviewRuns = permissions?.canReviewRuns !== false && !isDemoViewer;
     const canManageRuntimeModels = permissions?.canManageRuntimeModels === true || ['admin', 'owner'].includes(String(activeRole));
-    const [consoleView, setConsoleView] = useState<'runs' | 'models'>('runs');
+    const [consoleView, setConsoleView] = useState<'runs' | 'models' | 'timeout'>('runs');
     const tenantSessionState = useTenantSessionState(tenantId, userId);
     const session = useSession();
     const agentRun = useAgentRun('agent-studio');
@@ -389,6 +390,7 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
             <nav className="ops-console-tabs" aria-label="AgentOps 功能">
                 <button type="button" className={consoleView === 'runs' ? 'active' : ''} onClick={() => setConsoleView('runs')}>运行治理</button>
                 {canManageRuntimeModels ? <button type="button" className={consoleView === 'models' ? 'active' : ''} onClick={() => setConsoleView('models')}>模型设置</button> : null}
+                {canManageRuntimeModels ? <button type="button" className={consoleView === 'timeout' ? 'active' : ''} onClick={() => setConsoleView('timeout')}>超时策略</button> : null}
             </nav>
             {isDemoViewer ? (
                 <div className="ops-access-notice" role="status">
@@ -398,6 +400,8 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
             ) : null}
             {consoleView === 'models' && canManageRuntimeModels ? (
                 <ModelSettingsPanel />
+            ) : consoleView === 'timeout' && canManageRuntimeModels ? (
+                <TimeoutPolicyPanel />
             ) : (
             <>
             <RuntimeSummary activeRun={activeRunMemo} blueprint={blueprint} ragRuntime={ragRuntime} ragLive={ragLive} />
