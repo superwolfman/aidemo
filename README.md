@@ -1,18 +1,45 @@
 # AI Architecture Copilot
 
-## RAG 检索链路：真实 LLM + 真实 Atlas Vector Search + 真实 Embedding
+## 2026-08-12 更新摘要
+
+本次更新聚焦运行时治理、跨工作台一致性和 RAG 可信度，进一步将系统从功能型 Demo 收敛为具备配置管理、授权检索、证据追踪和人工审批能力的 AI 交付工作台。
+
+### 运行时与 AgentOps
+
+- 新增运行时模型设置：支持主模型、受控备用链、连接测试、版本历史和一键回滚；发布后即时生效，无需修改代码或重启服务。
+- 模型配置以 MongoDB 为事实来源，并通过页面事件和 `BroadcastChannel` 同步到 Delivery 与 AgentOps；API Key 始终由服务端环境变量或密钥服务读取。
+- Task Mode、执行 Agent 和业务意图采用独立字段建模，Run Registry、当前 Run、Trace 和 Artifact 使用同一运行上下文。
+- 新 Run 可跨页面和浏览器 Tab 自动同步，消除 AgentOps 依赖手工刷新的状态滞后。
+
+### 知识工程与 RAG
+
+- 增加投研报告、智能客服领域知识包及 Golden Dataset；知识记录包含来源、版本、审核状态、有效期和权威等级，并按开发/生产环境隔离。
+- 检索链路升级为 Atlas 向量检索与全文检索并行召回，通过融合去重兼顾语义相关性、专有名词和精确关键词。
+- Query 规划保留原始需求，同时生成语义查询、业务实体和领域信息；Task Mode 与领域 Scope 自动联动，但最终结果严格受用户授权 Scope 约束。
+- 排序综合相关度、双通道命中、来源权威性、审核状态、时效性和实体匹配，不再仅依赖单一向量分数。
+- `0 hits` 明确定义为 `knowledge_gap`，与索引、网络和 Provider 故障区分，避免把正常的知识缺口误报为系统异常。
+
+### 工程基线
+
+- Tenant/Scope 过滤前置到向量和全文召回阶段，未授权候选不会进入后置重排。
+- 单检索通道异常时保留可用通道；仅在主链路不可用时进入显式降级，并向前端暴露真实状态。
+- 服务端自动化测试 `81/81` 通过，前端生产构建通过。
+
+## RAG 检索链路：真实 LLM + Atlas Hybrid Search + 真实 Embedding
 
 当前 `ailab-product-workflow` 分支的主 RAG 链路已经切换为真实链路，不再把本地 `local-deterministic` / `local-hash` 当作主路径。
 
 ```text
 用户需求 / Query
+  -> Query 规划（语义改写、业务实体、Task Mode / Scope 联动）
   -> DashScope text-embedding-v3 生成 1024 维向量
-  -> MongoDB Atlas Vector Search
-     backend: mongodb-atlas
-     index: chunks_vector_index
-     path: embedding
-     dims: 1024
+  -> MongoDB Atlas Hybrid Search
+     -> Vector Search: chunks_vector_index / embedding / 1024 dims
+     -> Full-text Search: chunks_text_index
+     -> Tenant + Authorized Scope prefilter
+  -> 混合融合与证据质量排序
   -> 返回 chunk / score / citation / sourcePath
+     -> 0 hits 返回 knowledge_gap，不视为系统故障
   -> Skill-scoped Context Pack
   -> DashScope OpenAI-compatible LLM 流式生成
   -> Artifact / Trace / Eval / Approval
@@ -20,8 +47,8 @@
 
 ### 运行态验收
 
-- `GET /api/agent-studio/blueprint` 的 `runtime.llm` 应显示 `provider=dashscope`、`mode=live`、`model=qwen-turbo`。
-- `runtime.rag` 应显示 `backend=mongodb-atlas`、`retrievalBackend=mongodb-atlas-vector-search`、`embeddingProvider=dashscope`、`dimensions=1024`、`vectorSearchReady=true`、`productionReady=true`。
+- `GET /api/agent-studio/blueprint` 的 `runtime.llm` 应显示已发布的当前模型及 `provider=dashscope`、`mode=live`。
+- `runtime.rag` 应显示 `backend=mongodb-atlas`、`retrievalBackend=mongodb-atlas-hybrid-search`、`embeddingProvider=dashscope`、`dimensions=1024`、`vectorSearchReady=true`、`productionReady=true`。
 - Copilot 交付工作台顶部应显示 `live vector store · mongodb-atlas-vector-search · chunks_vector_index`。
 - `local-hash-fallback` / `local-deterministic` 只作为降级路径保留；当 Atlas、索引或 embedding 调用失败时，前端必须明确展示 fallback 原因，不能伪装成 live。
 
@@ -29,7 +56,7 @@
 
 ```env
 LLM_PROVIDER=dashscope
-LLM_MODEL=qwen-turbo
+LLM_MODEL=qwen-plus
 DASHSCOPE_API_KEY=...
 
 RAG_BACKEND=mongodb-atlas
@@ -37,6 +64,7 @@ RAG_EMBEDDING_PROVIDER=dashscope
 RAG_EMBEDDING_MODEL=text-embedding-v3
 RAG_VECTOR_DIMENSIONS=1024
 RAG_VECTOR_INDEX=chunks_vector_index
+RAG_TEXT_INDEX=chunks_text_index
 RAG_VECTOR_PATH=embedding
 MONGODB_ATLAS_URI=mongodb+srv://...
 MONGODB_DB_NAME=aidemo_dev
