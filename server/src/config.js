@@ -105,7 +105,7 @@ export const config = {
     demoTenantId: (process.env.DEMO_TENANT_ID || 'tenant-interview-demo').trim(),
     demoAllowedKnowledgeScopes: listFromEnv(
         'DEMO_ALLOWED_KNOWLEDGE_SCOPES',
-        'copilot,architecture,frontend,ai-native,standards,frontend-observability,engineering-governance,performance,im,sdk'
+        'copilot,architecture,frontend,ai-native,standards,frontend-observability,engineering-governance,performance,im,sdk,investment-research,research-workbench,company-filings,industry-research,financial-analysis,research-report-generation,citation-compliance,customer-service,customer-service-knowledge,answer-generation,knowledge-correction,conversation-operations,service-quality'
     ),
     demoAccessExpiresAt: (process.env.DEMO_ACCESS_EXPIRES_AT || '').trim(),
     demoRunLimitPerHour: Number(process.env.DEMO_RUN_LIMIT_PER_HOUR || 20),
@@ -168,7 +168,10 @@ export const config = {
         process.env.RAG_VECTOR_PATH ||
         'embedding',
     // Atlas cosine 分数低于该门槛时宁可返回知识缺口，也不把弱相关内容包装成引用。
-    ragMinVectorScore: Number(process.env.RAG_MIN_VECTOR_SCORE || 0.8),
+    // 显式环境变量仅作为紧急覆盖；正常门槛来自按知识域保存的 Golden Dataset 校准结果。
+    ragMinVectorScore: process.env.RAG_MIN_VECTOR_SCORE
+        ? Number(process.env.RAG_MIN_VECTOR_SCORE)
+        : null,
     // atlas 时自动切 1024 维 + 真实 provider + 自动建索引，消除 G1
     ragVectorDimensions: Number(
         process.env.RAG_VECTOR_DIMENSIONS ||

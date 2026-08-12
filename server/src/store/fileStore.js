@@ -16,31 +16,11 @@ import {
 } from '../security/tenantContext.js';
 import { ROLES } from '../security/roles.js';
 import { config } from '../config.js';
+import { knowledgeContentHash, seedKnowledge, toSeedDocumentPayload } from '../utils/seedKnowledge.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, '../../data');
 const DB_FILE = path.join(DATA_DIR, 'demo-db.json');
-
-const seedDocs = [
-    {
-        title: 'AI 产品工作流落地说明',
-        tags: ['copilot', 'ai-native', 'frontend', 'standards'],
-        content:
-            'AI 产品工作流需要把业务需求输入、上下文检索、流式生成、Artifact 输出、Agent Trace 和人工确认串成一条可恢复、可审计的链路。前端需要显式展示运行状态、失败原因、引用来源、模型配置和人工确认入口。'
-    },
-    {
-        title: 'RAG 引用与检索质量规范',
-        tags: ['copilot', 'architecture', 'standards'],
-        content:
-            'RAG 检索结果必须展示 query、knowledgeScopes、chunk、score、sourcePath 和 retrievalBackend。回答中应保留 citation，避免把未命中的资料当成事实。生产环境可替换为 MongoDB Atlas Vector Search、pgvector 或 Milvus。'
-    },
-    {
-        title: 'Agent 工具调用与人工确认规范',
-        tags: ['copilot', 'agent', 'architecture'],
-        content:
-            'Agent 可以自动执行检索、仓库分析、Artifact 生成和 Context Pack 组装。涉及写文件、发布配置、触达用户、调用真实外部系统等高风险动作必须进入 Human-in-the-loop。Trace 必须记录工具输入、输出、耗时、token 和审批状态。'
-    }
-];
 
 async function readDb () {
     await fs.mkdir(DATA_DIR, { recursive: true });
@@ -127,13 +107,28 @@ export class FileStore {
             tenantId: seedUser?.tenantId || config.demoTenantId || DEFAULT_TENANT_ID,
             actorId: seedUser?._id || 'system-seed'
         });
-        const tenantDocuments = this.cache.documents.filter((doc) => doc.tenantId === seedContext.tenantId);
-        if (!tenantDocuments.length) {
-            for (const doc of seedDocs) {
-                const created = await this.createDocumentInMemory(seedContext, doc);
-                this.cache.documents.push(created.document);
-                this.cache.chunks.push(...created.chunks);
+        const legacyTitles = new Set(['智能客服知识库产品设计', '投研报告生成工作台产品设计']);
+        const legacyIds = new Set(this.cache.documents
+            .filter((doc) => doc.tenantId === seedContext.tenantId && legacyTitles.has(doc.title))
+            .map((doc) => doc._id));
+        if (legacyIds.size) {
+            this.cache.documents = this.cache.documents.filter((doc) => !legacyIds.has(doc._id));
+            this.cache.chunks = this.cache.chunks.filter((chunk) => !legacyIds.has(chunk.documentId));
+            changed = true;
+        }
+        for (const item of seedKnowledge) {
+            const payload = toSeedDocumentPayload(item);
+            const existing = this.cache.documents.find((doc) => (
+                doc.tenantId === seedContext.tenantId && doc.title === item.title
+            ));
+            if (existing && (!item.knowledgeMetadata || existing.contentHash === knowledgeContentHash(item))) continue;
+            if (existing) {
+                this.cache.documents = this.cache.documents.filter((doc) => doc._id !== existing._id);
+                this.cache.chunks = this.cache.chunks.filter((chunk) => chunk.documentId !== existing._id);
             }
+            const created = await this.createDocumentInMemory(seedContext, payload);
+            this.cache.documents.push(created.document);
+            this.cache.chunks.push(...created.chunks);
             changed = true;
         }
         if (changed) await this.flush();
@@ -229,7 +224,7 @@ export class FileStore {
         return this.ragStatusCache || getRagStatus({ storeKind: this.kind, mode: 'fallback', vectorSearchReady: false, error: this.connectionError });
     }
 
-    async createDocumentInMemory (context, { title, content, tags = [], scopes = tags, sourceType = 'manual', sourcePath, sourceUpdatedAt }) {
+    async createDocumentInMemory (context, { title, content, tags = [], scopes = tags, sourceType = 'manual', sourcePath, sourceUpdatedAt, knowledgeMetadata, contentHash }) {
         requireTenantContext(context);
         const authorizedScopes = authorizeKnowledgeScopes(context, scopes);
         const docId = crypto.randomUUID();
@@ -244,6 +239,8 @@ export class FileStore {
             sourceType,
             sourcePath,
             sourceUpdatedAt,
+            knowledgeMetadata,
+            contentHash,
             chunkCount: 0,
             createdAt: now()
         };
@@ -259,6 +256,9 @@ export class FileStore {
             scopes: authorizedScopes,
             sourceType,
             sourcePath,
+            sourceUpdatedAt,
+            knowledgeMetadata,
+            contentHash,
             content: chunk,
             chunkIndex: index,
             embedding: embedText(chunk),
@@ -325,6 +325,33 @@ export class FileStore {
             chunk.tenantId === context.tenantId &&
             (allowedScopes === null || (chunk.scopes || []).some((scope) => allowedScopes.includes(scope)))
         )).length;
+    }
+
+    async getRagCalibration (context, domain) {
+        requireTenantContext(context);
+        const db = await readDb();
+        return (db.ragCalibrations || []).find((item) => (
+            item.tenantId === context.tenantId && item.domain === domain && item.active === true
+        )) || null;
+    }
+
+    async saveRagCalibration (context, profile) {
+        requireTenantContext(context);
+        const db = await readDb();
+        db.ragCalibrations = Array.isArray(db.ragCalibrations) ? db.ragCalibrations : [];
+        db.ragCalibrations = db.ragCalibrations.filter((item) => !(
+            item.tenantId === context.tenantId && item.domain === profile.domain && item.active === true
+        ));
+        const record = {
+            ...profile,
+            tenantId: context.tenantId,
+            active: true,
+            updatedBy: context.actorId,
+            updatedAt: now()
+        };
+        db.ragCalibrations.push(record);
+        await writeDb(db);
+        return record;
     }
 
     async createTask (task) {

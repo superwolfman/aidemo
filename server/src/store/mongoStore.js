@@ -251,7 +251,7 @@ export class MongoStore {
         return serialize(safeUser);
     }
 
-    async createDocument (context, { title, content, tags = [], scopes = [], sourceType = 'manual', sourcePath, sourceUpdatedAt }) {
+    async createDocument (context, { title, content, tags = [], scopes = [], sourceType = 'manual', sourcePath, sourceUpdatedAt, knowledgeMetadata, contentHash }) {
         requireTenantContext(context);
         const authorizedScopes = authorizeKnowledgeScopes(context, scopes);
         const chunks = splitIntoChunks(content);
@@ -265,6 +265,8 @@ export class MongoStore {
             sourceType,
             sourcePath,
             sourceUpdatedAt,
+            knowledgeMetadata,
+            contentHash,
             chunkCount: chunks.length,
             createdAt: now()
         };
@@ -283,6 +285,9 @@ export class MongoStore {
                     scopes: authorizedScopes,
                     sourceType,
                     sourcePath,
+                    sourceUpdatedAt,
+                    knowledgeMetadata,
+                    contentHash,
                     content: chunk,
                     chunkIndex: embedded.length,
                     embedding: config.ragBackend === 'mongodb-atlas'
@@ -341,19 +346,6 @@ export class MongoStore {
 
         let chunks = await this.db.collection('chunks').aggregate(pipeline).toArray();
 
-        // Fallback 1：若按 tenant + scopes 未命中，放宽到仅 tenant（部分历史 chunk 的 scopes 可能不匹配当前 skill）
-        if (!chunks.length) {
-            const tenantOnlyPipeline = buildTenantVectorPipeline({
-                context,
-                scopes: [],
-                queryEmbedding,
-                limit,
-                numCandidates,
-                tenantOnly: true
-            });
-            chunks = await this.db.collection('chunks').aggregate(tenantOnlyPipeline).toArray();
-        }
-
         return chunks.map((chunk) => serialize({
             ...chunk,
             documentId: String(chunk.documentId),
@@ -368,6 +360,32 @@ export class MongoStore {
             ? tenantFilter(context)
             : { tenantId: context.tenantId, scopes: { $in: allowedScopes } };
         return this.db.collection('chunks').countDocuments(filter);
+    }
+
+    async getRagCalibration (context, domain) {
+        requireTenantContext(context);
+        return this.db.collection('rag_calibrations').findOne({
+            tenantId: context.tenantId,
+            domain,
+            active: true
+        }, { sort: { evaluatedAt: -1 } });
+    }
+
+    async saveRagCalibration (context, profile) {
+        requireTenantContext(context);
+        const record = {
+            ...profile,
+            tenantId: context.tenantId,
+            active: true,
+            updatedBy: context.actorId,
+            updatedAt: now()
+        };
+        await this.db.collection('rag_calibrations').updateOne(
+            { tenantId: context.tenantId, domain: profile.domain, active: true },
+            { $set: record },
+            { upsert: true }
+        );
+        return serialize(record);
     }
 
     // ==================== 修改开始 ====================

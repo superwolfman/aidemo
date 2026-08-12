@@ -1,6 +1,13 @@
+import { createHash } from 'node:crypto';
 import { createServiceTenantContext } from '../security/tenantContext.js';
+import { domainKnowledgeDocuments } from '../knowledge/domainKnowledgePacks.js';
 
 export const DEFAULT_TENANT_ID = 'tenant-demo';
+
+const LEGACY_DOMAIN_SEED_TITLES = [
+    '智能客服知识库产品设计',
+    '投研报告生成工作台产品设计'
+];
 
 export const seedKnowledge = [
     {
@@ -86,18 +93,7 @@ export const seedKnowledge = [
         scopes: ['business'],
         content: 'B 端 SaaS 客户管理后台典型页面：1) 客户档案管理 - 客户列表、客户详情、联系人管理、客户标签、操作审计；2) 跟进记录 - 跟进时间线、跟进表单、附件上传、跟进提醒；3) 销售漏斗 - 漏斗看板、阶段拖拽、转化率统计、预期金额；4) 团队协作 - 权限管理、操作日志、消息通知、任务分配。典型 API：GET/POST /api/customers、GET/POST /api/follow-ups、GET /api/sales-pipeline、POST /api/permissions。'
     },
-    {
-        title: '智能客服知识库产品设计',
-        tags: ['copilot', 'business', 'knowledge', 'service'],
-        scopes: ['business'],
-        content: '智能客服知识库典型页面：1) 问答接待台 - 问题输入、流式答案、引用卡片、低置信度提示、转人工入口；2) 知识库管理 - 文档上传、分组标签、向量索引状态、失效知识提醒、灰度发布；3) 质检反馈台 - 答案采纳、人工纠错、未解决问题池、命中率统计、知识缺口分析；4) 运营看板 - 命中率、未解决率、人工接管率、高频问题、质检通过率。典型 API：POST /api/knowledge/search、POST /api/conversations/:id/messages、POST /api/knowledge/feedback。'
-    },
-    {
-        title: '投研报告生成工作台产品设计',
-        tags: ['copilot', 'business', 'research', 'report'],
-        scopes: ['business'],
-        content: '投研报告生成工作台典型页面：1) 资料导入区 - 研报上传、公司/行业标签、资料解析状态、引用质量检查；2) 报告生成区 - 大纲生成、章节草稿、引用定位、风险提示、模型选择；3) 合规复核区 - 投资建议标记、敏感表述检查、引用缺失检查、人工审批；4) 报告导出区 - Markdown 导出、PDF 导出、审计记录、版本对比。典型 API：POST /api/research/upload、POST /api/research/generate、POST /api/research/compliance-review。'
-    },
+    ...domainKnowledgeDocuments,
     // ===== 用户领域知识库：前端工程治理、可观测性、性能优化 =====
     {
         title: '应用群工程与交付治理案例',
@@ -179,6 +175,28 @@ Source Map：CI 构建时生成；上传内部监控平台；不放入公开静�
     }
 ];
 
+export function knowledgeContentHash (item) {
+    return createHash('sha256')
+        .update(JSON.stringify({
+            title: item.title,
+            content: item.content,
+            tags: item.tags || [],
+            scopes: item.scopes || [],
+            knowledgeMetadata: item.knowledgeMetadata || null
+        }))
+        .digest('hex');
+}
+
+export function toSeedDocumentPayload (item) {
+    return {
+        ...item,
+        sourceType: item.knowledgeMetadata?.sourceType || 'template',
+        sourcePath: item.knowledgeMetadata?.sourceUri || 'system-seed',
+        sourceUpdatedAt: item.knowledgeMetadata?.effectiveAt,
+        contentHash: knowledgeContentHash(item)
+    };
+}
+
 export async function seedKnowledgeIfEmpty (store, { tenantId = DEFAULT_TENANT_ID, actorId = 'system-seed' } = {}) {
     if (!store || typeof store.createDocument !== 'function') {
         console.warn('[seed] store does not support createDocument, skip');
@@ -227,12 +245,24 @@ export async function seedKnowledgeIfEmpty (store, { tenantId = DEFAULT_TENANT_I
         }
 
         // 收集当前租户已有文档（title -> _id），用于判断是否需要创建/重建
-        const titleToId = new Map();
+        const titleToDocument = new Map();
         if (typeof store.db === 'object' && store.db) {
+            const legacyDocuments = await store.db.collection('documents').find({
+                tenantId,
+                title: { $in: LEGACY_DOMAIN_SEED_TITLES },
+                sourceType: 'template',
+                sourcePath: 'system-seed'
+            }, { projection: { _id: 1 } }).toArray();
+            if (legacyDocuments.length) {
+                const legacyIds = legacyDocuments.map((document) => document._id);
+                await store.db.collection('documents').deleteMany({ _id: { $in: legacyIds } });
+                await store.db.collection('chunks').deleteMany({ documentId: { $in: legacyIds } });
+                console.log(`[seed] replaced ${legacyDocuments.length} legacy domain seed documents with reviewed knowledge packs`);
+            }
             const existingDocs = await store.db.collection('documents')
-                .find({ tenantId }, { projection: { title: 1 } })
+                .find({ tenantId }, { projection: { title: 1, contentHash: 1 } })
                 .toArray();
-            for (const doc of existingDocs) titleToId.set(doc.title, doc._id);
+            for (const doc of existingDocs) titleToDocument.set(doc.title, doc);
         }
 
         // 只创建当前租户缺失或「无有效向量」的 seed 文档。
@@ -240,19 +270,23 @@ export async function seedKnowledgeIfEmpty (store, { tenantId = DEFAULT_TENANT_I
         // 并永久跳过重建，导致该文档永远无法被检索召回（表现为领域知识库看起来没生效）。
         const missing = [];
         for (const item of seedKnowledge) {
-            const docId = titleToId.get(item.title);
-            if (!docId) {
+            const payload = toSeedDocumentPayload(item);
+            const existingDocument = titleToDocument.get(item.title);
+            if (!existingDocument) {
                 missing.push(item);
                 continue;
             }
+            const docId = existingDocument._id;
             const validChunkCount = typeof store.db === 'object' && store.db
                 ? await store.db.collection('chunks').countDocuments({
                       documentId: docId,
                       embedding: { $exists: true, $type: 'array', $ne: [] }
                   })
                 : 1;
-            if (validChunkCount === 0) {
-                console.log(`[seed] orphan seed document without vectors detected, will rebuild: ${item.title}`);
+            const versionChanged = Boolean(item.knowledgeMetadata) && existingDocument.contentHash !== payload.contentHash;
+            if (validChunkCount === 0 || versionChanged) {
+                const reason = validChunkCount === 0 ? 'missing vectors' : 'knowledge version changed';
+                console.log(`[seed] seed document will rebuild (${reason}): ${item.title}`);
                 await store.db.collection('documents').deleteOne({ _id: docId });
                 await store.db.collection('chunks').deleteMany({ documentId: docId });
                 missing.push(item);
@@ -267,14 +301,7 @@ export async function seedKnowledgeIfEmpty (store, { tenantId = DEFAULT_TENANT_I
         console.log(`[seed] seeding ${missing.length}/${seedKnowledge.length} missing documents to tenant ${tenantId}`);
         const created = [];
         for (const item of missing) {
-            const doc = await store.createDocument(context, {
-                title: item.title,
-                content: item.content,
-                tags: item.tags,
-                scopes: item.scopes,
-                sourceType: 'template',
-                sourcePath: 'system-seed'
-            });
+            const doc = await store.createDocument(context, toSeedDocumentPayload(item));
             created.push(doc);
         }
         console.log(`[seed] created ${created.length} documents`);
