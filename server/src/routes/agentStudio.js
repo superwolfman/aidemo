@@ -11,6 +11,11 @@ import {
     publishRuntimeModelSettings,
     rollbackRuntimeModelSettings
 } from '../services/runtimeModelSettings.js';
+import {
+    getRuntimeTimeoutSettingsView,
+    publishRuntimeTimeoutSettings,
+    rollbackRuntimeTimeoutSettings
+} from '../services/runtimeTimeoutSettings.js';
 import { ROLES } from '../security/roles.js';
 import { recordAuthorizationDenied } from '../security/authorizationAudit.js';
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
@@ -253,6 +258,33 @@ export function agentStudioRouter (store) {
                 primaryModel: setting.primary.model
             });
             res.json({ ...(await getRuntimeModelSettingsView()), setting });
+        } catch (error) { next(error); }
+    });
+
+    router.get('/runtime-settings/timeout', requireModelAdmin, async (req, res, next) => {
+        try { res.json(await getRuntimeTimeoutSettingsView()); } catch (error) { next(error); }
+    });
+
+    router.put('/runtime-settings/timeout', requireModelAdmin, async (req, res, next) => {
+        try {
+            const setting = await publishRuntimeTimeoutSettings(req.body || {}, { ...req.auth, email: req.user?.email });
+            await auditRuntimeChange(req, 'runtime.timeout.settings.published', {
+                version: setting.version,
+                defaults: setting.defaults,
+                perModelKeys: Object.keys(setting.perModel || {})
+            });
+            res.json({ ...(await getRuntimeTimeoutSettingsView()), setting });
+        } catch (error) { next(error); }
+    });
+
+    router.post('/runtime-settings/timeout/rollback', requireModelAdmin, async (req, res, next) => {
+        try {
+            const setting = await rollbackRuntimeTimeoutSettings(req.body || {}, { ...req.auth, email: req.user?.email });
+            await auditRuntimeChange(req, 'runtime.timeout.settings.rolled_back', {
+                version: setting.version,
+                targetVersion: Number(req.body?.targetVersion)
+            });
+            res.json({ ...(await getRuntimeTimeoutSettingsView()), setting });
         } catch (error) { next(error); }
     });
 

@@ -12,9 +12,11 @@ import { agentStudioRouter } from './routes/agentStudio.js';
 import { seedKnowledgeIfEmpty } from './utils/seedKnowledge.js';
 import { enforceDemoPermissions } from './middleware/demoAuthorization.js';
 import { initializeRuntimeModelSettings } from './services/runtimeModelSettings.js';
+import { initializeRuntimeTimeoutSettings } from './services/runtimeTimeoutSettings.js';
 
 const store = await createStore();
 await initializeRuntimeModelSettings(store);
+await initializeRuntimeTimeoutSettings(store);
 const seedResult = await seedKnowledgeIfEmpty(store);
 if (seedResult.seeded) {
     console.log(`[server] auto seeded ${seedResult.count} knowledge documents`);

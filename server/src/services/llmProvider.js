@@ -3,6 +3,10 @@ import {
     getRuntimeModelCatalog,
     getRuntimeModelSettingsSnapshot
 } from './runtimeModelSettings.js';
+import {
+    resolveTimeoutsForModel,
+    shouldFallbackOn
+} from './runtimeTimeoutSettings.js';
 
 const providerDefaults = {
     openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini' },
@@ -19,9 +23,11 @@ const QUOTA_EXHAUSTED_CODES = new Set([
     'insufficient_quota'
 ]);
 
-const DEFAULT_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 60000;
-const DEFAULT_STREAM_TIMEOUT_MS = Number(process.env.LLM_STREAM_TIMEOUT_MS) || 120000;
-const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = Number(process.env.LLM_FIRST_TOKEN_TIMEOUT_MS) || 30000;
+// 运行时超时策略热更新入口：优先读 runtime_settings 快照，
+// env 仅作为未初始化时的种子和 LLM_TIMEOUT_FORCE=true 时的紧急覆盖。
+function effectiveTimeouts (model) {
+    return resolveTimeoutsForModel(model);
+}
 
 export class LlmProviderError extends Error {
     constructor (message, { statusCode, providerCode, detail, quotaExhausted = false } = {}) {
@@ -180,7 +186,8 @@ export function getModelPresets () {
 async function generateOnce ({ candidate, systemPrompt, prompt, sources, toolResults, modelConfig }) {
     const resolved = resolveProvider(candidate);
     if (!resolved.configured) return { resolved, text: '' };
-    const { signal, cleanup } = makeTimeoutController(modelConfig.timeoutMs || DEFAULT_TIMEOUT_MS, modelConfig.signal);
+    const timeouts = effectiveTimeouts(resolved.requestedModel);
+    const { signal, cleanup } = makeTimeoutController(modelConfig.timeoutMs || timeouts.requestTimeoutMs, modelConfig.signal);
     try {
         const response = await fetch(`${normalizeBaseUrl(resolved.baseUrl)}/chat/completions`, {
             method: 'POST',
@@ -216,8 +223,9 @@ export async function generateLlmAnswer ({ systemPrompt, prompt, sources = [], t
 async function streamOnce ({ candidate, systemPrompt, prompt, sources, toolResults, onDelta, modelConfig }) {
     const resolved = resolveProvider(candidate);
     if (!resolved.configured) return { resolved, streamed: false, text: '' };
-    const totalTimeoutMs = modelConfig.streamTimeoutMs || DEFAULT_STREAM_TIMEOUT_MS;
-    const firstTokenMs = modelConfig.firstTokenTimeoutMs || DEFAULT_FIRST_TOKEN_TIMEOUT_MS;
+    const timeouts = effectiveTimeouts(resolved.requestedModel);
+    const totalTimeoutMs = modelConfig.streamTimeoutMs || timeouts.streamTotalTimeoutMs;
+    const firstTokenMs = modelConfig.firstTokenTimeoutMs || timeouts.firstTokenTimeoutMs;
     const { signal, cleanup, abort } = makeTimeoutController(totalTimeoutMs, modelConfig.signal);
     let firstTokenTimer = setTimeout(() => abort(new Error(`LLM first token timeout after ${firstTokenMs}ms`)), firstTokenMs);
     const clearFirstTokenTimer = () => {

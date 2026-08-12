@@ -1,5 +1,6 @@
 import { createStore } from '../store/index.js';
 import { initializeRuntimeModelSettings } from '../services/runtimeModelSettings.js';
+import { initializeRuntimeTimeoutSettings } from '../services/runtimeTimeoutSettings.js';
 import { retrieveKnowledge } from '../services/ragEngine.js';
 import { config } from '../config.js';
 import { createServiceTenantContext } from '../security/tenantContext.js';
@@ -280,6 +281,7 @@ console.log = (...args) => console.error(...args);
 
 const store = await createStore();
 await initializeRuntimeModelSettings(store);
+await initializeRuntimeTimeoutSettings(store);
 const mcpContext = createServiceTenantContext({
   tenantId: config.mcpTenantId,
   actorId: 'mcp-service',
