@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Database } from 'lucide-react';
+import { Database, ExternalLink, Globe, ShieldAlert } from 'lucide-react';
 import type { FilteredChunk } from '../types';
 
 type Source = {
@@ -15,6 +15,35 @@ type Source = {
     filterReason?: string;
     retrievalBackend?: string;
     sourcePath?: string;
+};
+
+type ExternalSource = {
+    sourceType: 'external';
+    documentTitle?: string;
+    sourceUrl?: string;
+    content?: string;
+    paragraphs?: Array<{ index: number; text: string }>;
+    contentHash?: string;
+    crawlTime?: string;
+    publishedAt?: string | null;
+    authorityLevel?: number;
+    authorityLabel?: string;
+    relevance?: number;
+    requiresHumanReview?: boolean;
+    evidenceProvenance?: string;
+    writeAllowed?: boolean;
+};
+
+type ExternalStatus = {
+    enabled?: boolean;
+    provider?: string;
+    eligible?: boolean;
+    highRisk?: boolean;
+    status?: 'ok' | 'disabled' | 'not-eligible' | 'scope-not-eligible' | 'no-hits' | 'timeout' | 'error' | 'skipped' | string;
+    fetched?: number;
+    accepted?: number;
+    skipped?: number;
+    error?: string;
 };
 
 type RagRuntime = {
@@ -62,6 +91,8 @@ type Diagnostics = {
 type Props = {
     query: string;
     sources: Source[];
+    externalSources?: ExternalSource[];
+    externalStatus?: ExternalStatus | null;
     ragRuntime?: RagRuntime;
     retrievalView: RetrievalView;
     filteredChunks?: FilteredChunk[];
@@ -104,8 +135,9 @@ function ExpandableText({ value, size = 160 }: { value: string; size?: number })
     );
 }
 
-export function RagDebugPanel({ query, sources, ragRuntime, retrievalView, filteredChunks, diagnostics }: Props) {
+export function RagDebugPanel({ query, sources, externalSources = [], externalStatus = null, ragRuntime, retrievalView, filteredChunks, diagnostics }: Props) {
     const topK = diagnostics?.retrieval?.requestedTopK || Math.max(sources.length, 5);
+    const externalBaseIndex = sources.length;
 
     const filteredReason = (() => {
         if (sources.length) return '已按当前 Skill scope、topK 和 score 阈值返回候选 chunk。';
@@ -191,6 +223,52 @@ export function RagDebugPanel({ query, sources, ragRuntime, retrievalView, filte
                     </article>
                 ))}
                 {!sources.length ? <div className="runtime-empty">运行后展示 query、chunk、score、citation 和过滤原因。</div> : null}
+                {externalStatus ? (
+                    <div className="rag-debug-external">
+                        <div className="rag-debug-external-head">
+                            <Globe size={15} />
+                            <strong>外部在线证据（{externalSources.length}）</strong>
+                            <span>{externalStatus.status || 'ok'} · 抓取 {externalStatus.fetched ?? 0} · 采用 {externalStatus.accepted ?? 0} · 跳过 {externalStatus.skipped ?? 0}</span>
+                        </div>
+                        {!externalSources.length ? (
+                            <div className="rag-debug-external-empty">
+                                {externalStatus.status === 'disabled' || externalStatus.enabled === false
+                                    ? '外部在线检索未启用（EXTERNAL_SEARCH_ENABLED=false），未请求实时网络来源。'
+                                    : (externalStatus.status === 'not-eligible' || externalStatus.status === 'scope-not-eligible')
+                                        ? '当前 Task Mode / scope 不在外部检索白名单内，仅使用本地 Atlas 知识库。'
+                                        : externalStatus.status === 'no-hits'
+                                            ? '外部检索已执行，未命中白名单内的相关结果。'
+                                            : externalStatus.status === 'error'
+                                                ? `外部检索失败：${externalStatus.error || 'unknown'}`
+                                                : externalStatus.status === 'timeout'
+                                                    ? '外部检索超时，已降级为仅使用本地 Atlas。'
+                                                    : externalStatus.status === 'skipped'
+                                                        ? '外部检索被跳过。'
+                                                        : '外部检索未返回结果。'}
+                            </div>
+                        ) : null}
+                        {externalSources.map((source, index) => {
+                            const citationNumber = externalBaseIndex + index + 1;
+                            return (
+                                <article id={`src-${externalBaseIndex + index}`} key={source.sourceUrl || `${source.documentTitle}-${index}`} className="rag-external-card">
+                                    <header>
+                                        <strong>[{citationNumber}] {source.documentTitle || '外部来源'}</strong>
+                                        <span className="rag-external-authority">权威 L{source.authorityLevel ?? '-'} · {source.authorityLabel || '未验证'}</span>
+                                    </header>
+                                    <p><ExpandableText value={source.content || ''} size={180} /></p>
+                                    <footer>
+                                        {source.sourceUrl ? <a href={source.sourceUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={12} />{source.sourceUrl}</a> : null}
+                                        <span>抓取 {source.crawlTime ? new Date(source.crawlTime).toLocaleString('zh-CN', { hour12: false }) : '-'}</span>
+                                        {source.publishedAt ? <span>发布 {new Date(source.publishedAt).toLocaleDateString('zh-CN')}</span> : null}
+                                        <span>段落 {source.paragraphs?.length ?? 0}</span>
+                                        {source.requiresHumanReview ? <span className="rag-external-review"><ShieldAlert size={12} />需人工确认</span> : null}
+                                        <span className="rag-external-nofile">外部证据·不可直接执行</span>
+                                    </footer>
+                                </article>
+                            );
+                        })}
+                    </div>
+                ) : null}
                 <div className="rag-debug-filtered">
                     <details>
                         <summary>被过滤来源（{filteredChunks?.length || 0}）</summary>

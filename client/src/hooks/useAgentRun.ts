@@ -7,6 +7,8 @@ export function useAgentRun(_kind: 'agent-studio' | 'delivery' = 'agent-studio')
     const [answer, setAnswer] = useState('');
     const [trace, setTrace] = useState<any[]>([]);
     const [sources, setSources] = useState<any[]>([]);
+    const [externalSources, setExternalSources] = useState<any[]>([]);
+    const [externalStatus, setExternalStatus] = useState<any>(null);
     const [filteredChunks, setFilteredChunks] = useState<any[]>([]);
     const [ragDiagnostics, setRagDiagnostics] = useState<any>(null);
     const [artifacts, setArtifacts] = useState<any[]>([]);
@@ -27,6 +29,8 @@ export function useAgentRun(_kind: 'agent-studio' | 'delivery' = 'agent-studio')
         setAnswer('');
         setTrace([]);
         setSources([]);
+        setExternalSources([]);
+        setExternalStatus(null);
         setFilteredChunks([]);
         setRagDiagnostics(null);
         setArtifacts([]);
@@ -60,6 +64,11 @@ export function useAgentRun(_kind: 'agent-studio' | 'delivery' = 'agent-studio')
             },
             sources: (payload: any) => {
                 handlers.sources?.(payload);
+                // 外部证据状态始终由 useAgentRun 接管，不受调用方自定义 sources 处理器影响，
+                // 否则传了自定义 handler 的页面（如 DeliveryCopilot / AgentStudio / CopilotWorkbench）
+                // 会跳过外部状态的设置，导致 RAG 面板永不显示外部检索区域。
+                setExternalSources(payload.externalSources || []);
+                setExternalStatus(payload.externalStatus || null);
                 if (!handlers.sources) {
                     setSources(payload.sources || []);
                     setFilteredChunks(payload.filteredChunks || []);
@@ -114,7 +123,8 @@ export function useAgentRun(_kind: 'agent-studio' | 'delivery' = 'agent-studio')
 
     return {
         status, setStatus, runState, setRunState, answer, setAnswer, trace, setTrace,
-        sources, setSources, filteredChunks, setFilteredChunks, ragDiagnostics, setRagDiagnostics,
+        sources, setSources, externalSources, setExternalSources, externalStatus, setExternalStatus,
+        filteredChunks, setFilteredChunks, ragDiagnostics, setRagDiagnostics,
         artifacts, setArtifacts, plan, setPlan, logs, setLogs,
         activeRun, setActiveRun, quality, setQuality, running, setRunning,
         abortRef, start, control, review, replay, stop

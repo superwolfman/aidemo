@@ -8,6 +8,8 @@ type KnowledgeContextProps = {
   retrievalView: RetrievalView;
   requirement: string;
   sources: Source[];
+  externalSources?: any[];
+  externalStatus?: any;
   filteredChunks?: FilteredChunk[];
   diagnostics?: any;
   trace: TraceStep[];
@@ -19,6 +21,8 @@ export function KnowledgeContext({
   retrievalView,
   requirement,
   sources,
+  externalSources,
+  externalStatus,
   filteredChunks,
   diagnostics,
   trace
@@ -54,6 +58,8 @@ export function KnowledgeContext({
       <RagDebugPanel
         query={diagnostics?.retrieval?.query || requirement}
         sources={sources}
+        externalSources={externalSources}
+        externalStatus={externalStatus}
         ragRuntime={ragRuntime}
         retrievalView={retrievalView}
         filteredChunks={filteredChunks}

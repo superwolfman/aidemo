@@ -62,7 +62,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
     const artifact = useArtifact();
 
     const { setActive, active } = session;
-    const { status, setStatus, answer, setAnswer, trace, setTrace, sources, setSources, filteredChunks, setFilteredChunks, ragDiagnostics, setRagDiagnostics, artifacts, setArtifacts, quality, setQuality, activeRun, setActiveRun, start } = agentRun;
+    const { status, setStatus, answer, setAnswer, trace, setTrace, sources, setSources, externalSources, externalStatus, filteredChunks, setFilteredChunks, ragDiagnostics, setRagDiagnostics, artifacts, setArtifacts, quality, setQuality, activeRun, setActiveRun, start } = agentRun;
     const { cases, setCases, load: loadEvalCases, refresh: refreshEval } = evalCase;
 
     const activeArtifact = useMemo(() => artifacts.find((item) => item.id === activeArtifactId) || artifacts[0], [activeArtifactId, artifacts]);
@@ -240,6 +240,8 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
                 trace: (payload) => setTrace((items) => [...items.filter((item) => item.id !== payload.id), payload]),
                 sources: (payload) => {
                     setSources(payload.sources || []);
+                    setExternalSources(payload.externalSources || []);
+                    setExternalStatus(payload.externalStatus || null);
                     setFilteredChunks(payload.filteredChunks || []);
                     setRagDiagnostics(payload.diagnostics || null);
                 },
@@ -378,7 +380,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
             </main>
             <section className="delivery-bottom-row">
                 <section className="delivery-region-4">
-                    <KnowledgeContext ragLive={ragLive} ragRuntime={ragRuntime} retrievalView={retrievalView} requirement={requirement} sources={sources} filteredChunks={filteredChunks} diagnostics={ragDiagnostics} trace={trace} />
+                    <KnowledgeContext ragLive={ragLive} ragRuntime={ragRuntime} retrievalView={retrievalView} requirement={requirement} sources={sources} externalSources={externalSources} externalStatus={externalStatus} filteredChunks={filteredChunks} diagnostics={ragDiagnostics} trace={trace} />
                 </section>
                 <section className="delivery-region-5">
                     <ApprovalPanel activeRun={activeRun} activeArtifact={activeArtifact} artifactSummary={artifactSummary} onSelectArtifact={selectArtifact} onConfirmArtifact={confirmArtifact} readOnly={permissions?.canReviewArtifacts === false || isDemoViewer} />
