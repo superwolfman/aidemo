@@ -3,6 +3,7 @@ import { getEmbeddingDiagnostics } from '../utils/embedding.js';
 import { authorizeKnowledgeScopes, requireTenantContext } from '../security/tenantContext.js';
 import { resolveKnowledgeDomain } from '../knowledge/knowledgeDomain.js';
 import { buildRetrievalPlan } from './retrievalPlanning.js';
+import { retrieveExternalKnowledge } from './externalRetrieval/externalRetrievalService.js';
 
 function redactConnection (uri, databaseName) {
     if (!uri) return 'not configured';
@@ -156,7 +157,7 @@ function toFilteredChunk (source, index, topK) {
     };
 }
 
-export async function retrieveKnowledge ({ store, context, query, scopes, limit = 5, taskModeId }) {
+async function retrieveKnowledgeLocal ({ store, context, query, scopes, limit = 5, taskModeId }) {
     requireTenantContext(context);
     const authorizedRequestedScopes = authorizeKnowledgeScopes(context, scopes);
     const allowedScopes = new Set(context.allowedKnowledgeScopes || []);
@@ -304,6 +305,30 @@ export async function retrieveKnowledge ({ store, context, query, scopes, limit 
             'business-requirement + local-hash',
             outcome
         )
+    };
+}
+
+/**
+ * 检索入口：本地 Atlas 检索 + 外部在线检索（best-effort）。
+ * 外部结果以 externalSources 单独返回，绝不静默替换本地引用，也不阻断主链路。
+ */
+export async function retrieveKnowledge ({ store, context, query, scopes, limit = 5, taskModeId }) {
+    const local = await retrieveKnowledgeLocal({ store, context, query, scopes, limit, taskModeId });
+    let external = { externalSources: [], externalStatus: { status: 'skipped' }, externalDiagnostics: {} };
+    try {
+        external = await retrieveExternalKnowledge({ store, context, query, scopes, taskModeId });
+    } catch (error) {
+        external = {
+            externalSources: [],
+            externalStatus: { status: 'error', error: error.message },
+            externalDiagnostics: { reason: error.message }
+        };
+    }
+    return {
+        ...local,
+        externalSources: external.externalSources,
+        externalStatus: external.externalStatus,
+        externalDiagnostics: external.externalDiagnostics
     };
 }
 

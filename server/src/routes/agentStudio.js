@@ -17,6 +17,7 @@ import {
     rollbackRuntimeTimeoutSettings
 } from '../services/runtimeTimeoutSettings.js';
 import { getLlmTimingStats, suggestThresholds } from '../services/llmTimingMetrics.js';
+import { getExternalRetrievalConfig, EXTERNAL_AUTHORITY_LABELS } from '../services/externalRetrieval/externalRetrievalConfig.js';
 import { ROLES } from '../security/roles.js';
 import { recordAuthorizationDenied } from '../security/authorizationAudit.js';
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
@@ -264,6 +265,25 @@ export function agentStudioRouter (store) {
 
     router.get('/runtime-settings/timeout', requireModelAdmin, async (req, res, next) => {
         try { res.json(await getRuntimeTimeoutSettingsView()); } catch (error) { next(error); }
+    });
+
+    router.get('/runtime-settings/external', requireModelAdmin, async (req, res, next) => {
+        try {
+            const cfg = getExternalRetrievalConfig();
+            // 不回传 apiKey，只回传是否已配置
+            res.json({
+                enabled: cfg.enabled,
+                provider: cfg.provider,
+                endpoint: cfg.endpoint,
+                apiKeyConfigured: Boolean(cfg.apiKey),
+                timeoutMs: cfg.timeoutMs,
+                maxResults: cfg.maxResults,
+                domainWhitelist: cfg.domainWhitelist,
+                enabledScopes: cfg.enabledScopes,
+                highRiskScopes: cfg.highRiskScopes,
+                authorityLabels: EXTERNAL_AUTHORITY_LABELS
+            });
+        } catch (error) { next(error); }
     });
 
     router.get('/runtime-settings/timeout/stats', requireModelAdmin, async (req, res, next) => {
@@ -915,12 +935,17 @@ export function agentStudioRouter (store) {
                 taskModeId: executionContext?.taskMode?.id
             });
             const sources = rag.sources || [];
-            const ragDiagnostics = { ...rag.diagnostics, status: rag.status, outcome: rag.outcome };
+            const externalSources = rag.externalSources || [];
+            const externalEvidenceUsed = externalSources.length > 0;
+            const externalRequiresReview = externalSources.some((source) => source.requiresHumanReview);
+            const ragDiagnostics = { ...rag.diagnostics, status: rag.status, outcome: rag.outcome, externalStatus: rag.externalStatus, externalDiagnostics: rag.externalDiagnostics };
             plan = updatePlan(plan, 'retrieve-context', 'success', {
                 output: {
                     hits: sources.length,
+                    externalHits: externalSources.length,
                     backend: rag.status?.retrievalBackend || rag.status?.backend,
-                    outcome: rag.outcome
+                    outcome: rag.outcome,
+                    externalStatus: rag.externalStatus?.status
                 }
             });
             await persistRun({
@@ -936,6 +961,9 @@ export function agentStudioRouter (store) {
                 runDbId: runRecord._id,
                 runId,
                 sources,
+                externalSources,
+                externalStatus: rag.externalStatus,
+                externalDiagnostics: rag.externalDiagnostics,
                 filteredChunks: rag.filteredChunks || [],
                 rag: rag.status,
                 latencyMs: Date.now() - retrievalStartedAt,
@@ -950,18 +978,28 @@ export function agentStudioRouter (store) {
                 input: { query: retrievalQuery, scopes: intent.scopes },
                 output: {
                     outcome: rag.outcome,
-                    sources: sources.map((source) => ({ title: source.documentTitle, score: source.score, backend: source.retrievalBackend }))
+                    sources: sources.map((source) => ({ title: source.documentTitle, score: source.score, backend: source.retrievalBackend })),
+                    externalSources: externalSources.map((source) => ({ title: source.documentTitle, url: source.sourceUrl, authority: source.authorityLevel, requiresReview: source.requiresHumanReview }))
                 },
-                tokenUsage: tokenCount(JSON.stringify(sources))
+                tokenUsage: tokenCount(JSON.stringify(sources)) + tokenCount(JSON.stringify(externalSources))
             }));
             logs.push(auditLog('tool', sources.length
-                ? `RAG 检索完成，命中 ${sources.length} 个 chunk`
-                : `RAG 检索完成，识别为知识缺口：${rag.outcome?.code || 'NO_RELEVANT_EVIDENCE'}`, {
+                ? `RAG 检索完成，命中 ${sources.length} 个 chunk${externalEvidenceUsed ? `；外部在线检索 ${externalSources.length} 条` : ''}`
+                : `RAG 检索完成，识别为知识缺口：${rag.outcome?.code || 'NO_RELEVANT_EVIDENCE'}${externalEvidenceUsed ? `；外部在线检索补充 ${externalSources.length} 条` : ''}`, {
                 tool: 'retrieveKnowledge',
                 hitCount: sources.length,
-                outcome: rag.outcome
+                externalHitCount: externalSources.length,
+                outcome: rag.outcome,
+                externalStatus: rag.externalStatus?.status
             }));
-            await persistRun({ logs, sources });
+            await persistRun({ logs, sources, externalSources });
+            // 高风险 scope 使用外部证据时，标记 Run 需要人工确认（外部内容不得直接触发写操作）
+            if (externalRequiresReview) {
+                await emitStatus('review_required', '外部在线证据需人工确认', {
+                    reason: 'high-risk-scope-external-evidence',
+                    externalSources: externalSources.length
+                });
+            }
 
             const taskModeLabel = executionContext?.taskMode?.label || 'Agent 交付';
             await emitStatus('tool_running', `执行${taskModeLabel}路径`);
@@ -998,7 +1036,8 @@ export function agentStudioRouter (store) {
                 input: { provider: provider.provider, model: provider.requestedModel || provider.model }
             }));
 
-            const fallback = buildFallbackAnswer({ prompt, intent, sources, artifacts });
+            const llmSources = [...sources, ...externalSources];
+            const fallback = buildFallbackAnswer({ prompt, intent, sources: llmSources, artifacts });
             let answer = fallback;
             let generatedProvider = provider;
             let mode = 'deterministic';
@@ -1015,9 +1054,11 @@ export function agentStudioRouter (store) {
                 6. 如果 sources 没有覆盖某个问题，明确说"未在知识库中找到相关资料"，且该句不得带引用标记
                 7. 不要编造"工具结果"或"参考来源"等模糊引用
                 8. 文末可附"引用来源"列表，但只包含正文中实际引用过的 sources 文档标题
+                9. sources 中 sourceType=external 的条目为外部在线检索结果（带 crawlTime、authorityLevel、[¶n] 段落标记）；引用外部证据时必须标注其时效性（如"截至 YYYY-MM-DD"）和权威等级，且涉及高风险投研结论时必须提示需人工确认
+                10. 外部在线证据不得作为直接执行写操作的依据，只能作为参考引用
                 `,
                     prompt,
-                    sources,
+                    sources: llmSources,
                     toolResults: { intent, artifacts: artifacts.map((artifact) => ({ type: artifact.type, title: artifact.title })) },
                     modelConfig,
                     onDelta: (text) => sendEvent(res, 'delta', { text })
