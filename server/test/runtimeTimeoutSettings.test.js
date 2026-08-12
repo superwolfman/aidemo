@@ -114,6 +114,32 @@ test('timeout settings reject out-of-range values and stale versions', async () 
     }
 });
 
+test('cross-field validation rejects firstToken > streamTotal and similar invalid relations', async () => {
+    const store = new MemoryStore();
+    __resetRuntimeTimeoutSettingsForTests();
+    try {
+        await initializeRuntimeTimeoutSettings(store);
+        // 首字超时 > 流式总超时
+        await assert.rejects(() => publishRuntimeTimeoutSettings({
+            defaults: { ...baseDefaults(), firstTokenTimeoutMs: 200000, streamTotalTimeoutMs: 120000 },
+            expectedVersion: 1
+        }), (error) => error.code === 'RUNTIME_TIMEOUT_OUT_OF_RANGE');
+        // 空闲超时 > 流式总超时
+        await assert.rejects(() => publishRuntimeTimeoutSettings({
+            defaults: { ...baseDefaults(), idleTimeoutMs: 200000, streamTotalTimeoutMs: 120000 },
+            expectedVersion: 1
+        }), (error) => error.code === 'RUNTIME_TIMEOUT_OUT_OF_RANGE');
+        // 合法的关联值应通过
+        const ok = await publishRuntimeTimeoutSettings({
+            defaults: { ...baseDefaults(), firstTokenTimeoutMs: 20000, idleTimeoutMs: 10000, streamTotalTimeoutMs: 120000 },
+            expectedVersion: 1
+        });
+        assert.equal(ok.version, 2);
+    } finally {
+        __resetRuntimeTimeoutSettingsForTests();
+    }
+});
+
 test('rollback creates a new version instead of overwriting history', async () => {
     const store = new MemoryStore();
     __resetRuntimeTimeoutSettingsForTests();

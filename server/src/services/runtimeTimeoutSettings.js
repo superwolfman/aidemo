@@ -110,6 +110,21 @@ function validateDefaults (defaults) {
     for (const field of Object.keys(RANGES)) {
         out[field] = validateTimeoutField(defaults[field], field, '默认值');
     }
+    // 关联校验：首字/空闲不能大于总超时，连接探测不能大于请求总超时
+    const relations = [
+        ['firstTokenTimeoutMs', 'streamTotalTimeoutMs', '首字超时不能大于流式总超时'],
+        ['idleTimeoutMs', 'streamTotalTimeoutMs', '空闲超时不能大于流式总超时'],
+        ['firstTokenTimeoutMs', 'requestTimeoutMs', '首字超时不能大于非流式总超时'],
+        ['connectProbeMs', 'requestTimeoutMs', '连接探测超时不能大于非流式总超时']
+    ];
+    for (const [a, b, msg] of relations) {
+        if (out[a] > out[b]) {
+            const error = new Error(msg);
+            error.statusCode = 400;
+            error.code = 'RUNTIME_TIMEOUT_OUT_OF_RANGE';
+            throw error;
+        }
+    }
     return out;
 }
 
@@ -190,6 +205,8 @@ async function historyRecords () {
 
 async function persistVersion (record, action, actor, rollbackFromVersion = null) {
     if (!storeRef) return null;
+    // 历史记录写入是 best-effort：配置已通过 CAS 生效，历史写入失败不应让 publish 抛错，
+    // 否则会出现"配置已生效但接口返回失败"的控制面/数据面不一致。
     try {
         return await storeRef.createRecord('runtime_setting_versions', {
             settingKey: RUNTIME_TIMEOUT_SETTING_KEY,
@@ -205,9 +222,8 @@ async function persistVersion (record, action, actor, rollbackFromVersion = null
             changedAt: record.updatedAt || new Date().toISOString()
         });
     } catch (error) {
-        const existing = (await historyRecords()).find((item) => Number(item.version) === Number(record.version));
-        if (existing) return existing;
-        throw error;
+        console.warn(`[runtimeTimeoutSettings] history persist skipped: ${error.message}`);
+        return null;
     }
 }
 

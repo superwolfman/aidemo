@@ -13,10 +13,12 @@ import { seedKnowledgeIfEmpty } from './utils/seedKnowledge.js';
 import { enforceDemoPermissions } from './middleware/demoAuthorization.js';
 import { initializeRuntimeModelSettings } from './services/runtimeModelSettings.js';
 import { initializeRuntimeTimeoutSettings } from './services/runtimeTimeoutSettings.js';
+import { setLlmTimingTelemetrySink } from './services/llmTimingMetrics.js';
 
 const store = await createStore();
 await initializeRuntimeModelSettings(store);
 await initializeRuntimeTimeoutSettings(store);
+setLlmTimingTelemetrySink((payload) => store.createTelemetry(payload));
 const seedResult = await seedKnowledgeIfEmpty(store);
 if (seedResult.seeded) {
     console.log(`[server] auto seeded ${seedResult.count} knowledge documents`);
