@@ -197,7 +197,9 @@ function buildScoreContext ({ sources = [], artifacts = [], trace = [], provider
     const traceReplayable = trace.length >= 6 && trace.every((i) => i.id && i.name && i.status);
     const retrievalBackends = [...new Set(sources.map((s) => String(s.retrievalBackend || 'unknown')))];
     const hasFallbackSource = retrievalBackends.some((b) => ['local', 'local-hash'].includes(b) || b.includes('fallback'));
-    const hasRealVector = sources.length > 0 && retrievalBackends.includes('mongodb-atlas-vector-search');
+    const hasRealVector = sources.length > 0 && retrievalBackends.some((backend) => (
+        backend === 'mongodb-atlas-vector-search' || backend === 'mongodb-atlas-hybrid-search'
+    ));
     const providerLive = provider.mode === 'live' && !provider.fallback && !provider.error;
     const prdText = typeof prdArtifact?.content === 'string' ? prdArtifact.content : JSON.stringify(prdArtifact?.content || '');
     const apiText = typeof apiArtifact?.content === 'string' ? apiArtifact.content : JSON.stringify(apiArtifact?.content || '');

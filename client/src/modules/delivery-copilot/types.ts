@@ -81,14 +81,23 @@ export type AgentRun = {
         vectorSearchReady?: boolean;
         error?: string;
         status?: RagRuntime;
+        outcome?: RetrievalOutcome;
         retrieval?: {
             query?: string;
+            originalQuery?: string;
+            fullTextQuery?: string;
+            entities?: string[];
+            knowledgeDomain?: string | null;
+            taskModeId?: string | null;
+            effectiveScopes?: string[];
             queryStrategy?: string;
             requestedTopK?: number;
             candidateLimit?: number;
             numCandidates?: number;
+            outcome?: RetrievalOutcome;
         };
     };
+    retrievalOutcome?: RetrievalOutcome;
     artifacts?: Artifact[];
     trace?: TraceStep[];
     quality?: RunQuality;
@@ -102,6 +111,14 @@ export type AgentRun = {
         fallbackUsed?: boolean;
         attemptedModels?: string[];
     };
+};
+
+export type RetrievalOutcome = {
+    type: 'success' | 'knowledge_gap';
+    code?: 'NO_RELEVANT_EVIDENCE' | 'KNOWLEDGE_BASE_EMPTY';
+    message?: string;
+    hitCount?: number;
+    effectiveScopes?: string[];
 };
 
 export type EvalCase = {

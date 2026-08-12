@@ -544,8 +544,8 @@ async function ensureKnowledge (store, context) {
     }
 }
 
-async function searchKnowledgeWithStatus (store, context, query, scopes) {
-    return retrieveKnowledge({ store, context, query, scopes, limit: 5 });
+async function searchKnowledgeWithStatus (store, context, query, scopes, taskModeId) {
+    return retrieveKnowledge({ store, context, query, scopes, limit: 5, taskModeId });
 }
 
 async function analyzeRepository ({ skillId, mode }) {
@@ -1142,14 +1142,17 @@ export function copilotRouter (store) {
             context: req.auth,
             query: query || scopes.join(' '),
             scopes,
-            limit: Number.isFinite(limit) ? limit : 5
+            limit: Number.isFinite(limit) ? limit : 5,
+            taskModeId: req.body.taskModeId
         });
         res.json({
             rag: result.status,
             query: query || scopes.join(' '),
             scopes,
             latencyMs: Date.now() - startedAt,
-            sources: result.sources
+            sources: result.sources,
+            outcome: result.outcome,
+            diagnostics: result.diagnostics
         });
     }));
 
@@ -1196,7 +1199,7 @@ export function copilotRouter (store) {
         emitRunStatus('retrieving', '检索 RAG 上下文', { scopes: skill.knowledgeScopes });
         await emitStep(step('context', '加载上下文', 'running', { output: { knowledgeScopes: skill.knowledgeScopes } }));
         const knowledgeStartedAt = Date.now();
-        const knowledgeResult = await searchKnowledgeWithStatus(store, req.auth, prompt, skill.knowledgeScopes);
+        const knowledgeResult = await searchKnowledgeWithStatus(store, req.auth, prompt, skill.knowledgeScopes, mode);
         const knowledgeLatencyMs = Date.now() - knowledgeStartedAt;
         const sources = knowledgeResult.sources;
         await emitStep(step('knowledge', '调用知识库 searchKnowledge', 'success', {
@@ -1219,6 +1222,7 @@ export function copilotRouter (store) {
             scopes: skill.knowledgeScopes,
             latencyMs: knowledgeLatencyMs,
             sources,
+            outcome: knowledgeResult.outcome,
             diagnostics: knowledgeResult.diagnostics
         });
 

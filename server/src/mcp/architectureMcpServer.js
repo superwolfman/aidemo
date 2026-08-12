@@ -70,10 +70,11 @@ async function handleToolCall(store, context, name, args = {}) {
       context,
       query: args.query || '',
       scopes,
-      limit: args.limit || 5
+      limit: args.limit || 5,
+      taskModeId: args.taskModeId
     });
     return {
-      content: text(JSON.stringify({ rag: result.status, sources: result.sources }, null, 2))
+      content: text(JSON.stringify({ rag: result.status, outcome: result.outcome, sources: result.sources }, null, 2))
     };
   }
 

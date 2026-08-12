@@ -2,7 +2,16 @@
 // 不依赖外部服务，仅对 rerankByScopePrecision 做纯函数单测。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyOddsFactor, buildVectorSearchPlan, filterSourcesByMinimumScore, rerankByScopePrecision } from '../src/services/ragEngine.js';
+import {
+    applyOddsFactor,
+    buildRetrievalOutcome,
+    buildVectorSearchPlan,
+    filterSourcesByMinimumScore,
+    fuseHybridResults,
+    rerankByEvidenceQuality,
+    rerankByScopePrecision
+} from '../src/services/ragEngine.js';
+import { buildRetrievalPlan, extractBusinessEntities } from '../src/services/retrievalPlanning.js';
 
 function makeSource ({ title, score, scopes, sourceType = 'manual' }) {
     return { title, score, scopes, sourceType };
@@ -111,4 +120,55 @@ test('Atlas 高原始分经过 boost 后仍不超过 1，并保持领域文档�
     assert.ok(result[2].score < result[0].score);
     assert.equal(result[0].score, applyOddsFactor(0.84, 1.5));
     assert.ok(result.every((source) => source.score >= 0 && source.score <= 1));
+});
+
+test('Query 规划保留原始需求，提取业务实体并联动 Task Mode scope', () => {
+    const plan = buildRetrievalPlan({
+        query: '建设智能客服知识库平台，支持 FAQ 纠错和转人工',
+        scopes: ['architecture'],
+        taskModeId: 'knowledge-assistant'
+    });
+
+    assert.equal(plan.domain, 'customer-service');
+    assert.ok(plan.scopes.includes('customer-service-knowledge'));
+    assert.ok(plan.scopes.includes('knowledge-correction'));
+    assert.ok(plan.entities.includes('FAQ'));
+    assert.deepEqual(extractBusinessEntities('React API 客服平台'), ['React', 'API', '客服平台']);
+});
+
+test('混合检索使双通道命中来源优先，且合并后分数有界', () => {
+    const vector = [
+        { _id: 'shared', documentTitle: '投研报告规范', content: '投研报告工作台', vectorScore: 0.84, score: 0.84 },
+        { _id: 'vector-only', documentTitle: '工程规范', content: '通用工程', vectorScore: 0.83, score: 0.83 }
+    ];
+    const text = [
+        { _id: 'shared', documentTitle: '投研报告规范', content: '投研报告工作台', textScore: 1, score: 1 }
+    ];
+    const result = fuseHybridResults(vector, text, { entities: ['投研报告工作台'] });
+
+    assert.equal(result[0]._id, 'shared');
+    assert.deepEqual(result[0].retrievalChannels, ['vector', 'text']);
+    assert.ok(result.every((source) => source.score >= 0 && source.score <= 1));
+});
+
+test('证据质量排序优先已审核时效来源，并排除过期来源', () => {
+    const now = new Date('2026-08-12T00:00:00.000Z');
+    const result = rerankByEvidenceQuality([
+        { _id: 'official', score: 0.8, knowledgeMetadata: { authorityLevel: 'internal-reviewed', reviewDueAt: '2027-01-01T00:00:00.000Z' } },
+        { _id: 'unknown', score: 0.81, knowledgeMetadata: {} },
+        { _id: 'expired', score: 0.95, knowledgeMetadata: { expiresAt: '2026-01-01T00:00:00.000Z' } }
+    ], {}, now);
+
+    assert.deepEqual(result.map((source) => source._id), ['official', 'unknown']);
+    assert.equal(result[0].evidenceQuality.authority, 'internal-reviewed');
+});
+
+test('0 hits 是 knowledge_gap，不是检索故障', () => {
+    assert.deepEqual(buildRetrievalOutcome([], { chunkCount: 20, effectiveScopes: ['architecture'] }), {
+        type: 'knowledge_gap',
+        code: 'NO_RELEVANT_EVIDENCE',
+        message: '检索服务正常，但当前知识库没有足够可靠的相关证据。',
+        effectiveScopes: ['architecture']
+    });
+    assert.deepEqual(buildRetrievalOutcome([{ _id: 'hit' }]), { type: 'success', hitCount: 1 });
 });

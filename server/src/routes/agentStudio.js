@@ -865,15 +865,23 @@ export function agentStudioRouter (store) {
                 context: req.auth,
                 query: retrievalQuery,
                 scopes: intent.scopes,
-                limit: 5
+                limit: 5,
+                taskModeId: executionContext?.taskMode?.id
             });
             const sources = rag.sources || [];
-            const ragDiagnostics = { ...rag.diagnostics, status: rag.status };
-            plan = updatePlan(plan, 'retrieve-context', 'success', { output: { hits: sources.length, backend: rag.status?.retrievalBackend || rag.status?.backend } });
+            const ragDiagnostics = { ...rag.diagnostics, status: rag.status, outcome: rag.outcome };
+            plan = updatePlan(plan, 'retrieve-context', 'success', {
+                output: {
+                    hits: sources.length,
+                    backend: rag.status?.retrievalBackend || rag.status?.backend,
+                    outcome: rag.outcome
+                }
+            });
             await persistRun({
                 sources,
                 filteredChunks: rag.filteredChunks || [],
                 ragDiagnostics,
+                retrievalOutcome: rag.outcome,
                 retrievalQuery,
                 plan
             });
@@ -887,18 +895,25 @@ export function agentStudioRouter (store) {
                 latencyMs: Date.now() - retrievalStartedAt,
                 scopes: intent.scopes,
                 retrievalQuery,
-                diagnostics: ragDiagnostics
+                diagnostics: ragDiagnostics,
+                outcome: rag.outcome
             });
             sendEvent(res, 'plan', { plan, selectedSkill, intent });
             await emitStep(step('rag', 'RAG 上下文检索', 'success', {
                 tool: 'retrieveKnowledge',
                 input: { query: retrievalQuery, scopes: intent.scopes },
-                output: sources.map((source) => ({ title: source.documentTitle, score: source.score, backend: source.retrievalBackend })),
+                output: {
+                    outcome: rag.outcome,
+                    sources: sources.map((source) => ({ title: source.documentTitle, score: source.score, backend: source.retrievalBackend }))
+                },
                 tokenUsage: tokenCount(JSON.stringify(sources))
             }));
-            logs.push(auditLog('tool', `RAG 检索完成，命中 ${sources.length} 个 chunk`, {
+            logs.push(auditLog('tool', sources.length
+                ? `RAG 检索完成，命中 ${sources.length} 个 chunk`
+                : `RAG 检索完成，识别为知识缺口：${rag.outcome?.code || 'NO_RELEVANT_EVIDENCE'}`, {
                 tool: 'retrieveKnowledge',
-                hitCount: sources.length
+                hitCount: sources.length,
+                outcome: rag.outcome
             }));
             await persistRun({ logs, sources });
 

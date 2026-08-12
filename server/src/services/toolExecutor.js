@@ -310,7 +310,9 @@ export function buildFallbackAnswer ({ intent, sources = [], artifacts = [] }) {
         .map((source, index) => `- [${index + 1}] ${source.documentTitle}：${String(source.content || '').slice(0, 120)}`)
         .join('\n');
     const retrievalBackends = [...new Set(safeSources.map((source) => source.retrievalBackend || 'unknown'))];
-    const hasLiveVector = retrievalBackends.includes('mongodb-atlas-vector-search');
+    const hasLiveVector = retrievalBackends.some((backend) => (
+        backend === 'mongodb-atlas-vector-search' || backend === 'mongodb-atlas-hybrid-search'
+    ));
     const artifactTypes = safeArtifacts.map((artifact) => artifact.type).join(' / ') || 'no artifact';
 
     return [

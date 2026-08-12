@@ -1,7 +1,8 @@
 import { config } from '../config.js';
 import { getEmbeddingDiagnostics } from '../utils/embedding.js';
 import { authorizeKnowledgeScopes, requireTenantContext } from '../security/tenantContext.js';
-import { resolveKnowledgeDomain, resolveKnowledgeScopes } from '../knowledge/knowledgeDomain.js';
+import { resolveKnowledgeDomain } from '../knowledge/knowledgeDomain.js';
+import { buildRetrievalPlan } from './retrievalPlanning.js';
 
 function redactConnection (uri, databaseName) {
     if (!uri) return 'not configured';
@@ -53,11 +54,11 @@ export function getRagStatus (extra = {}) {
         mode,
         productionReady,
         retrievalBackend:
-            isAtlas && vectorSearchReady
+            extra.retrievalBackend || (isAtlas && vectorSearchReady
                 ? 'mongodb-atlas-vector-search'
                 : backend === 'local-hash'
                     ? 'local-hash'
-                    : 'local-hash-fallback',
+                    : 'local-hash-fallback'),
         vectorStore:
             isAtlas
                 ? 'MongoDB Atlas Vector Search'
@@ -125,15 +126,23 @@ export function buildVectorSearchPlan (limit = 5) {
     };
 }
 
-function buildRetrievalDiagnostics (diagnostics, query, plan, strategy) {
+function buildRetrievalDiagnostics (diagnostics, queryPlan, plan, strategy, outcome, channels = {}) {
     return {
         ...diagnostics,
         retrieval: {
-            query,
+            query: queryPlan.semanticQuery,
+            originalQuery: queryPlan.originalQuery,
+            fullTextQuery: queryPlan.fullTextQuery,
+            entities: queryPlan.entities,
+            knowledgeDomain: queryPlan.domain,
+            taskModeId: queryPlan.taskModeId,
+            effectiveScopes: queryPlan.scopes,
             queryStrategy: strategy,
             requestedTopK: plan.topK,
             candidateLimit: plan.candidateLimit,
-            numCandidates: plan.numCandidates
+            numCandidates: plan.numCandidates,
+            channels,
+            outcome
         }
     };
 }
@@ -147,15 +156,16 @@ function toFilteredChunk (source, index, topK) {
     };
 }
 
-export async function retrieveKnowledge ({ store, context, query, scopes, limit = 5 }) {
+export async function retrieveKnowledge ({ store, context, query, scopes, limit = 5, taskModeId }) {
     requireTenantContext(context);
-    const domain = resolveKnowledgeDomain(query);
     const authorizedRequestedScopes = authorizeKnowledgeScopes(context, scopes);
     const allowedScopes = new Set(context.allowedKnowledgeScopes || []);
-    const inferredDomainScopes = resolveKnowledgeScopes(query, [])
+    const queryPlan = buildRetrievalPlan({ query, scopes: authorizedRequestedScopes, taskModeId });
+    const authorizedScopes = queryPlan.scopes
         .filter((scope) => allowedScopes.has('*') || allowedScopes.has(scope));
-    const authorizedScopes = [...new Set([...authorizedRequestedScopes, ...inferredDomainScopes])];
-    const diagnostics = await gatherDiagnostics(store, context, query);
+    queryPlan.scopes = authorizedScopes;
+    const domain = resolveKnowledgeDomain(queryPlan.semanticQuery);
+    const diagnostics = await gatherDiagnostics(store, context, queryPlan.semanticQuery);
     const vectorPlan = buildVectorSearchPlan(limit);
     const calibration = domain && typeof store.getRagCalibration === 'function'
         ? await store.getRagCalibration(context, domain.id)
@@ -166,30 +176,64 @@ export async function retrieveKnowledge ({ store, context, query, scopes, limit 
 
     if (config.ragBackend === 'mongodb-atlas' && typeof store.searchVectorChunks === 'function') {
         try {
-            const rawSources = await store.searchVectorChunks(context, query, {
-                scopes: authorizedScopes,
-                limit: vectorPlan.candidateLimit,
-                numCandidates: vectorPlan.numCandidates
-            });
+            const [vectorResult, textResult] = await Promise.allSettled([
+                store.searchVectorChunks(context, queryPlan.semanticQuery, {
+                    scopes: authorizedScopes,
+                    limit: vectorPlan.candidateLimit,
+                    numCandidates: vectorPlan.numCandidates
+                }),
+                typeof store.searchTextChunks === 'function'
+                    ? store.searchTextChunks(context, queryPlan.fullTextQuery, {
+                        scopes: authorizedScopes,
+                        limit: vectorPlan.candidateLimit
+                    })
+                    : Promise.resolve([])
+            ]);
+            const vectorError = vectorResult.status === 'rejected' ? vectorResult.reason : null;
+            const textError = textResult.status === 'rejected' ? textResult.reason : null;
+            if (vectorError && textError) throw new Error(`Hybrid retrieval unavailable: vector=${vectorError.message}; text=${textError.message}`);
 
-            const relevantSources = filterSourcesByMinimumScore(rawSources, minimumScore);
-
-            const rankedSources = rerankByScopePrecision(
-                relevantSources.map((source, index) => ({ ...source, vectorRank: index + 1 })),
-                authorizedScopes
+            const rawVectorSources = vectorResult.status === 'fulfilled' ? vectorResult.value : [];
+            const rawTextSources = textResult.status === 'fulfilled' ? textResult.value : [];
+            const relevantVectorSources = filterSourcesByMinimumScore(rawVectorSources, minimumScore);
+            const fusedSources = fuseHybridResults(relevantVectorSources, rawTextSources, queryPlan);
+            const rankedSources = rerankByEvidenceQuality(
+                rerankByScopePrecision(fusedSources, authorizedScopes),
+                queryPlan
             );
             const sources = rankedSources.slice(0, vectorPlan.topK);
+            const outcome = buildRetrievalOutcome(sources, {
+                chunkCount: diagnostics.chunkCount,
+                effectiveScopes: authorizedScopes
+            });
+            const strategy = vectorError
+                ? 'atlas-full-text + evidence-quality-rerank'
+                : rawTextSources.length
+                ? 'atlas-vector + atlas-full-text + reciprocal-rank-fusion + evidence-quality-rerank'
+                : 'atlas-vector + bounded-scope + evidence-quality-rerank';
+            const retrievalBackend = vectorError
+                ? 'mongodb-atlas-full-text-search'
+                : rawTextSources.length
+                    ? 'mongodb-atlas-hybrid-search'
+                    : 'mongodb-atlas-vector-search';
 
             return {
-                status: getRagStatus({ mode: 'live', storeKind: store.kind, vectorSearchReady: true }),
+                status: getRagStatus({
+                    mode: vectorError ? 'partial' : 'live',
+                    storeKind: store.kind,
+                    vectorSearchReady: !vectorError,
+                    retrievalBackend,
+                    error: vectorError?.message || textError?.message
+                }),
                 sources: enrichSources(sources, {
-                    backend: 'mongodb-atlas-vector-search',
-                    strategy: 'atlas-vector-prefilter + bounded-scope-odds-rerank',
+                    backend: retrievalBackend,
+                    strategy,
                     scopes: authorizedScopes
                 }),
                 filter: { tenantApplied: true, scopeApplied: true },
+                outcome,
                 filteredChunks: [
-                    ...rawSources
+                    ...rawVectorSources
                         .filter((source) => Number(source.score || 0) < minimumScore)
                         .map((source) => ({
                             id: source._id,
@@ -202,14 +246,27 @@ export async function retrieveKnowledge ({ store, context, query, scopes, limit 
                         .map((source, index) => toFilteredChunk(source, index + vectorPlan.topK, vectorPlan.topK))
                 ],
                 diagnostics: buildRetrievalDiagnostics(
-                    { ...diagnostics, knowledgeDomain: domain?.id, relevancePolicy: calibration ? 'golden-dataset-calibrated' : 'conservative-bootstrap', minimumScore, calibration },
-                    query,
+                    {
+                        ...diagnostics,
+                        knowledgeDomain: domain?.id,
+                        relevancePolicy: calibration ? 'golden-dataset-calibrated' : 'conservative-bootstrap',
+                        minimumScore,
+                        calibration,
+                        warnings: [vectorError?.message, textError?.message].filter(Boolean)
+                    },
+                    queryPlan,
                     vectorPlan,
-                    'business-requirement + atlas-vector-prefilter + bounded-scope-odds-rerank'
+                    strategy,
+                    outcome,
+                    { vectorHits: rawVectorSources.length, textHits: rawTextSources.length, fusedHits: fusedSources.length }
                 )
             };
         } catch (error) {
-            const fallback = await retrieveLocalKnowledge({ store, context, query, scopes: authorizedScopes, limit });
+            const fallback = await retrieveLocalKnowledge({ store, context, query: queryPlan.semanticQuery, scopes: authorizedScopes, limit });
+            const outcome = buildRetrievalOutcome(fallback.sources, {
+                chunkCount: diagnostics.chunkCount,
+                effectiveScopes: authorizedScopes
+            });
             return {
                 status: getRagStatus({ mode: 'fallback', storeKind: store.kind, vectorSearchReady: false, error: error.message }),
                 sources: enrichSources(fallback.sources, {
@@ -219,26 +276,139 @@ export async function retrieveKnowledge ({ store, context, query, scopes, limit 
                     fallbackReason: error.message
                 }),
                 filter: { tenantApplied: true, scopeApplied: true },
+                outcome,
                 filteredChunks: [],
                 diagnostics: buildRetrievalDiagnostics(
                     { ...diagnostics, error: error.message },
-                    query,
+                    queryPlan,
                     vectorPlan,
-                    'business-requirement + local-fallback'
+                    'business-requirement + local-fallback',
+                    outcome
                 )
             };
         }
     }
 
-    const local = await retrieveLocalKnowledge({ store, context, query, scopes: authorizedScopes, limit });
+    const local = await retrieveLocalKnowledge({ store, context, query: queryPlan.semanticQuery, scopes: authorizedScopes, limit });
+    const outcome = buildRetrievalOutcome(local.sources, {
+        chunkCount: diagnostics.chunkCount,
+        effectiveScopes: authorizedScopes
+    });
     return {
         ...local,
+        outcome,
         diagnostics: buildRetrievalDiagnostics(
             diagnostics,
-            query,
+            queryPlan,
             vectorPlan,
-            'business-requirement + local-hash'
+            'business-requirement + local-hash',
+            outcome
         )
+    };
+}
+
+function sourceKey (source) {
+    return String(source._id || `${source.documentId || source.documentTitle}:${source.chunkIndex ?? 0}`);
+}
+
+export function fuseHybridResults (vectorSources = [], textSources = [], queryPlan = {}, { rrfK = 60 } = {}) {
+    const byKey = new Map();
+    const add = (source, channel, rank) => {
+        const key = sourceKey(source);
+        const current = byKey.get(key) || { ...source, retrievalChannels: [] };
+        current.retrievalChannels = [...new Set([...current.retrievalChannels, channel])];
+        current[`${channel}Rank`] = rank;
+        current[`${channel}Score`] = Number(source.score || 0);
+        current.rrfScore = Number((Number(current.rrfScore || 0) + (1 / (rrfK + rank))).toFixed(8));
+        byKey.set(key, current);
+    };
+    vectorSources.forEach((source, index) => add(source, 'vector', index + 1));
+    textSources.forEach((source, index) => add(source, 'text', index + 1));
+
+    const maximumRrf = (vectorSources.length ? 1 / (rrfK + 1) : 0) + (textSources.length ? 1 / (rrfK + 1) : 0);
+    return [...byKey.values()].map((source) => {
+        const vectorScore = Number(source.vectorScore || 0);
+        const textScore = Number(source.textScore || 0);
+        const normalizedRrf = maximumRrf ? source.rrfScore / maximumRrf : 0;
+        const entityMatches = (queryPlan.entities || []).filter((entity) => (
+            `${source.documentTitle || ''} ${source.content || ''}`.toLowerCase().includes(String(entity).toLowerCase())
+        ));
+        const relevance = Math.min(1, Math.max(
+            vectorScore,
+            textScore * (entityMatches.length ? 0.95 : 0.82),
+            normalizedRrf * 0.9
+        ));
+        return {
+            ...source,
+            score: Number(relevance.toFixed(4)),
+            rerankScore: Number(relevance.toFixed(4)),
+            matchedEntities: entityMatches,
+            retrievalBackend: source.retrievalChannels.length > 1
+                ? 'mongodb-atlas-hybrid-search'
+                : source.retrievalChannels[0] === 'text'
+                    ? 'mongodb-atlas-full-text-search'
+                    : 'mongodb-atlas-vector-search',
+            rerankReason: `hybrid RRF; channels=${source.retrievalChannels.join('+')}; entities=${entityMatches.join(',') || 'none'}`
+        };
+    }).sort((a, b) => b.score - a.score);
+}
+
+const AUTHORITY_FACTORS = {
+    regulatory: 1.18,
+    audited: 1.16,
+    official: 1.12,
+    'internal-reviewed': 1.1,
+    reviewed: 1.06,
+    community: 0.92,
+    unknown: 0.96
+};
+
+export function rerankByEvidenceQuality (sources = [], queryPlan = {}, now = new Date()) {
+    return sources
+        .filter((source) => {
+            const expiresAt = source.knowledgeMetadata?.expiresAt;
+            const reviewStatus = String(source.knowledgeMetadata?.reviewStatus || '').toLowerCase();
+            const allowedReviewStatus = !reviewStatus || ['approved', 'active', 'published'].includes(reviewStatus);
+            return allowedReviewStatus && (!expiresAt || new Date(expiresAt) >= now);
+        })
+        .map((source) => {
+            const metadata = source.knowledgeMetadata || {};
+            const authority = String(metadata.authorityLevel || 'unknown').toLowerCase();
+            const reviewDueAt = metadata.reviewDueAt ? new Date(metadata.reviewDueAt) : null;
+            const sourceDateValue = metadata.publishedAt || source.sourceUpdatedAt || metadata.effectiveAt || source.createdAt;
+            const sourceDate = sourceDateValue ? new Date(sourceDateValue) : null;
+            const ageDays = sourceDate && !Number.isNaN(sourceDate.valueOf())
+                ? Math.max(0, (now.valueOf() - sourceDate.valueOf()) / 86400000)
+                : null;
+            const ageFactor = ageDays === null ? 1 : ageDays <= 90 ? 1.05 : ageDays <= 365 ? 1.02 : ageDays <= 730 ? 0.98 : 0.92;
+            const freshnessFactor = (reviewDueAt && reviewDueAt < now ? 0.82 : 1) * ageFactor;
+            const entityFactor = source.matchedEntities?.length ? 1.08 : 1;
+            const factor = (AUTHORITY_FACTORS[authority] || AUTHORITY_FACTORS.unknown) * freshnessFactor * entityFactor;
+            const score = applyOddsFactor(source.score, factor);
+            return {
+                ...source,
+                score,
+                rerankScore: score,
+                evidenceQuality: {
+                    authority,
+                    freshness: reviewDueAt && reviewDueAt < now ? 'review-overdue' : 'current',
+                    ageDays: ageDays === null ? null : Math.round(ageDays)
+                },
+                rerankReason: `${source.rerankReason || 'retrieval rank'}; evidence authority=${authority}; freshness=${reviewDueAt && reviewDueAt < now ? 'review-overdue' : 'current'}`
+            };
+        })
+        .sort((a, b) => b.score - a.score);
+}
+
+export function buildRetrievalOutcome (sources = [], { chunkCount = 0, effectiveScopes = [] } = {}) {
+    if (sources.length) return { type: 'success', hitCount: sources.length };
+    return {
+        type: 'knowledge_gap',
+        code: chunkCount > 0 ? 'NO_RELEVANT_EVIDENCE' : 'KNOWLEDGE_BASE_EMPTY',
+        message: chunkCount > 0
+            ? '检索服务正常，但当前知识库没有足够可靠的相关证据。'
+            : '检索服务正常，但当前租户知识库为空。',
+        effectiveScopes
     };
 }
 

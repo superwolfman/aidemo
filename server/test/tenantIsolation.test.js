@@ -8,7 +8,7 @@ import {
     isKnowledgeRecordVisible,
     requireTenantContext
 } from '../src/security/tenantContext.js';
-import { buildTenantVectorPipeline } from '../src/store/mongoStore.js';
+import { buildTenantTextPipeline, buildTenantVectorPipeline } from '../src/store/mongoStore.js';
 import { retrieveKnowledge } from '../src/services/ragEngine.js';
 
 function context (tenantId, allowedKnowledgeScopes = ['architecture']) {
@@ -76,6 +76,22 @@ test('Atlas vector query applies tenant and scope before vector retrieval', () =
         scopes: { $in: ['architecture'] }
     });
     assert.equal(pipeline[0].$vectorSearch.limit, 5);
+});
+
+test('Atlas full-text query applies tenant and scope inside Search filter', () => {
+    const alpha = context('tenant-alpha', ['architecture']);
+    const pipeline = buildTenantTextPipeline({
+        context: alpha,
+        scopes: ['architecture'],
+        query: 'API Contract',
+        limit: 5
+    });
+
+    assert.deepEqual(pipeline[0].$search.compound.filter, [
+        { equals: { path: 'tenantId', value: 'tenant-alpha' } },
+        { in: { path: 'scopes', value: ['architecture'] } }
+    ]);
+    assert.equal(pipeline[1].$limit, 5);
 });
 
 test('zero authorized hits returns an empty list without an unfiltered retry', async () => {

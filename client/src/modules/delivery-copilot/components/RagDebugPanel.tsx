@@ -42,12 +42,20 @@ type Diagnostics = {
     documentCount?: number;
     vectorSearchReady?: boolean;
     error?: string;
+    outcome?: { type?: string; code?: string; message?: string };
     retrieval?: {
         query?: string;
+        originalQuery?: string;
+        fullTextQuery?: string;
+        entities?: string[];
+        knowledgeDomain?: string | null;
+        taskModeId?: string | null;
+        effectiveScopes?: string[];
         queryStrategy?: string;
         requestedTopK?: number;
         candidateLimit?: number;
         numCandidates?: number;
+        outcome?: { type?: string; code?: string; message?: string };
     };
 };
 
@@ -108,7 +116,7 @@ export function RagDebugPanel({ query, sources, ragRuntime, retrievalView, filte
         if (!diagnostics.vectorSearchReady) {
             return `未命中引用：向量索引异常或未就绪（chunk=${diagnostics.chunkCount}）。请检查 Atlas 向量索引配置：${diagnostics.error || 'unknown'}`;
         }
-        return `未命中引用：知识库有 ${diagnostics.chunkCount} 个 chunk，但当前 query 与 scope 组合未召回内容。可尝试扩大 scope 或上传更相关文档。`;
+        return diagnostics.outcome?.message || diagnostics.retrieval?.outcome?.message || `知识缺口：知识库有 ${diagnostics.chunkCount} 个 chunk，但当前 query 与 scope 组合没有足够可靠的证据。`;
     })();
 
     return (
@@ -124,6 +132,14 @@ export function RagDebugPanel({ query, sources, ragRuntime, retrievalView, filte
                 <article>
                     <em>query</em>
                     <strong><ExpandableText value={query || '等待用户输入需求'} size={80} /></strong>
+                </article>
+                <article>
+                    <em>query plan</em>
+                    <strong>{diagnostics?.retrieval?.knowledgeDomain || 'general'} · {diagnostics?.retrieval?.taskModeId || 'no-task-mode'}</strong>
+                </article>
+                <article>
+                    <em>entities</em>
+                    <strong>{diagnostics?.retrieval?.entities?.join(' / ') || 'none'}</strong>
                 </article>
                 <article>
                     <em>topK / hits</em>

@@ -63,10 +63,40 @@ export function buildTenantVectorPipeline ({
                 scopes: 1,
                 sourceType: 1,
                 sourcePath: 1,
+                sourceUpdatedAt: 1,
+                knowledgeMetadata: 1,
+                contentHash: 1,
                 content: 1,
                 chunkIndex: 1,
                 createdAt: 1,
                 vectorScore: { $meta: 'vectorSearchScore' }
+            }
+        }
+    ];
+}
+
+export function buildTenantTextPipeline ({ context, scopes, query, limit }) {
+    requireTenantContext(context);
+    const normalizedScopes = normalizeKnowledgeScopes(scopes);
+    const filter = [{ equals: { path: 'tenantId', value: context.tenantId } }];
+    if (normalizedScopes.length) filter.push({ in: { path: 'scopes', value: normalizedScopes } });
+    return [
+        {
+            $search: {
+                index: config.ragTextIndex,
+                compound: {
+                    must: [{ text: { query, path: ['documentTitle', 'content'] } }],
+                    filter
+                }
+            }
+        },
+        { $limit: limit },
+        {
+            $project: {
+                documentId: 1, documentTitle: 1, tenantId: 1, tags: 1, scopes: 1,
+                sourceType: 1, sourcePath: 1, sourceUpdatedAt: 1, knowledgeMetadata: 1,
+                contentHash: 1, content: 1, chunkIndex: 1, createdAt: 1,
+                textScore: { $meta: 'searchScore' }
             }
         }
     ];
@@ -146,6 +176,7 @@ export class MongoStore {
         await this.db.collection('runtime_settings').createIndex({ key: 1 }, { unique: true });
         await this.db.collection('runtime_setting_versions').createIndex({ settingKey: 1, version: -1 }, { unique: true });
         await this.ensureVectorIndex();
+        await this.ensureTextIndex();
 
         await this.seed();
         // 后台异步预探测，不阻塞 init
@@ -183,6 +214,34 @@ export class MongoStore {
             console.log(`[rag] requested MongoDB Atlas Vector Search index: ${config.ragVectorIndex}`);
         } catch (error) {
             console.warn(`[rag] skip vector index creation: ${error.message}`);
+        }
+    }
+
+    async ensureTextIndex () {
+        const chunks = this.db.collection('chunks');
+        if (typeof chunks.createSearchIndex !== 'function') return;
+        try {
+            if (typeof chunks.listSearchIndexes === 'function') {
+                const indexes = await chunks.listSearchIndexes(config.ragTextIndex).toArray();
+                if (indexes.length) return;
+            }
+            await chunks.createSearchIndex({
+                name: config.ragTextIndex,
+                definition: {
+                    mappings: {
+                        dynamic: false,
+                        fields: {
+                            tenantId: { type: 'token' },
+                            scopes: { type: 'token' },
+                            documentTitle: { type: 'string' },
+                            content: { type: 'string' }
+                        }
+                    }
+                }
+            });
+            console.log(`[rag] requested MongoDB Atlas Search index: ${config.ragTextIndex}`);
+        } catch (error) {
+            console.warn(`[rag] skip text index creation: ${error.message}`);
         }
     }
 
@@ -351,6 +410,25 @@ export class MongoStore {
             documentId: String(chunk.documentId),
             score: Number((chunk.vectorScore || 0).toFixed(4)),
             retrievalBackend: 'mongodb-atlas-vector-search'
+        }));
+    }
+
+    async searchTextChunks (context, question, { scopes = [], limit = 20 } = {}) {
+        const authorizedScopes = authorizeKnowledgeScopes(context, scopes);
+        const chunks = await this.db.collection('chunks').aggregate(buildTenantTextPipeline({
+            context,
+            scopes: authorizedScopes,
+            query: question,
+            limit
+        })).toArray();
+        const maximumScore = Math.max(...chunks.map((chunk) => Number(chunk.textScore || 0)), 1);
+        return chunks.map((chunk) => serialize({
+            ...chunk,
+            documentId: String(chunk.documentId),
+            atlasTextScore: Number(chunk.textScore || 0),
+            score: Number((Number(chunk.textScore || 0) / maximumScore).toFixed(4)),
+            textScore: Number((Number(chunk.textScore || 0) / maximumScore).toFixed(4)),
+            retrievalBackend: 'mongodb-atlas-full-text-search'
         }));
     }
 

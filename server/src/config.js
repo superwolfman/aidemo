@@ -167,6 +167,7 @@ export const config = {
     ragVectorPath:
         process.env.RAG_VECTOR_PATH ||
         'embedding',
+    ragTextIndex: process.env.RAG_TEXT_INDEX || 'chunks_text_index',
     // Atlas cosine 分数低于该门槛时宁可返回知识缺口，也不把弱相关内容包装成引用。
     // 显式环境变量仅作为紧急覆盖；正常门槛来自按知识域保存的 Golden Dataset 校准结果。
     ragMinVectorScore: process.env.RAG_MIN_VECTOR_SCORE

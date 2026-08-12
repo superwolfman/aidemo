@@ -142,7 +142,8 @@ function buildSparkline(values: number[]) {
 }
 
 function isLiveVectorSource(source: RunSource) {
-    return source.retrievalBackend === 'mongodb-atlas-vector-search';
+    return ['mongodb-atlas-vector-search', 'mongodb-atlas-hybrid-search', 'mongodb-atlas-full-text-search']
+        .includes(source.retrievalBackend || '');
 }
 
 function isFallbackSource(source: RunSource) {
