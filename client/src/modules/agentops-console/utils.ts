@@ -63,7 +63,7 @@ export const scopeOptions = [
 
 export const stateOrder = [
   { id: 'intent', label: '意图理解' },
-  { id: 'skill', label: 'Skill 自动选择' },
+  { id: 'skill', label: '执行 Agent 选择' },
   { id: 'rag', label: 'RAG 上下文检索' },
   { id: 'tool', label: '工具 / 计划执行' },
   { id: 'llm', label: 'LLM 流式生成' },

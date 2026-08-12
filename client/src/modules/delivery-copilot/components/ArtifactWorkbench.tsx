@@ -30,6 +30,7 @@ export function ArtifactWorkbench({
     onExportArtifact,
     readOnly = false
 }: ArtifactWorkbenchProps) {
+    const isConfirmed = activeArtifact?.status === 'confirmed' || activeArtifact?.reviewStatus === 'confirmed';
     return (
         <section className="panel delivery-artifacts">
             <div className="section-head">
@@ -64,7 +65,7 @@ export function ArtifactWorkbench({
                                     <button className="secondary-button compact" disabled={!activeRun || readOnly} title={readOnly ? '受限演示账号不可保存版本' : undefined} onClick={onSaveArtifact}>保存版本</button>
                                     <button className="secondary-button compact" disabled={!activeRun || readOnly} title={readOnly ? '受限演示账号不可导出' : undefined} onClick={() => onExportArtifact('markdown')}>导出 MD</button>
                                     <button className="secondary-button compact" disabled={!activeRun || readOnly} title={readOnly ? '受限演示账号不可导出' : undefined} onClick={() => onExportArtifact('json')}>导出 JSON</button>
-                                    <button className="primary-button compact" disabled={!activeRun || readOnly} title={readOnly ? '受限演示账号不可确认' : undefined} onClick={onConfirmArtifact}><CheckCircle2 size={13} />确认</button>
+                                    <button className="primary-button compact" disabled={!activeRun || readOnly || isConfirmed} title={readOnly ? '受限演示账号不可确认' : isConfirmed ? '该交付物已确认' : undefined} onClick={onConfirmArtifact}><CheckCircle2 size={13} />{isConfirmed ? '已确认' : '确认'}</button>
                                     <button className="secondary-button compact" disabled={!activeRun || readOnly} title={readOnly ? '受限演示账号不可送审' : undefined} onClick={onReviewArtifact}><Eye size={13} />送审</button>
                                 </div>
                             </header>

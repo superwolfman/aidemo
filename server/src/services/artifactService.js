@@ -52,6 +52,10 @@ export function applyArtifactReview (artifact, { action = 'confirm', note = '', 
         reject: 'rejected'
     };
     const nextStatus = statusMap[action] || 'reviewed';
+    // “确认”是幂等业务动作。客户端重试、双击或网关重放不能制造重复审批记录。
+    if (action === 'confirm' && artifact.status === nextStatus && artifact.reviewStatus === nextStatus) {
+        return artifact;
+    }
     const approval = {
         id: `approval-${artifact.id}-${Date.now()}`,
         action,
@@ -73,8 +77,8 @@ export function applyArtifactReview (artifact, { action = 'confirm', note = '', 
     };
 }
 
-export async function exportArtifact (store, runId, artifactId, { format = 'markdown', actorId } = {}) {
-    const run = await store.getRecord('agent_runs', runId);
+export async function exportArtifact (store, runId, artifactId, { format = 'markdown', actorId, context } = {}) {
+    const run = await store.getRecord('agent_runs', runId, context);
     const artifact = run?.artifacts?.find((item) => item.id === artifactId);
     if (!artifact) {
         const err = new Error('Artifact not found');
@@ -99,7 +103,7 @@ export async function exportArtifact (store, runId, artifactId, { format = 'mark
     const nextRun = await store.updateRecord('agent_runs', run._id, {
         artifacts,
         logs: [...(run.logs || []), log]
-    });
+    }, context);
     return {
         filename: exportRecord.filename,
         format: fmt,

@@ -42,8 +42,9 @@ type AgentRun = {
     runId: string;
     status: string;
     prompt: string;
-    intent?: { label: string; goal: string; riskLevel: string; confidence?: number; signals?: string[] };
-    selectedSkill?: { name: string; tools: string[] };
+    intent?: { id?: string; label: string; goal: string; riskLevel: string; confidence?: number; signals?: string[] };
+    selectedSkill?: { id?: string; name: string; tools: string[] };
+    executionContext?: { source: string; taskMode?: { id: string; label: string } | null; requestedAgentId?: string | null; requestedSkillId?: string | null; resolvedAgentId?: string | null };
     plan?: Array<{ id: string; name: string; owner: string; status: string; tool: string; guardrail: string }>;
     sources?: Array<{ _id: string; documentTitle: string; score: number; retrievalBackend?: string; content: string }>;
     artifacts?: Array<{
@@ -180,7 +181,7 @@ const scopeOptions = [
 
 const stateOrder = [
     { id: 'intent', label: '意图理解' },
-    { id: 'skill', label: 'Skill 自动选择' },
+    { id: 'skill', label: '执行 Agent 选择' },
     { id: 'rag', label: 'RAG 上下文检索' },
     { id: 'tool', label: '工具 / 计划执行' },
     { id: 'llm', label: 'LLM 流式生成' },
@@ -232,7 +233,7 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
     const stateSteps = useMemo(() => stateOrder.map((state) => latestTraceById.get(state.id) || { id: state.id, name: state.label, status: 'pending' as const }), [latestTraceById]);
     const activeTrace = trace.find((item) => item.id === activeTraceId) || trace[0];
     const selectedScopeLabels = useMemo(() => scopeOptions.filter((scope) => selectedScopes.includes(scope.id)).map((scope) => scope.label), [selectedScopes]);
-    const filteredRuns = useMemo(() => runs.filter((run) => { const hitStatus = filter === 'all' || run.status === filter; const text = [run.prompt, run.status, run.intent?.label, run.selectedSkill?.name].join(' ').toLowerCase(); return hitStatus && (!keyword.trim() || text.includes(keyword.trim().toLowerCase())); }), [filter, keyword, runs]);
+    const filteredRuns = useMemo(() => runs.filter((run) => { const hitStatus = filter === 'all' || run.status === filter; const text = [run.prompt, run.status, run.executionContext?.taskMode?.label, run.intent?.label, run.selectedSkill?.name].join(' ').toLowerCase(); return hitStatus && (!keyword.trim() || text.includes(keyword.trim().toLowerCase())); }), [filter, keyword, runs]);
     const metrics = useMemo(() => {
         const allTrace = runs.flatMap((run) => run.trace || []);
         const failed = runs.filter((run) => run.status === 'failed' || run.trace?.some((item) => item.status === 'failed')).length;
@@ -335,11 +336,11 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
         if (!active || running || !nextCommand.trim()) return;
         setRunning(true); let draftRun: any = null;
         try {
-            await start(active._id, { message: nextCommand, commandOptions: { agentId: selectedAgentId, skillId: selectedAgentId, scopes: selectedScopes, source: 'agentops-command-center' } }, {
+            await start(active._id, { message: nextCommand, commandOptions: { agentId: selectedAgentId, scopes: selectedScopes, source: 'agentops-command-center' } }, {
                 run_status: (payload) => {
                     const payloadRunId = payload.runDbId || payload.runId || 'running';
-                    if (!draftRun) { draftRun = { _id: payloadRunId, runId: payload.runId || 'running', status: payload.status || 'running', prompt: nextCommand, intent: payload.intent, selectedSkill: payload.selectedSkill, plan: payload.plan, trace: [], logs: [] }; setRuns((items) => [draftRun, ...items.filter((item) => item._id !== 'running' && item._id !== payloadRunId)]); setActiveRunId(draftRun._id); }
-                    else { draftRun = { ...draftRun, _id: payloadRunId, status: payload.status || draftRun.status, intent: payload.intent || draftRun.intent, selectedSkill: payload.selectedSkill || draftRun.selectedSkill, plan: payload.plan || draftRun.plan }; setRuns((items) => items.map((item) => item._id === draftRun._id ? draftRun : item)); }
+                    if (!draftRun) { draftRun = { _id: payloadRunId, runId: payload.runId || 'running', status: payload.status || 'running', prompt: nextCommand, intent: payload.intent, selectedSkill: payload.selectedSkill, executionContext: payload.executionContext, plan: payload.plan, trace: [], logs: [] }; setRuns((items) => [draftRun, ...items.filter((item) => item._id !== 'running' && item._id !== payloadRunId)]); setActiveRunId(draftRun._id); }
+                    else { draftRun = { ...draftRun, _id: payloadRunId, status: payload.status || draftRun.status, intent: payload.intent || draftRun.intent, selectedSkill: payload.selectedSkill || draftRun.selectedSkill, executionContext: payload.executionContext || draftRun.executionContext, plan: payload.plan || draftRun.plan }; setRuns((items) => items.map((item) => item._id === draftRun._id ? draftRun : item)); }
                 },
                 trace: (payload) => { if (!draftRun) return; const nextTrace = [...(draftRun.trace || []).filter((item) => item.id !== payload.id), payload]; draftRun = { ...draftRun, trace: nextTrace }; setRuns((items) => items.map((item) => item._id === draftRun._id ? draftRun : item)); setActiveTraceId((current) => current || payload.id); },
                 sources: (payload) => { if (!draftRun) return; draftRun = { ...draftRun, sources: payload.sources || [] }; setRuns((items) => items.map((item) => item._id === draftRun._id ? draftRun : item)); },

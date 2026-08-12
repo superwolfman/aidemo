@@ -11,7 +11,8 @@ import {
     authorizeKnowledgeScopes,
     createServiceTenantContext,
     isKnowledgeRecordVisible,
-    requireTenantContext
+    requireTenantContext,
+    tenantUserFilter
 } from '../security/tenantContext.js';
 import { ROLES } from '../security/roles.js';
 import { config } from '../config.js';
@@ -153,9 +154,12 @@ export class FileStore {
         if (this.cache) await writeDb(this.cache);
     }
 
-    async listRecords (collection, limit = 100, projection = null) {
+    async listRecords (collection, limit = 100, projection = null, context = null) {
         const db = await this.loadDb();
-        let records = (db[collection] || []).slice(0, limit);
+        const accessFilter = context ? tenantUserFilter(context) : null;
+        let records = (db[collection] || [])
+            .filter((record) => !accessFilter || Object.entries(accessFilter).every(([key, value]) => record[key] === value))
+            .slice(0, limit);
         if (projection) {
             records = records.map((record) => {
                 const includeId = projection._id !== 0;
@@ -182,10 +186,13 @@ export class FileStore {
         return created;
     }
 
-    async updateRecord (collection, id, patch) {
+    async updateRecord (collection, id, patch, context = null) {
         const db = await this.loadDb();
         db[collection] = db[collection] || [];
-        const index = db[collection].findIndex((item) => item._id === id);
+        const accessFilter = context ? tenantUserFilter(context) : null;
+        const index = db[collection].findIndex((item) => item._id === id && (
+            !accessFilter || Object.entries(accessFilter).every(([key, value]) => item[key] === value)
+        ));
         if (index === -1) return null;
         db[collection][index] = { ...db[collection][index], ...patch, updatedAt: now() };
         await this.flush();
@@ -202,9 +209,12 @@ export class FileStore {
         return db[collection][index];
     }
 
-    async getRecord (collection, id) {
+    async getRecord (collection, id, context = null) {
         const db = await this.loadDb();
-        return (db[collection] || []).find((item) => item._id === id) || null;
+        const accessFilter = context ? tenantUserFilter(context) : null;
+        return (db[collection] || []).find((item) => item._id === id && (
+            !accessFilter || Object.entries(accessFilter).every(([key, value]) => item[key] === value)
+        )) || null;
     }
 
 

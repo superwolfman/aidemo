@@ -70,7 +70,7 @@ export function RuntimeMetrics({
         <span><Database size={13} />LLM {blueprint?.runtime.llm.provider || 'loading'} · {blueprint?.runtime.llm.mode || 'unknown'} · {blueprint?.runtime.llm.model || 'model loading'}</span>
         <span>Vector {retrievalView.backend} · {retrievalView.label} · {ragRuntime?.index || 'index pending'}</span>
         <span>{ragLive ? `Live ${ragRuntime?.vectorPath || 'embedding'} · ${ragRuntime?.dimensions || 0} dims` : (retrievalView.message || ragRuntime?.error || 'fallback retrieval')}</span>
-        <span>Skill {selectedAgent?.name || 'Agent Runtime'}</span>
+        <span>新建 Run Agent {selectedAgent?.name || 'Agent Runtime'}</span>
         <span>Scope {selectedScopeLabels.length}/6 · {selectedScopeLabels.join(' / ') || 'minimal context'}</span>
       </div>
     </section>

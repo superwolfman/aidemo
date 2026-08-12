@@ -20,7 +20,7 @@ export function RunRegistry({ runs, activeRun, keyword, filter, onKeywordChange,
       <div className="section-head">
         <div>
           <h2>Run Registry</h2>
-          <p>按状态、意图、Skill 检索历史运行。</p>
+          <p>按状态、任务模式、执行 Agent 和意图检索历史运行。</p>
         </div>
         <Search size={18} />
       </div>
@@ -33,8 +33,8 @@ export function RunRegistry({ runs, activeRun, keyword, filter, onKeywordChange,
       <div className="ops-run-list">
         {runs.map((run) => (
           <button key={run._id} className={activeRun?._id === run._id ? 'active' : ''} onClick={() => onSelectRun(run)}>
-            <strong>{run.intent?.label || 'Agent Run'}</strong>
-            <span>{run.status} · {run.selectedSkill?.name || 'Runtime'} · {formatTime(run.createdAt)}</span>
+            <strong>{run.executionContext?.taskMode?.label || run.intent?.label || 'Agent Run'}</strong>
+            <span>{run.status} · Agent {run.selectedSkill?.name || 'Runtime'} · {formatTime(run.createdAt)}</span>
             <p>{run.prompt}</p>
           </button>
         ))}

@@ -41,12 +41,19 @@ export function CommandCenter({
   onControl,
   onRerun
 }: Props) {
+  const runDisabledReason = !sessionReady
+    ? '运行会话正在初始化'
+    : running
+      ? 'Agent 正在运行'
+      : !command.trim()
+        ? '请先输入任务指令'
+        : '';
   return (
     <section className="ops-command-center panel">
       <div className="section-head">
         <div>
           <h2>Command Center</h2>
-          <p>输入指令、选择 Agent/Skill、限定知识范围，并对真实 Run 执行暂停、恢复、回滚和重放。</p>
+          <p>输入指令、选择执行 Agent、限定知识范围，并对真实 Run 执行暂停、恢复、回滚和重放。</p>
         </div>
         <TerminalSquare size={20} />
       </div>
@@ -62,7 +69,7 @@ export function CommandCenter({
         <div className="ops-command-config">
           <div className="ops-config-block">
             <div className="ops-config-title">
-              <span>Agent / Skill</span>
+              <span>执行 Agent</span>
               <em>决定意图识别、允许工具、输出约束和审批策略</em>
             </div>
             <div className="ops-agent-grid">
@@ -102,9 +109,9 @@ export function CommandCenter({
           <strong>Run Control</strong>
           <span>{readOnlyControls
             ? '受限演示账号可创建限额 Demo Run 并查看运行证据，不可暂停、恢复、回滚或重放。'
-            : (running ? 'Agent 正在执行，Trace 会持续写入 Run Registry。' : `准备运行 ${selectedAgent?.name || 'Agent'}，或治理当前选中的 Run。`)}</span>
+            : (running ? 'Agent 正在执行，Trace 会持续写入 Run Registry。' : runDisabledReason || `准备运行 ${selectedAgent?.name || 'Agent'}；上方选中的历史 Run 仅用于治理。`)}</span>
           <div className="ops-command-actions">
-            <button className="primary-button" onClick={onRun} disabled={!sessionReady || running || !command.trim()}><Send size={15} />{running ? '运行中' : '运行 Agent'}</button>
+            <button className="primary-button" title={runDisabledReason || '创建新 Run'} onClick={onRun} disabled={Boolean(runDisabledReason)}><Send size={15} />{running ? '运行中' : '运行 Agent'}</button>
             <button className="secondary-button" onClick={onRefresh}><RefreshCw size={15} />刷新</button>
             <button className="secondary-button" title={readOnlyControls ? '受限演示账号不可暂停 Run' : undefined} onClick={() => onControl('pause')} disabled={!activeRun || readOnlyControls}><Pause size={15} />暂停</button>
             <button className="secondary-button" title={readOnlyControls ? '受限演示账号不可恢复 Run' : undefined} onClick={() => onControl('resume')} disabled={!activeRun || readOnlyControls}><Play size={15} />恢复</button>

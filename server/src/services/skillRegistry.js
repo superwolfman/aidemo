@@ -162,6 +162,30 @@ export const agentCapabilities = [
     }
 ];
 
+// Task Mode 是面向业务的编排入口，Agent 是实际执行器。两者可以是多对一关系，
+// 例如“产品交付工作流”和“架构级需求分析”都复用产研测交付 Agent。
+export const agentTaskModes = [
+    { id: 'product-workflow', label: '产品交付工作流', agentId: 'product-delivery-agent' },
+    { id: 'requirement-analysis', label: '架构级需求分析', agentId: 'product-delivery-agent' },
+    { id: 'knowledge-assistant', label: '知识库问答方案', agentId: 'knowledge-assistant' },
+    { id: 'delivery-review', label: '交付质量评审', agentId: 'delivery-review-agent' }
+];
+
+export function getAgentTaskMode (id) {
+    return agentTaskModes.find((mode) => mode.id === id) || null;
+}
+
+export function buildRunExecutionContext (commandOptions = {}, selectedAgent = null) {
+    const taskMode = getAgentTaskMode(commandOptions.taskModeId);
+    return {
+        source: String(commandOptions.source || 'agent-studio'),
+        taskMode: taskMode ? { id: taskMode.id, label: taskMode.label } : null,
+        requestedAgentId: commandOptions.agentId || null,
+        requestedSkillId: commandOptions.skillId || null,
+        resolvedAgentId: selectedAgent?.id || null
+    };
+}
+
 export function getAgentCapability (intent) {
     return agentCapabilities.find((cap) => cap.id === intent?.id) || agentCapabilities[0];
 }

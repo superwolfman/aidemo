@@ -15,7 +15,7 @@ import { ROLES } from '../security/roles.js';
 import { recordAuthorizationDenied } from '../security/authorizationAudit.js';
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
 import { resolveRetrievalQuery } from '../services/retrievalQuery.js';
-import { agentCapabilities, getAgentCapability } from '../services/skillRegistry.js';
+import { agentCapabilities, buildRunExecutionContext, getAgentCapability } from '../services/skillRegistry.js';
 import { buildDeliveryArtifacts, buildFallbackAnswer } from '../services/toolExecutor.js';
 import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
 
@@ -102,11 +102,11 @@ function buildAgentPlan (intent) {
         },
         {
             id: 'select-skill',
-            name: '选择 Skill',
-            owner: 'Skill Runtime',
+            name: '选择执行 Agent',
+            owner: 'Agent Runtime',
             status: 'success',
-            guardrail: '根据意图映射 allowedTools 与 knowledgeScopes',
-            tool: 'selectSkill'
+            guardrail: '根据任务模式和意图解析执行 Agent、allowedTools 与 knowledgeScopes',
+            tool: 'selectAgent'
         },
         {
             id: 'retrieve-context',
@@ -121,7 +121,7 @@ function buildAgentPlan (intent) {
             name: '执行工具',
             owner: 'Tool Runtime',
             status: 'pending',
-            guardrail: '只允许当前 Skill 声明的工具执行',
+            guardrail: '只允许当前执行 Agent 声明的工具执行',
             tool: 'planDelivery'
         },
         {
@@ -164,6 +164,7 @@ function normalizeRun (run) {
     if (!run) return run;
     return {
         ...run,
+        executionContext: run.executionContext || buildRunExecutionContext(run.commandOptions, run.selectedSkill),
         quality: run.quality || null   // ← 评分已在创建/更新时持久化，不再实时计算
     };
 }
@@ -460,7 +461,7 @@ export function agentStudioRouter (store) {
     });
 
     router.patch('/runs/:id/artifacts/:artifactId', async (req, res) => {
-        const run = await store.getRecord('agent_runs', req.params.id);
+        const run = await store.getRecord('agent_runs', req.params.id, req.auth);
         if (!run) {
             res.status(404).json({ message: 'Agent run not found' });
             return;
@@ -505,12 +506,12 @@ export function agentStudioRouter (store) {
             artifacts,
             logs: [...(run.logs || []), log],
             quality: scoreRunQuality({ ...run, artifacts })
-        });
+        }, req.auth);
         res.json({ artifact: updatedArtifact, run: nextRun });
     });
 
     router.post('/runs/:id/artifacts/:artifactId/confirm', async (req, res) => {
-        const run = await store.getRecord('agent_runs', req.params.id);
+        const run = await store.getRecord('agent_runs', req.params.id, req.auth);
         if (!run) {
             res.status(404).json({ message: 'Agent run not found' });
             return;
@@ -529,6 +530,11 @@ export function agentStudioRouter (store) {
             res.status(404).json({ message: 'Artifact not found' });
             return;
         }
+        const previousArtifact = (run.artifacts || []).find((artifact) => artifact.id === req.params.artifactId);
+        if (updatedArtifact === previousArtifact) {
+            res.json({ artifact: updatedArtifact, run, idempotent: true });
+            return;
+        }
         const log = auditLog('artifact', `Artifact 确认：${updatedArtifact.title}`, { artifactId: updatedArtifact.id });
         const nextTrace = upsertTraceStage(run.trace || [], updatedArtifact.traceStepId || 'tool', {
             status: 'success',
@@ -543,7 +549,7 @@ export function agentStudioRouter (store) {
             trace: nextTrace,
             logs: [...(run.logs || []), log],
             quality: scoreRunQuality({ ...run, artifacts, trace: nextTrace })
-        });
+        }, req.auth);
         res.json({ artifact: updatedArtifact, run: nextRun });
     });
 
@@ -591,7 +597,8 @@ export function agentStudioRouter (store) {
         try {
             const result = await exportArtifact(store, req.params.id, req.params.artifactId, {
                 format: req.query.format,
-                actorId: req.user?._id
+                actorId: req.user?._id,
+                context: req.auth
             });
             res.json(result);
         } catch (err) {
@@ -712,6 +719,7 @@ export function agentStudioRouter (store) {
         let runId = '';
         let intent = null;
         let selectedSkill = null;
+        let executionContext = null;
         let plan = [];
         let logs = [];
         let trace = [];
@@ -741,15 +749,13 @@ export function agentStudioRouter (store) {
                 capability.id === commandOptions.agentId || capability.id === commandOptions.skillId
             ));
             selectedSkill = requestedCapability || selectCapability(intent);
-            if (requestedCapability && requestedCapability.id !== intent.id) {
+            if (requestedCapability) {
                 intent = {
                     ...intent,
-                    id: requestedCapability.id,
-                    label: requestedCapability.name,
-                    goal: requestedCapability.description,
                     signals: [...(intent.signals || []), 'command_center_selected']
                 };
             }
+            executionContext = buildRunExecutionContext(commandOptions, selectedSkill);
             plan = buildAgentPlan(intent);
             runId = `run-${crypto.randomUUID()}`;
             logs = [
@@ -773,6 +779,7 @@ export function agentStudioRouter (store) {
                 quality: null,
                 evalCaseId: req.body.evalCaseId,
                 commandOptions,
+                executionContext,
                 retrievalQuery,
                 ragDiagnostics: null,
                 createdBy: req.user._id,
@@ -794,6 +801,7 @@ export function agentStudioRouter (store) {
                 runRecord = await store.updateRecord('agent_runs', runRecord._id, {
                     intent,
                     selectedSkill,
+                    executionContext,
                     plan,
                     trace,
                     logs,
@@ -812,7 +820,7 @@ export function agentStudioRouter (store) {
                     logs.push(auditLog('error', error.message, { from: runRecord.status, to: status }));
                     throw error;
                 }
-                sendEvent(res, 'run_status', { runDbId: runRecord._id, runId, status, label, at: now(), intent, selectedSkill, plan, ...extra });
+                sendEvent(res, 'run_status', { runDbId: runRecord._id, runId, status, label, at: now(), intent, selectedSkill, executionContext, plan, ...extra });
             };
             const emitStep = async (payload) => {
                 trace.push(payload);
@@ -830,16 +838,16 @@ export function agentStudioRouter (store) {
             logs.push(auditLog('info', `意图识别完成：${intent.label}`, { intent }));
             await persistRun({ logs });
 
-            plan = updatePlan(plan, 'select-skill', 'success', { output: { skillId: selectedSkill.id, tools: selectedSkill.tools } });
-            await emitStatus('skill_selected', '选择 Agent Skill', { skillId: selectedSkill.id });
+            plan = updatePlan(plan, 'select-skill', 'success', { output: { agentId: selectedSkill.id, tools: selectedSkill.tools } });
+            await emitStatus('skill_selected', '选择执行 Agent', { agentId: selectedSkill.id });
             await persistRun({ plan });
             sendEvent(res, 'plan', { plan, selectedSkill, intent });
-            await emitStep(step('skill', 'Skill 自动选择', 'success', {
+            await emitStep(step('skill', '执行 Agent 选择', 'success', {
                 input: { intent: intent.id },
                 output: selectedSkill,
                 tokenUsage: tokenCount(JSON.stringify(selectedSkill))
             }));
-            logs.push(auditLog('info', `自动选择 Skill：${selectedSkill.name}`, { skillId: selectedSkill.id }));
+            logs.push(auditLog('info', `选择执行 Agent：${selectedSkill.name}`, { agentId: selectedSkill.id }));
             await persistRun({ logs });
 
             await emitStatus('retrieving', '检索知识库上下文', { scopes: intent.scopes });
@@ -1022,6 +1030,7 @@ export function agentStudioRouter (store) {
                 evalResult,
                 evalCaseId: req.body.evalCaseId,
                 commandOptions,
+                executionContext,
                 createdBy: req.user._id
             });
             const userMessage = { id: `user-${Date.now()}`, role: 'user', content: prompt, createdAt: now() };
@@ -1029,7 +1038,7 @@ export function agentStudioRouter (store) {
             const messages = [...(session.messages || []), userMessage, assistantMessage];
             await store.updateRecord('agent_sessions', session._id, {
                 messages,
-                activeAgentId: intent.id,
+                activeAgentId: selectedSkill.id,
                 title: session.title === '新的 Agent 会话' ? prompt.slice(0, 24) || session.title : session.title
             });
 
@@ -1042,6 +1051,7 @@ export function agentStudioRouter (store) {
                 at: now(),
                 intent,
                 selectedSkill,
+                executionContext,
                 plan
             });
             sendEvent(res, 'final', { run, message: assistantMessage });
@@ -1054,7 +1064,7 @@ export function agentStudioRouter (store) {
             if (runRecord) {
                 const stageByStatus = {
                     created: ['validate-request', 'request', '校验用户请求'],
-                    intent_detected: ['select-skill', 'skill', 'Skill 自动选择'],
+                    intent_detected: ['select-skill', 'skill', '执行 Agent 选择'],
                     skill_selected: ['retrieve-context', 'rag', 'RAG 上下文检索'],
                     retrieving: ['retrieve-context', 'rag', 'RAG 上下文检索'],
                     tool_running: ['run-tools', 'tools', '执行 Agent 工具'],
@@ -1104,6 +1114,7 @@ export function agentStudioRouter (store) {
                     error: { code, message },
                     intent,
                     selectedSkill,
+                    executionContext,
                     plan
                 });
                 sendEvent(res, 'plan', { plan, selectedSkill, intent });

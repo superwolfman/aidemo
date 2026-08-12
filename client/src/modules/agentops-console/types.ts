@@ -21,8 +21,15 @@ export type AgentRun = {
   runId: string;
   status: string;
   prompt: string;
-  intent?: { label: string; goal: string; riskLevel: string; confidence?: number; signals?: string[] };
-  selectedSkill?: { name: string; tools: string[] };
+  intent?: { id?: string; label: string; goal: string; riskLevel: string; confidence?: number; signals?: string[] };
+  selectedSkill?: { id?: string; name: string; tools: string[] };
+  executionContext?: {
+    source: string;
+    taskMode?: { id: string; label: string } | null;
+    requestedAgentId?: string | null;
+    requestedSkillId?: string | null;
+    resolvedAgentId?: string | null;
+  };
   plan?: Array<{ id: string; name: string; owner: string; status: string; tool: string; guardrail: string }>;
   sources?: Array<{ _id: string; documentTitle: string; score: number; retrievalBackend?: string; content: string }>;
   artifacts?: Array<{

@@ -233,7 +233,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
                 message: nextPrompt,
                 retrievalQuery,
                 evalCaseId,
-                commandOptions: { agentId: activeTaskMode.agentId, skillId: activeTaskMode.agentId, scopes: activeTaskMode.scopes, taskModeId: activeTaskMode.id, source: 'delivery-copilot' }
+                commandOptions: { agentId: activeTaskMode.agentId, scopes: activeTaskMode.scopes, taskModeId: activeTaskMode.id, source: 'delivery-copilot' }
             }, {
                 run_status: (payload) => setStatus(payload.status || 'running'),
                 trace: (payload) => setTrace((items) => [...items.filter((item) => item.id !== payload.id), payload]),
@@ -316,7 +316,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
         // if (!activeRun?._id || !activeArtifact) return;
         // const result = await artifact.confirm(activeRun._id, activeArtifact, 'Copilot 交付工作台确认该 Artifact 可进入下一阶段。');
         // syncRun(result);
-        if (!activeRun?._id || !activeArtifact || confirming) return;
+        if (!activeRun?._id || !activeArtifact || confirming || activeArtifact.status === 'confirmed' || activeArtifact.reviewStatus === 'confirmed') return;
         setConfirming(true);
         try {
             const result = await artifact.confirm(activeRun._id, activeArtifact, 'Copilot 交付工作台确认该 Artifact 可进入下一阶段。');
