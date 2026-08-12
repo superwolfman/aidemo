@@ -167,6 +167,8 @@ export const config = {
     ragVectorPath:
         process.env.RAG_VECTOR_PATH ||
         'embedding',
+    // Atlas cosine 分数低于该门槛时宁可返回知识缺口，也不把弱相关内容包装成引用。
+    ragMinVectorScore: Number(process.env.RAG_MIN_VECTOR_SCORE || 0.8),
     // atlas 时自动切 1024 维 + 真实 provider + 自动建索引，消除 G1
     ragVectorDimensions: Number(
         process.env.RAG_VECTOR_DIMENSIONS ||

@@ -126,7 +126,25 @@ ${sourceContext}
     }
 }
 
-export async function buildDeliveryArtifacts ({ intent, prompt, sources = [] }) {
+function markdownTitle (content, fallback) {
+    const matched = String(content || '').match(/^#\s+(.+)$/m);
+    return matched?.[1]?.trim() || fallback;
+}
+
+function artifactTitles (taskModeId, intentLabel) {
+    if (taskModeId === 'delivery-review') {
+        return ['交付质量评审报告', '测试策略与验收路径', '接口与数据契约审计', '上线门禁与整改任务', '风险与人工审批建议'];
+    }
+    if (taskModeId === 'knowledge-assistant') {
+        return ['知识库问答方案', '会话与纠错状态流', '检索与反馈 API Contract', '知识运营任务', '幻觉与治理风险'];
+    }
+    if (taskModeId === 'requirement-analysis') {
+        return ['架构级需求分析', '业务流程与验收状态', '系统边界与接口约束', '交付任务拆解', '风险与待确认问题'];
+    }
+    return [`${intentLabel} PRD 摘要`, '页面与状态流', 'BFF API Contract', '研发任务拆解', '风险与人工确认问题'];
+}
+
+export async function buildDeliveryArtifacts ({ intent, prompt, sources = [], taskModeId }) {
     const safeSources = Array.isArray(sources) ? sources : [];
     const citations = safeSources.map((source, index) => `[${index + 1}] ${source.documentTitle} · score ${Number(source.score || 0).toFixed(4)}`);
     const sourceBlock = citations.length ? citations.join('\n') : '当前没有命中引用，建议补充业务文档或项目规范。';
@@ -136,11 +154,10 @@ export async function buildDeliveryArtifacts ({ intent, prompt, sources = [] }) 
         riskLevel: intent.riskLevel
     };
 
-    const isKnowledge = intent.id === 'knowledge-assistant';
-    const isReview = intent.id === 'delivery-review-agent';
+    const titles = artifactTitles(taskModeId, intent.label);
 
     const fallbackPrd = [
-        `# ${intent.label} PRD 摘要`,
+        `# ${titles[0]}`,
         '',
         '## 用户输入',
         prompt,
@@ -250,35 +267,35 @@ export async function buildDeliveryArtifacts ({ intent, prompt, sources = [] }) 
         {
             id: `agent-artifact-prd-${crypto.randomUUID()}`,
             type: 'prd',
-            title: `${intent.label} PRD 摘要`,
+            title: markdownTitle(prdContent, titles[0]),
             status: 'draft',
             content: prdContent || fallbackPrd
         },
         {
             id: `agent-artifact-flow-${crypto.randomUUID()}`,
             type: 'flow',
-            title: '页面与状态流',
+            title: titles[1],
             status: 'draft',
             content: flowJson
         },
         {
             id: `agent-artifact-api-${crypto.randomUUID()}`,
             type: 'api',
-            title: 'BFF API Contract',
+            title: titles[2],
             status: 'draft',
             content: apiJson
         },
         {
             id: `agent-artifact-task-${crypto.randomUUID()}`,
             type: 'task',
-            title: '研发任务拆解',
+            title: titles[3],
             status: 'draft',
             content: taskContent || fallbackTask
         },
         {
             id: `agent-artifact-risk-${crypto.randomUUID()}`,
             type: 'risk',
-            title: '风险与人工确认问题',
+            title: titles[4],
             status: 'draft',
             content: riskContent || fallbackRisk
         }

@@ -160,8 +160,10 @@ export async function retrieveKnowledge ({ store, context, query, scopes, limit 
                 numCandidates: vectorPlan.numCandidates
             });
 
+            const relevantSources = filterSourcesByMinimumScore(rawSources);
+
             const rankedSources = rerankByScopePrecision(
-                rawSources.map((source, index) => ({ ...source, vectorRank: index + 1 })),
+                relevantSources.map((source, index) => ({ ...source, vectorRank: index + 1 })),
                 authorizedScopes
             );
             const sources = rankedSources.slice(0, vectorPlan.topK);
@@ -174,9 +176,19 @@ export async function retrieveKnowledge ({ store, context, query, scopes, limit 
                     scopes: authorizedScopes
                 }),
                 filter: { tenantApplied: true, scopeApplied: true },
-                filteredChunks: rankedSources
-                    .slice(vectorPlan.topK)
-                    .map((source, index) => toFilteredChunk(source, index + vectorPlan.topK, vectorPlan.topK)),
+                filteredChunks: [
+                    ...rawSources
+                        .filter((source) => Number(source.score || 0) < config.ragMinVectorScore)
+                        .map((source) => ({
+                            id: source._id,
+                            title: source.documentTitle || source.title,
+                            score: Number(source.score || 0),
+                            reason: `原始向量相关度低于门槛 ${config.ragMinVectorScore}`
+                        })),
+                    ...rankedSources
+                        .slice(vectorPlan.topK)
+                        .map((source, index) => toFilteredChunk(source, index + vectorPlan.topK, vectorPlan.topK))
+                ],
                 diagnostics: buildRetrievalDiagnostics(
                     diagnostics,
                     query,
@@ -216,6 +228,10 @@ export async function retrieveKnowledge ({ store, context, query, scopes, limit 
             'business-requirement + local-hash'
         )
     };
+}
+
+export function filterSourcesByMinimumScore (sources, minimumScore = config.ragMinVectorScore) {
+    return (sources || []).filter((source) => Number(source.score || 0) >= minimumScore);
 }
 
 async function retrieveLocalKnowledge ({ store, context, query, scopes, limit = 5 }) {

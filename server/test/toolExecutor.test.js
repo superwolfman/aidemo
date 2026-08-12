@@ -42,3 +42,16 @@ test('buildFallbackAnswer exposes live vector retrieval state', () => {
   assert.match(answer, /mongodb-atlas-vector-search/);
   assert.match(answer, /PRD 摘要/);
 });
+
+test('delivery review artifacts use the generated report heading and review-specific titles', async () => {
+  const artifacts = await buildDeliveryArtifacts({
+    intent: { id: 'delivery-review-agent', label: '交付质量评审', goal: '评审交付质量', riskLevel: 'high' },
+    prompt: '投研报告生成工作台',
+    sources: [],
+    taskModeId: 'delivery-review'
+  });
+
+  assert.ok(!artifacts[0].title.includes('知识库问答'));
+  assert.equal(artifacts[1].title, '测试策略与验收路径');
+  assert.equal(artifacts[4].title, '风险与人工审批建议');
+});

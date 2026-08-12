@@ -2,7 +2,7 @@
 // 不依赖外部服务，仅对 rerankByScopePrecision 做纯函数单测。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyOddsFactor, buildVectorSearchPlan, rerankByScopePrecision } from '../src/services/ragEngine.js';
+import { applyOddsFactor, buildVectorSearchPlan, filterSourcesByMinimumScore, rerankByScopePrecision } from '../src/services/ragEngine.js';
 
 function makeSource ({ title, score, scopes, sourceType = 'manual' }) {
     return { title, score, scopes, sourceType };
@@ -27,6 +27,16 @@ test('odds 加权保持相关度在 0 到 1，且不会像 clamp 一样丢失差
     assert.equal(first, 0.9079);
     assert.equal(applyOddsFactor(0, 1.5), 0);
     assert.equal(applyOddsFactor(1, 1.5), 1);
+});
+
+test('弱相关 Atlas 候选在业务加权前被拒绝，不能靠 scope boost 进入 topK', () => {
+    const sources = [
+        makeSource({ title: '无关工程规范', score: 0.7726, scopes: ['sdk'] }),
+        makeSource({ title: '投研报告业务规范', score: 0.8342, scopes: ['standards'] })
+    ];
+
+    const accepted = filterSourcesByMinimumScore(sources, 0.8);
+    assert.deepEqual(accepted.map((source) => source.title), ['投研报告业务规范']);
 });
 
 test('命中精确领域 scope 的 chunk 得分被 boost，排名上升', () => {

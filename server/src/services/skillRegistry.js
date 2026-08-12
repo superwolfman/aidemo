@@ -165,14 +165,28 @@ export const agentCapabilities = [
 // Task Mode 是面向业务的编排入口，Agent 是实际执行器。两者可以是多对一关系，
 // 例如“产品交付工作流”和“架构级需求分析”都复用产研测交付 Agent。
 export const agentTaskModes = [
-    { id: 'product-workflow', label: '产品交付工作流', agentId: 'product-delivery-agent' },
-    { id: 'requirement-analysis', label: '架构级需求分析', agentId: 'product-delivery-agent' },
-    { id: 'knowledge-assistant', label: '知识库问答方案', agentId: 'knowledge-assistant' },
-    { id: 'delivery-review', label: '交付质量评审', agentId: 'delivery-review-agent' }
+    { id: 'product-workflow', label: '产品交付工作流', agentId: 'product-delivery-agent', goal: '把需求转成 PRD、页面结构、API Contract、研发任务和测试策略。', riskLevel: 'high' },
+    { id: 'requirement-analysis', label: '架构级需求分析', agentId: 'product-delivery-agent', goal: '把业务目标拆解为约束、风险、验收标准和待确认问题。', riskLevel: 'high' },
+    { id: 'knowledge-assistant', label: '知识库问答与运营纠错', agentId: 'knowledge-assistant', goal: '检索可信上下文并输出带引用答案、知识缺口和纠错建议。', riskLevel: 'medium' },
+    { id: 'delivery-review', label: '交付质量评审', agentId: 'delivery-review-agent', goal: '评估交付物完整度、测试缺口、上线风险、质量门禁和人工审批项。', riskLevel: 'high' }
 ];
 
 export function getAgentTaskMode (id) {
     return agentTaskModes.find((mode) => mode.id === id) || null;
+}
+
+// 显式选择的 Task Mode 是本次运行的编排意图；关键词识别结果仅作为审计证据保留。
+export function resolveTaskModeIntent (detectedIntent, commandOptions = {}) {
+    const taskMode = getAgentTaskMode(commandOptions.taskModeId);
+    if (!taskMode) return detectedIntent;
+    return {
+        ...detectedIntent,
+        id: taskMode.agentId,
+        label: taskMode.label,
+        goal: taskMode.goal,
+        riskLevel: taskMode.riskLevel,
+        signals: [...new Set([...(detectedIntent?.signals || []), `task_mode:${taskMode.id}`])]
+    };
 }
 
 export function buildRunExecutionContext (commandOptions = {}, selectedAgent = null) {

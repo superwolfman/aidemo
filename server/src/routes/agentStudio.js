@@ -15,7 +15,7 @@ import { ROLES } from '../security/roles.js';
 import { recordAuthorizationDenied } from '../security/authorizationAudit.js';
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
 import { resolveRetrievalQuery } from '../services/retrievalQuery.js';
-import { agentCapabilities, buildRunExecutionContext, getAgentCapability } from '../services/skillRegistry.js';
+import { agentCapabilities, buildRunExecutionContext, getAgentCapability, resolveTaskModeIntent } from '../services/skillRegistry.js';
 import { buildDeliveryArtifacts, buildFallbackAnswer } from '../services/toolExecutor.js';
 import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
 
@@ -162,8 +162,11 @@ function normalizeRun (run) {
     //     quality: scoreRunQuality(run)
     // };
     if (!run) return run;
+    const detectedIntent = run.detectedIntent || run.intent;
     return {
         ...run,
+        detectedIntent,
+        intent: resolveTaskModeIntent(run.intent, run.commandOptions),
         executionContext: run.executionContext || buildRunExecutionContext(run.commandOptions, run.selectedSkill),
         quality: run.quality || null   // ← 评分已在创建/更新时持久化，不再实时计算
     };
@@ -718,6 +721,7 @@ export function agentStudioRouter (store) {
         let runRecord = null;
         let runId = '';
         let intent = null;
+        let detectedIntent = null;
         let selectedSkill = null;
         let executionContext = null;
         let plan = [];
@@ -741,10 +745,12 @@ export function agentStudioRouter (store) {
             const commandOptions = req.body.commandOptions && typeof req.body.commandOptions === 'object' ? req.body.commandOptions : {};
             const modelConfig = req.body.model && typeof req.body.model === 'object' ? req.body.model : {};
             const provider = getProviderStatus(modelConfig);
-            intent = inferIntent(prompt);
+            detectedIntent = inferIntent(prompt);
+            intent = detectedIntent;
             if (Array.isArray(commandOptions.scopes) && commandOptions.scopes.length) {
                 intent = { ...intent, scopes: commandOptions.scopes };
             }
+            intent = resolveTaskModeIntent(intent, commandOptions);
             const requestedCapability = agentCapabilities.find((capability) => (
                 capability.id === commandOptions.agentId || capability.id === commandOptions.skillId
             ));
@@ -768,6 +774,7 @@ export function agentStudioRouter (store) {
                 status: 'created',
                 prompt,
                 intent,
+                detectedIntent,
                 selectedSkill,
                 plan,
                 sources: [],
@@ -800,6 +807,7 @@ export function agentStudioRouter (store) {
             const persistRun = async (patch = {}) => {
                 runRecord = await store.updateRecord('agent_runs', runRecord._id, {
                     intent,
+                    detectedIntent,
                     selectedSkill,
                     executionContext,
                     plan,
@@ -894,12 +902,18 @@ export function agentStudioRouter (store) {
             }));
             await persistRun({ logs, sources });
 
-            await emitStatus('tool_running', '规划产研测交付路径');
-            const artifacts = attachArtifactWorkflow(await buildDeliveryArtifacts({ intent, prompt, sources }), 'tool', sources, runRecord.evalCaseId);
+            const taskModeLabel = executionContext?.taskMode?.label || 'Agent 交付';
+            await emitStatus('tool_running', `执行${taskModeLabel}路径`);
+            const artifacts = attachArtifactWorkflow(await buildDeliveryArtifacts({
+                intent,
+                prompt,
+                sources,
+                taskModeId: executionContext?.taskMode?.id
+            }), 'tool', sources, runRecord.evalCaseId);
             plan = updatePlan(plan, 'run-tools', 'success', { output: { artifacts: artifacts.map((artifact) => artifact.type) } });
             await persistRun({ artifacts, plan });
             sendEvent(res, 'plan', { plan, selectedSkill, intent });
-            await emitStep(step('tool', '产研测计划生成', 'success', {
+            await emitStep(step('tool', `${taskModeLabel}产物生成`, 'success', {
                 tool: 'planDelivery',
                 output: {
                     artifacts: artifacts.map((artifact) => ({ id: artifact.id, title: artifact.title, sourceIds: artifact.sourceIds })),
@@ -1009,6 +1023,7 @@ export function agentStudioRouter (store) {
                 trace,
                 provider,
                 intent,
+                detectedIntent,
                 quality,
                 evalCaseId: req.body.evalCaseId
             });
