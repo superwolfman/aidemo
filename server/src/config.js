@@ -159,6 +159,7 @@ export const config = {
         process.env.LLM_BASE_URL || '',
     llmModel:
         process.env.LLM_MODEL || '',
+    llmFallbackModels: listFromEnv('LLM_FALLBACK_MODELS'),
     ragBackend,
     ragVectorIndex:
         process.env.RAG_VECTOR_INDEX ||

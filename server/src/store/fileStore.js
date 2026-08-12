@@ -192,6 +192,16 @@ export class FileStore {
         return db[collection][index];
     }
 
+    async compareAndSetRecord (collection, id, expectedVersion, patch) {
+        const db = await this.loadDb();
+        db[collection] = db[collection] || [];
+        const index = db[collection].findIndex((item) => item._id === id && Number(item.version) === Number(expectedVersion));
+        if (index === -1) return null;
+        db[collection][index] = { ...db[collection][index], ...patch, updatedAt: now() };
+        await this.flush();
+        return db[collection][index];
+    }
+
     async getRecord (collection, id) {
         const db = await this.loadDb();
         return (db[collection] || []).find((item) => item._id === id) || null;

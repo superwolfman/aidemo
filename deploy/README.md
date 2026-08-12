@@ -136,6 +136,12 @@ nano deploy/.env.production   # 填写下面"必填项"
 
 其余 `RAG_*` / `LLM_MODEL` 等保持模板默认即可。
 
+### 运行时模型设置
+
+`LLM_PROVIDER`、`LLM_MODEL` 和可选的 `LLM_FALLBACK_MODELS` 只用于首次初始化。服务启动后，平台管理员可在 **AgentOps 控制台 → 模型设置** 中测试、发布或回滚模型路由，配置写入 `runtime_settings` 并即时生效，无需重启。每次发布会在 `runtime_setting_versions` 生成不可变审计版本。
+
+模型 API Key 始终由 ECS 环境变量或密钥管理服务提供，模型设置 API 和浏览器不会返回或保存密钥。备用链只对服务端确认的额度耗尽错误生效；鉴权失败、内容安全拒绝和普通服务异常不会触发自动切换。
+
 首次从历史共享库升级时，先预览并迁移数据，再启动新版本：
 
 ```bash

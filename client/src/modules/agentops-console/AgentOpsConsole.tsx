@@ -8,6 +8,7 @@ import { RunRegistry } from './components/RunRegistry';
 import { RuntimeSummary } from './components/RuntimeSummary';
 import { StateMachinePanel } from './components/StateMachinePanel';
 import { TraceAuditPanel } from './components/TraceAuditPanel';
+import { ModelSettingsPanel } from './components/ModelSettingsPanel';
 import { useSession } from '../../hooks/useSession';
 import { useAgentRun } from '../../hooks/useAgentRun';
 import { getAgentStudioBlueprint } from '../../services/blueprintService';
@@ -185,6 +186,8 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
     const canControlRuns = permissions?.canControlRuns !== false && !isDemoViewer;
     const canReplayRuns = permissions?.canReplayRuns !== false && !isDemoViewer;
     const canReviewRuns = permissions?.canReviewRuns !== false && !isDemoViewer;
+    const canManageRuntimeModels = permissions?.canManageRuntimeModels === true || ['admin', 'owner'].includes(String(activeRole));
+    const [consoleView, setConsoleView] = useState<'runs' | 'models'>('runs');
     const tenantSessionState = useTenantSessionState(tenantId, userId);
     const session = useSession();
     const agentRun = useAgentRun('agent-studio');
@@ -347,12 +350,20 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
         <div className="ops-console-page">
             <div className="product-page-kicker">AgentOps Runtime Console</div>
             <Header title="AgentOps 控制台" desc="面向运行治理：Run Registry、状态机、Trace Timeline、Tool Call Audit、Run Detail、审批记录和失败回放。" />
+            <nav className="ops-console-tabs" aria-label="AgentOps 功能">
+                <button type="button" className={consoleView === 'runs' ? 'active' : ''} onClick={() => setConsoleView('runs')}>运行治理</button>
+                {canManageRuntimeModels ? <button type="button" className={consoleView === 'models' ? 'active' : ''} onClick={() => setConsoleView('models')}>模型设置</button> : null}
+            </nav>
             {isDemoViewer ? (
                 <div className="ops-access-notice" role="status">
                     <strong>受限演示模式</strong>
                     <span>可创建限额 Demo Run，并查看当前租户的 Run、RAG、Trace、Artifact 和审计记录；不可暂停、恢复、回滚、重放或审批。</span>
                 </div>
             ) : null}
+            {consoleView === 'models' && canManageRuntimeModels ? (
+                <ModelSettingsPanel onRuntimeChanged={() => { void load(); }} />
+            ) : (
+            <>
             <RuntimeSummary activeRun={activeRunMemo} blueprint={blueprint} ragRuntime={ragRuntime} ragLive={ragLive} />
             <CommandCenter command={command} selectedAgentId={selectedAgentId} selectedAgent={selectedAgent} capabilities={blueprint?.capabilities || []} selectedScopes={selectedScopes} selectedScopeLabels={selectedScopeLabels} running={running} sessionReady={Boolean(active)} activeRun={activeRunMemo} readOnlyControls={!canControlRuns || !canReplayRuns} onCommandChange={setCommand} onAgentChange={setSelectedAgentId} onToggleScope={toggleScope} onRun={() => runCommand()} onRefresh={load} onControl={control} onRerun={rerunActive} />
             <MetricsGrid metrics={metrics} />
@@ -367,6 +378,8 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
                 <RunDetailDock activeRun={activeRunMemo} controlNote={controlNote} onControlNoteChange={setControlNote} onReview={review} disabled={acting} readOnly={!canReviewRuns} />
             </main>
             <RunDetailDrawer open={detailOpen} activeRun={activeRunMemo} blueprint={blueprint} detailTab={detailTab} onTabChange={setDetailTab} onClose={() => setDetailOpen(false)} />
+            </>
+            )}
         </div>
     );
 }

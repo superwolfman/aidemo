@@ -4,7 +4,15 @@ import express from 'express';
 import { applyTransition, auditLog, buildRunControlPatch, createReplayRunDraft, createStateTransition, now, step, tokenCount, transitionRunPatch } from '../services/agentRuntimeService.js';
 import { applyArtifactReview, attachArtifactWorkflow, normalizeSourceRef, exportArtifact } from '../services/artifactService.js';
 import { buildEvalCases, persistEvalResult, scoreRunQuality } from '../services/evalService.js';
-import { generateLlmAnswer, getProviderStatus, streamLlmAnswer } from '../services/llmProvider.js';
+import { generateLlmAnswer, getProviderStatus, streamLlmAnswer, testLlmConnection } from '../services/llmProvider.js';
+import {
+    getRuntimeModelSettingsView,
+    assertRuntimeModelTestable,
+    publishRuntimeModelSettings,
+    rollbackRuntimeModelSettings
+} from '../services/runtimeModelSettings.js';
+import { ROLES } from '../security/roles.js';
+import { recordAuthorizationDenied } from '../security/authorizationAudit.js';
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
 import { resolveRetrievalQuery } from '../services/retrievalQuery.js';
 import { agentCapabilities, getAgentCapability } from '../services/skillRegistry.js';
@@ -163,6 +171,87 @@ function normalizeRun (run) {
 export function agentStudioRouter (store) {
     const router = express.Router();
 
+    async function requireModelAdmin (req, res, next) {
+        if ([ROLES.ADMIN, ROLES.OWNER].includes(String(req.auth?.role))) return next();
+        await recordAuthorizationDenied(store, req, {
+            area: 'agentStudio.runtimeSettings',
+            code: 'RUNTIME_SETTINGS_FORBIDDEN'
+        });
+        return res.status(403).json({
+            message: '仅平台管理员可以管理运行时模型设置',
+            code: 'RUNTIME_SETTINGS_FORBIDDEN'
+        });
+    }
+
+    async function auditRuntimeChange (req, type, details = {}) {
+        await store.createTelemetry({
+            type,
+            actorId: req.auth?.actorId,
+            email: req.user?.email || null,
+            tenantId: req.auth?.tenantId,
+            role: req.auth?.role,
+            area: 'agentStudio.runtimeSettings',
+            ...details
+        });
+    }
+
+    router.get('/runtime-settings/models', requireModelAdmin, async (req, res, next) => {
+        try { res.json(await getRuntimeModelSettingsView()); } catch (error) { next(error); }
+    });
+
+    router.put('/runtime-settings/models', requireModelAdmin, async (req, res, next) => {
+        try {
+            const setting = await publishRuntimeModelSettings(req.body || {}, { ...req.auth, email: req.user?.email });
+            await auditRuntimeChange(req, 'runtime.model.settings.published', {
+                version: setting.version,
+                primaryModel: setting.primary.model,
+                fallbackModels: setting.fallbackChain.map((item) => item.model)
+            });
+            res.json({ ...(await getRuntimeModelSettingsView()), setting });
+        } catch (error) { next(error); }
+    });
+
+    router.post('/runtime-settings/models/test', requireModelAdmin, async (req, res, next) => {
+        try {
+            const selected = assertRuntimeModelTestable({
+                provider: String(req.body?.provider || ''),
+                model: String(req.body?.model || '')
+            });
+            const startedAt = Date.now();
+            try {
+                const result = await testLlmConnection(selected);
+                await auditRuntimeChange(req, 'runtime.model.connection.tested', {
+                    provider: result.provider,
+                    model: result.model,
+                    ok: result.ok,
+                    latencyMs: result.latencyMs
+                });
+                res.json(result);
+            } catch (error) {
+                await auditRuntimeChange(req, 'runtime.model.connection.tested', {
+                    provider: selected.provider,
+                    model: selected.model,
+                    ok: false,
+                    latencyMs: Date.now() - startedAt,
+                    errorCode: error.code || 'LLM_CONNECTION_TEST_FAILED'
+                });
+                throw error;
+            }
+        } catch (error) { next(error); }
+    });
+
+    router.post('/runtime-settings/models/rollback', requireModelAdmin, async (req, res, next) => {
+        try {
+            const setting = await rollbackRuntimeModelSettings(req.body || {}, { ...req.auth, email: req.user?.email });
+            await auditRuntimeChange(req, 'runtime.model.settings.rolled_back', {
+                version: setting.version,
+                targetVersion: Number(req.body?.targetVersion),
+                primaryModel: setting.primary.model
+            });
+            res.json({ ...(await getRuntimeModelSettingsView()), setting });
+        } catch (error) { next(error); }
+    });
+
     router.get('/blueprint', async (req, res) => {
         let ragStatus;
         try {
@@ -187,7 +276,7 @@ export function agentStudioRouter (store) {
                 frontend: ['Agent Runtime Console', 'Run Queue', 'Intent Inspector', 'Plan Board', 'State Machine', 'Tool Calls', 'Audit Timeline'],
                 bff: ['Auth', 'Session', 'Agent Run State', 'RAG Retrieval', 'Tool Runtime', 'LLM Provider Adapter', 'Human Review', 'Audit Log'],
                 states: ['idle', 'intent_detected', 'skill_selected', 'retrieving', 'tool_running', 'streaming', 'review_required', 'paused', 'resumed', 'rolled_back', 'confirmed', 'failed', 'cancelled'],
-                data: ['agent_sessions', 'agent_runs', 'agent_reviews', 'agent_audit_logs']
+                data: ['agent_sessions', 'agent_runs', 'agent_reviews', 'agent_audit_logs', 'runtime_settings', 'runtime_setting_versions']
             },
             controls: {
                 supportedActions: ['pause', 'resume', 'rollback', 'confirm', 'revise', 'reject'],

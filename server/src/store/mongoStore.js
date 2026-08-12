@@ -143,6 +143,8 @@ export class MongoStore {
         await this.db.collection('telemetry').createIndex({ traceId: 1 });
         await this.db.collection('agent_sessions').createIndex({ createdAt: -1 });
         await this.db.collection('agent_runs').createIndex({ createdAt: -1 });
+        await this.db.collection('runtime_settings').createIndex({ key: 1 }, { unique: true });
+        await this.db.collection('runtime_setting_versions').createIndex({ settingKey: 1, version: -1 }, { unique: true });
         await this.ensureVectorIndex();
 
         await this.seed();
@@ -517,5 +519,15 @@ export class MongoStore {
             .collection(collection)
             .updateOne(filter, { $set: { ...patch, updatedAt: now() } });
         return serialize(await this.db.collection(collection).findOne(filter));
+    }
+
+    async compareAndSetRecord (collection, id, expectedVersion, patch) {
+        const filter = { _id: new ObjectId(id), version: Number(expectedVersion) };
+        const result = await this.db.collection(collection).updateOne(
+            filter,
+            { $set: { ...patch, updatedAt: now() } }
+        );
+        if (result.modifiedCount !== 1) return null;
+        return serialize(await this.db.collection(collection).findOne({ _id: new ObjectId(id) }));
     }
 }

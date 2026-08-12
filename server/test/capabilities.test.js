@@ -14,6 +14,7 @@ test('demo viewer receives explicit restricted capabilities', () => {
     assert.equal(capabilities.canControlRuns, false);
     assert.equal(capabilities.canReplayRuns, false);
     assert.equal(capabilities.canReviewRuns, false);
+    assert.equal(capabilities.canManageRuntimeModels, false);
 });
 
 test('standard roles retain existing product capabilities', () => {
@@ -24,4 +25,9 @@ test('standard roles retain existing product capabilities', () => {
     assert.equal(capabilities.canControlRuns, true);
     assert.equal(capabilities.canReplayRuns, true);
     assert.equal(capabilities.canReviewRuns, true);
+    assert.equal(capabilities.canManageRuntimeModels, true);
+});
+
+test('members cannot manage platform runtime models', () => {
+    assert.equal(capabilitiesForRole('member').canManageRuntimeModels, false);
 });
