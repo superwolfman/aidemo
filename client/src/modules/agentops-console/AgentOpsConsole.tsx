@@ -18,6 +18,7 @@ import { getAgentStudioRun } from '../../services/agentRunService';
 import { useTenantSessionState } from '../../hooks/useTenantSessionState';
 import type { ShellContext } from '../../platform/subapps';
 import { subscribeRuntimeModelSettingsChanged } from '../../platform/runtimeModelEvents';
+import { subscribeAgentRunChanged } from '../../platform/agentRunEvents';
 
 type AgentSession = {
     _id: string;
@@ -287,6 +288,22 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
     useEffect(() => subscribeRuntimeModelSettingsChanged(() => {
         void refreshBlueprint().catch((error) => console.warn('[AgentOps] runtime blueprint refresh failed:', error));
     }), [refreshBlueprint]);
+    useEffect(() => subscribeAgentRunChanged((event) => {
+        if (event.tenantId !== tenantId) return;
+        void (async () => {
+            const [{ runs: nextRuns }, { run: changedRun }] = await Promise.all([
+                agentRunService.listRuns(),
+                getAgentStudioRun(event.runDbId)
+            ]);
+            const mergedRuns = (nextRuns || []).map((item: AgentRun) => item._id === changedRun?._id ? changedRun : item);
+            setRuns(mergedRuns);
+            if (changedRun) {
+                setActiveRunId(changedRun._id);
+                setActiveTraceId(changedRun.trace?.[0]?.id || '');
+                tenantSessionState.setSnapshot({ activeRunId: changedRun._id, runId: changedRun.runId });
+            }
+        })().catch((error) => console.warn('[AgentOps] run change refresh failed:', error));
+    }), [tenantId, tenantSessionState]);
 
     // 列表接口不返回 trace/artifacts/logs，选中 run 后通过详情接口补全，避免运行完后被列表覆盖导致 Trace 为空
     useEffect(() => {

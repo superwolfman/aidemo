@@ -22,6 +22,7 @@ import * as sessionService from '../../services/sessionService';
 import { getAgentStudioRun } from '../../services/agentRunService';
 import { readBlueprintCache, writeBlueprintCache } from '../../services/blueprintCache';
 import { subscribeRuntimeModelSettingsChanged } from '../../platform/runtimeModelEvents';
+import { notifyAgentRunChanged } from '../../platform/agentRunEvents';
 
 const deliveryTaskModes = [
     { id: 'product-workflow', title: '产品交付工作流', desc: '需求澄清、PRD、页面结构、接口协议和任务拆解', agentId: 'product-delivery-agent', scopes: ['architecture', 'standards', 'ai-native', 'frontend', 'frontend-observability', 'engineering-governance', 'performance'], promptSuffix: '请按产品交付工作流输出 PRD 摘要、页面结构、接口协议、状态流转、研发任务拆解、风险和待确认问题。' },
@@ -261,6 +262,14 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
                     setActiveRun(payload.run || null);
                     setActiveArtifactId(payload.run?.artifacts?.[0]?.id || '');
                     setArtifactDraft(stringify(payload.run?.artifacts?.[0]?.content || ''));
+                    if (payload.run?._id) {
+                        notifyAgentRunChanged({
+                            tenantId,
+                            runDbId: payload.run._id,
+                            runId: payload.run.runId,
+                            reason: 'completed'
+                        });
+                    }
                     // Run 主链路已经在服务端生成并持久化 quality/evalResult。
                     // 这里只刷新 Eval Case 展示，避免再发起一次有副作用的重复评分请求。
                     if (evalCaseId) {
