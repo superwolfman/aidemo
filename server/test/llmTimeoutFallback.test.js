@@ -195,3 +195,43 @@ test('same-model retry on timeout with backoff before fallback', async () => {
         assert.deepEqual(requestedModels, ['qwen3.5-flash-2026-02-23', 'qwen3.5-flash-2026-02-23', 'qwen3.7-plus']);
     } finally { global.fetch = originalFetch; restore(); }
 });
+
+// P0#1: 真实 undici fetch 在 abort 时可能抛出 signal.reason（普通 Error，非 AbortError）。
+// didTimeout() 必须独立判定，不能依赖 isAbortError，否则超时不被识别、fallback 不执行。
+test('timeout still detected when fetch rejects with a plain Error (undici reason behavior)', async () => {
+    const restore = await setup();
+    const originalFetch = global.fetch;
+    const requestedModels = [];
+    global.fetch = async (_url, options) => {
+        requestedModels.push(JSON.parse(options.body).model);
+        if (requestedModels.length === 1) {
+            // 模拟 undici：abort 时 reject 的是 signal.reason（普通 Error），不是 AbortError
+            return new Promise((_resolve, reject) => {
+                options.signal?.addEventListener('abort', () => reject(new Error('LLM request timeout after 30ms')));
+            });
+        }
+        return okResponse('fallback ok');
+    };
+    try {
+        const result = await generateLlmAnswer({ systemPrompt: 's', prompt: 'p', modelConfig: { timeoutMs: 30 } });
+        assert.equal(result.text, 'fallback ok');
+        assert.equal(result.provider.fallbackUsed, true);
+    } finally { global.fetch = originalFetch; restore(); }
+});
+
+// P0#2b: maxAttempts 限制总尝试模型数
+test('maxAttempts caps the number of fallback candidates attempted', async () => {
+    const restore = await setup({ fallbackPolicy: { triggers: ['quota_exhausted', 'timeout'], maxAttempts: 1 } });
+    const originalFetch = global.fetch;
+    let callCount = 0;
+    global.fetch = async (_url, options) => {
+        callCount += 1;
+        return hangingRequest(options); // 全部超时
+    };
+    try {
+        // maxAttempts=1 → 只尝试主模型一次（+重试0次），不切到备用，直接抛超时
+        await assert.rejects(() => generateLlmAnswer({ systemPrompt: 's', prompt: 'p', modelConfig: { timeoutMs: 30 } }), (error) => error.timeoutType === 'request');
+        assert.equal(callCount, 1);
+    } finally { global.fetch = originalFetch; restore(); }
+});
+

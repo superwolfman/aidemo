@@ -783,7 +783,13 @@ export function agentStudioRouter (store) {
             // retrievalQuery 由前端提供，用于 RAG；不含 LLM 输出格式/任务后缀，避免向量搜索被模板词汇污染。
             const retrievalQuery = resolveRetrievalQuery(req.body);
             const commandOptions = req.body.commandOptions && typeof req.body.commandOptions === 'object' ? req.body.commandOptions : {};
-            const modelConfig = req.body.model && typeof req.body.model === 'object' ? req.body.model : {};
+            // 客户端不可越权覆盖管理员发布的超时策略；仅 admin 调试请求允许传入 timeoutMs 等覆盖。
+            const rawModelConfig = req.body.model && typeof req.body.model === 'object' ? req.body.model : {};
+            const isModelAdminRequest = [ROLES.ADMIN, ROLES.OWNER].includes(String(req.auth?.role));
+            const TIMEOUT_OVERRIDE_KEYS = ['timeoutMs', 'streamTimeoutMs', 'firstTokenTimeoutMs', 'idleTimeoutMs'];
+            const modelConfig = isModelAdminRequest
+                ? rawModelConfig
+                : Object.fromEntries(Object.entries(rawModelConfig).filter(([key]) => !TIMEOUT_OVERRIDE_KEYS.includes(key)));
             const provider = getProviderStatus(modelConfig);
             detectedIntent = inferIntent(prompt);
             intent = detectedIntent;

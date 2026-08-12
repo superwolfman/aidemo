@@ -259,13 +259,17 @@ async function generateOnce ({ candidate, systemPrompt, prompt, sources, toolRes
         if (!response.ok) throw parseProviderFailure(response.status, await response.text(), 'LLM provider failed');
         const payload = await response.json();
         const totalMs = Date.now() - startedAt;
-        recordLlmTiming({ model: resolved.requestedModel, ttftMs: totalMs, totalMs, timedOut: false });
+        recordLlmTiming({ model: resolved.requestedModel, ttftMs: totalMs, totalMs, timedOut: false, provider: resolved.provider });
         return { resolved, text: payload?.choices?.[0]?.message?.content || '' };
     } catch (error) {
-        const timedOut = isAbortError(error) && didTimeout() && !userCancelled();
+        // didTimeout() 为真说明是我们的定时器触发的 abort（非用户取消）。
+        // 不依赖 isAbortError(error)：undici fetch 在 abort 时可能抛出 signal.reason
+        // （即我们传入的 Error，name 为 'Error'），isAbortError 会误判为 false，
+        // 导致超时未被识别、fallback 不执行、指标不记录。
+        const timedOut = didTimeout() && !userCancelled();
         if (timedOut) {
             const timeoutError = buildTimeoutError('request', ms);
-            recordLlmTiming({ model: resolved.requestedModel, ttftMs: Date.now() - startedAt, totalMs: Date.now() - startedAt, timedOut: true, timeoutType: 'request' });
+            recordLlmTiming({ model: resolved.requestedModel, ttftMs: Date.now() - startedAt, totalMs: Date.now() - startedAt, timedOut: true, timeoutType: 'request', provider: resolved.provider });
             throw timeoutError;
         }
         throw error;
@@ -278,7 +282,11 @@ export async function generateLlmAnswer ({ systemPrompt, prompt, sources = [], t
     const candidates = runtimeCandidates(modelConfig);
     const attemptedModels = [];
     const policy = retryPolicy();
-    for (let index = 0; index < candidates.length; index += 1) {
+    const fallbackPolicy = getRuntimeTimeoutSettingsSnapshot().fallbackPolicy || { triggers: [], maxAttempts: candidates.length };
+    // maxAttempts 限制总尝试模型数（含主模型），防止 fallback 链过长放大成本
+    const maxModelAttempts = Math.min(candidates.length, Math.max(1, Number(fallbackPolicy.maxAttempts) || candidates.length));
+    let fallbackTriggered = null;
+    for (let index = 0; index < maxModelAttempts; index += 1) {
         const candidate = { ...candidates[index], ...modelConfig };
         attemptedModels.push(candidate.model);
         let attempt = 0;
@@ -295,13 +303,14 @@ export async function generateLlmAnswer ({ systemPrompt, prompt, sources = [], t
                     await sleep(retryDelayMs(attempt - 1, policy.backoffBaseMs, policy.backoffMaxMs));
                     continue;
                 }
-                const canFallback = reason && shouldFallbackOn(reason) && index < candidates.length - 1;
-                if (canFallback) break; // 切换到下一个候选模型
+                const canFallback = reason && shouldFallbackOn(reason) && index < maxModelAttempts - 1;
+                if (canFallback) { fallbackTriggered = reason; break; } // 切换到下一个候选模型
                 throw error;
             }
         }
     }
     const resolved = resolveProvider(candidates[0] || modelConfig);
+    if (fallbackTriggered) recordLlmTiming({ model: resolved.requestedModel, ttftMs: 0, totalMs: 0, timedOut: false, fallbackTriggered: true, provider: resolved.provider });
     return { provider: publicStatus(resolved), text: fallback };
 }
 
@@ -353,7 +362,7 @@ async function streamOnce ({ candidate, systemPrompt, prompt, sources, toolResul
                     if (!line.startsWith('data:')) continue;
                     const raw = line.replace(/^data:\s*/, '');
                     if (raw === '[DONE]') {
-                        recordLlmTiming({ model: resolved.requestedModel, ttftMs: firstTokenAt ? firstTokenAt - startedAt : Date.now() - startedAt, totalMs: Date.now() - startedAt, timedOut: false });
+                        recordLlmTiming({ model: resolved.requestedModel, ttftMs: firstTokenAt ? firstTokenAt - startedAt : Date.now() - startedAt, totalMs: Date.now() - startedAt, timedOut: false, provider: resolved.provider, stream: true });
                         return { resolved, streamed: true, text };
                     }
                     const delta = JSON.parse(raw)?.choices?.[0]?.delta?.content || '';
@@ -367,13 +376,15 @@ async function streamOnce ({ candidate, systemPrompt, prompt, sources, toolResul
                 }
             }
         }
-        recordLlmTiming({ model: resolved.requestedModel, ttftMs: firstTokenAt ? firstTokenAt - startedAt : Date.now() - startedAt, totalMs: Date.now() - startedAt, timedOut: false });
+        recordLlmTiming({ model: resolved.requestedModel, ttftMs: firstTokenAt ? firstTokenAt - startedAt : Date.now() - startedAt, totalMs: Date.now() - startedAt, timedOut: false, provider: resolved.provider, stream: true });
         return { resolved, streamed: true, text };
     } catch (error) {
-        if (isAbortError(error) && (didTimeout() || abortType) && !userCancelled()) {
+        // 同 generateOnce：用 didTimeout()/abortType 判定，不依赖 isAbortError，
+        // 因为 undici fetch/ReadableStream 在 abort 时可能抛出 signal.reason（非 AbortError）。
+        if ((didTimeout() || abortType) && !userCancelled()) {
             const type = abortType || 'total';
             const timeoutError = buildTimeoutError(type, type === 'first_token' ? firstTokenMs : (type === 'idle' ? idleMs : totalTimeoutMs));
-            recordLlmTiming({ model: resolved.requestedModel, ttftMs: firstTokenAt ? firstTokenAt - startedAt : Date.now() - startedAt, totalMs: Date.now() - startedAt, timedOut: true, timeoutType: type });
+            recordLlmTiming({ model: resolved.requestedModel, ttftMs: firstTokenAt ? firstTokenAt - startedAt : Date.now() - startedAt, totalMs: Date.now() - startedAt, timedOut: true, timeoutType: type, provider: resolved.provider, stream: true });
             // 已向客户端推送过 delta 的中途超时不能安全切 fallback，直接抛出。
             if (emitted && type !== 'first_token') timeoutError.partialStreamEmitted = true;
             throw timeoutError;
@@ -389,7 +400,10 @@ async function streamOnce ({ candidate, systemPrompt, prompt, sources, toolResul
 export async function streamLlmAnswer ({ systemPrompt, prompt, sources = [], toolResults = {}, onDelta, modelConfig = {} }) {
     const candidates = runtimeCandidates(modelConfig);
     const attemptedModels = [];
-    for (let index = 0; index < candidates.length; index += 1) {
+    const fallbackPolicy = getRuntimeTimeoutSettingsSnapshot().fallbackPolicy || { triggers: [], maxAttempts: candidates.length };
+    const maxModelAttempts = Math.min(candidates.length, Math.max(1, Number(fallbackPolicy.maxAttempts) || candidates.length));
+    let fallbackTriggered = null;
+    for (let index = 0; index < maxModelAttempts; index += 1) {
         const candidate = { ...candidates[index], ...modelConfig };
         attemptedModels.push(candidate.model);
         try {
@@ -399,28 +413,32 @@ export async function streamLlmAnswer ({ systemPrompt, prompt, sources = [], too
             // 已推送过 delta 的中途超时不能安全切 fallback（会导致重复输出），直接抛出
             if (error?.partialStreamEmitted) throw error;
             const reason = classifyForFallback(error);
-            const canFallback = reason && shouldFallbackOn(reason) && index < candidates.length - 1;
-            if (canFallback) continue;
+            const canFallback = reason && shouldFallbackOn(reason) && index < maxModelAttempts - 1;
+            if (canFallback) { fallbackTriggered = reason; continue; }
             throw error;
         }
     }
     const resolved = resolveProvider(candidates[0] || modelConfig);
+    if (fallbackTriggered) recordLlmTiming({ model: resolved.requestedModel, ttftMs: 0, totalMs: 0, timedOut: false, fallbackTriggered: true, provider: resolved.provider, stream: true });
     return { provider: publicStatus(resolved), streamed: false, text: '' };
 }
 
-export async function testLlmConnection ({ provider, model, timeoutMs = 15000 }) {
+export async function testLlmConnection ({ provider, model, timeoutMs }) {
     const startedAt = Date.now();
+    const probe = resolveTimeoutsForModel(model);
+    const effectiveProbeMs = timeoutMs || probe.connectProbeMs;
     const result = await generateLlmAnswer({
         systemPrompt: 'You are a connectivity probe. Reply with OK only.',
         prompt: 'OK',
         fallback: '',
-        modelConfig: { provider, model, timeoutMs }
+        modelConfig: { provider, model, timeoutMs: effectiveProbeMs }
     });
     return {
         ok: Boolean(result.provider.configured && result.text),
         provider: result.provider.provider,
         model: result.provider.requestedModel,
         latencyMs: Date.now() - startedAt,
+        timeoutMs: effectiveProbeMs,
         credentialSource: 'server-secret'
     };
 }
