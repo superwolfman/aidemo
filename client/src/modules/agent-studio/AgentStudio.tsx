@@ -6,6 +6,7 @@ import { listAgentStudioRuns } from '../../services/agentRunService';
 import { useSession } from '../../hooks/useSession';
 import { useAgentRun } from '../../hooks/useAgentRun';
 import { useEval } from '../../hooks/useEval';
+import { subscribeRuntimeModelSettingsChanged } from '../../platform/runtimeModelEvents';
 
 let localMessageSeed = 0;
 const createLocalMessageId = (prefix: string) => `${prefix}-local-${localMessageSeed += 1}`;
@@ -19,7 +20,7 @@ type Artifact = { id: string; type: string; title: string; status: string; conte
 type AgentPlanItem = { id: string; name: string; owner: string; status: string; guardrail: string; tool: string; output?: unknown; error?: string };
 type AgentLog = { id: string; level: string; message: string; at: string; tool?: string; action?: string };
 type AgentIntent = { id: string; label: string; goal: string; scopes: string[]; riskLevel: string; confidence?: number; signals?: string[] };
-type AgentRun = { _id: string; runId: string; status: string; prompt: string; intent?: AgentIntent; selectedSkill?: AgentCapability; plan?: AgentPlanItem[]; sources?: RagSource[]; artifacts?: Artifact[]; trace?: TraceStep[]; logs?: AgentLog[]; answer?: string; createdAt?: string; review?: any; controlState?: any; provider?: Record<string, unknown>; quality?: RunQuality; evalCaseId?: string };
+type AgentRun = { _id: string; runId: string; status: string; prompt: string; intent?: AgentIntent; selectedSkill?: AgentCapability; plan?: AgentPlanItem[]; sources?: RagSource[]; artifacts?: Artifact[]; trace?: TraceStep[]; logs?: AgentLog[]; answer?: string; createdAt?: string; review?: any; controlState?: any; provider?: { provider?: string; mode?: string; model?: string; requestedModel?: string; primaryModel?: string; runtimeVersion?: number; fallbackUsed?: boolean; attemptedModels?: string[] }; quality?: RunQuality; evalCaseId?: string };
 type RunQuality = { score: number; passed: number; total: number; avgCitationScore: number; verdict: string; checks: Array<{ key: string; label: string; passed: boolean; value: string }> };
 type EvalCase = { id: string; title: string; prompt: string; expected: string[]; status: string; lastResult?: RunQuality };
 type AgentRunState = { status: string; label: string; runId?: string; intent?: AgentIntent; selectedSkill?: AgentCapability; plan?: AgentPlanItem[] };
@@ -96,6 +97,8 @@ export default function AgentStudio() {
     const currentArtifacts = artifacts.length ? artifacts : activeRun?.artifacts || [];
     const currentLogs = useMemo(() => logs.length ? logs : activeRun?.logs || [], [activeRun?.logs, logs]);
     const activeRunId = activeRun?._id || runState.runId || visibleMessages.find((item) => item.runId)?.runId;
+    const actualRunModel = String(activeRun?.provider?.requestedModel || activeRun?.provider?.model || '');
+    const runUsedFallback = activeRun?.provider?.fallbackUsed === true;
     const toolCalls = currentTrace.filter((item) => item.tool || item.input || item.output || item.error);
     const stateIndex = Math.max(0, stateFlow.indexOf(runState.status));
     const traceById = useMemo(() => new Map(currentTrace.map((item) => [item.id, item])), [currentTrace]);
@@ -165,7 +168,14 @@ export default function AgentStudio() {
         else { const created = await sessionService.createAgentStudioSession('Agent Runtime 首次会话'); setSessions([created.session]); setActive(created.session); }
     }, [loadEvalCases, setCases, setSessions]);
 
+    const refreshBlueprint = useCallback(async () => {
+        setBlueprint(await getAgentStudioBlueprint() as Blueprint);
+    }, []);
+
     useEffect(() => { load().catch(console.error); }, [load]);
+    useEffect(() => subscribeRuntimeModelSettingsChanged(() => {
+        void refreshBlueprint().catch((error) => console.warn('[AgentStudio] runtime blueprint refresh failed:', error));
+    }), [refreshBlueprint]);
     useEffect(() => { const el = logRef.current; if (el) el.scrollTop = el.scrollHeight; }, [currentLogs.length, answer, running]);
 
     function hydrateRun(run: AgentRun) {
@@ -230,11 +240,11 @@ export default function AgentStudio() {
         <section className="agentops-page">
             <Header title="Agent Runtime Console" desc="AgentOps 运行控制台：面向线上 Agent 的意图路由、计划编排、状态机、工具审计、人工审批、回滚与运行日志。" action={<Status status={running ? 'streaming' : runState.status} />} />
             <section className="agentops-hero">
-                <div><span>AGENTOPS CONTROL PLANE</span><strong>{blueprint?.runtime.llm.provider || 'provider'} · {blueprint?.runtime.llm.model || 'model'}</strong><p>{blueprint?.controls?.policy || 'Agent 控制动作会进入审计日志。'} 当前页面不再承担聊天主流程，而是负责运行治理、审计复盘和高风险控制。</p></div>
+                <div><span>AGENTOPS CONTROL PLANE</span><strong>配置模型 {blueprint?.runtime.llm.model || 'loading'} · Run 实际模型 {actualRunModel || '尚未运行'}{runUsedFallback ? '（备用）' : ''}</strong><p>{blueprint?.controls?.policy || 'Agent 控制动作会进入审计日志。'} 当前页面不再承担聊天主流程，而是负责运行治理、审计复盘和高风险控制。</p></div>
                 <div className="agentops-health"><span><b>{opsMetrics.total}</b> Runs</span><span><b>{opsMetrics.sessions}</b> Sessions</span><span><b>{opsMetrics.waiting}</b> Waiting</span><span><b>{opsMetrics.failed}</b> Failed</span><span><b>{opsMetrics.avgLatency}ms</b> Avg latency</span></div>
             </section>
             <section className="agentops-runtime-grid">
-                <article className={blueprint?.runtime.llm.mode === 'live' ? 'live' : 'fallback'}><span>LLM Provider</span><strong>{blueprint?.runtime.llm.provider || 'mock'} / {blueprint?.runtime.llm.model || 'deterministic'}</strong><p>{blueprint?.runtime.llm.configured ? '真实模型已配置，流式调用可用。' : '未配置真实模型 Key，运行会降级到本地 deterministic runtime。'}</p><em>{blueprint?.runtime.llm.mode || 'mock'}</em></article>
+                <article className={blueprint?.runtime.llm.mode === 'live' ? 'live' : 'fallback'}><span>当前配置模型</span><strong>{blueprint?.runtime.llm.provider || 'mock'} / {blueprint?.runtime.llm.model || 'deterministic'}</strong><p>{actualRunModel ? `本次 Run 实际模型：${actualRunModel}${runUsedFallback ? '（备用模型）' : '（主模型）'}` : (blueprint?.runtime.llm.configured ? '真实模型已配置，新 Run 将使用当前路由。' : '未配置真实模型 Key，运行会降级到本地 deterministic runtime。')}</p><em>{blueprint?.runtime.llm.mode || 'mock'}</em></article>
                 <article className={blueprint?.runtime.rag.retrievalBackend === 'mongodb-atlas-vector-search' ? 'live' : 'fallback'}><span>Vector Store</span><strong>{blueprint?.runtime.rag.retrievalBackend || blueprint?.runtime.rag.vectorStore || 'local-hash'}</strong><p>{blueprint?.runtime.rag.productionReady ? 'MongoDB Atlas Vector Search 已作为检索后端。' : blueprint?.runtime.rag.error || '当前使用本地 hash fallback，需配置 Atlas URI 和 Vector Search Index。'}</p><em>{blueprint?.runtime.rag.mode || 'fallback'}</em></article>
                 <article className={activeRun?.quality?.verdict === 'ready_for_review' ? 'live' : 'fallback'}><span>Run Quality</span><strong>{activeRun?.quality ? `${activeRun.quality.score}% · ${activeRun.quality.verdict}` : '等待 Run'}</strong><p>{activeRun?.quality ? `通过 ${activeRun.quality.passed}/${activeRun.quality.total} 项，平均引用分 ${activeRun.quality.avgCitationScore}` : '运行后展示引用命中、PRD、API、Trace 和 Provider 透明度。'}</p><em>{activeRun?.status || runState.status}</em></article>
             </section>

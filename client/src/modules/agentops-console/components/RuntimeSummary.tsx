@@ -9,6 +9,9 @@ type Props = {
 };
 
 export function RuntimeSummary({ activeRun, blueprint, ragRuntime, ragLive }: Props) {
+  const configuredModel = blueprint?.runtime.llm.model;
+  const actualModel = String(activeRun?.provider?.requestedModel || activeRun?.provider?.model || '');
+  const fallbackUsed = activeRun?.provider?.fallbackUsed === true;
   return (
     <section className="ops-runtime-summary panel">
       <div className="ops-runtime-title">
@@ -17,7 +20,10 @@ export function RuntimeSummary({ activeRun, blueprint, ragRuntime, ragLive }: Pr
         <p>{activeRun?.prompt || '从 Run Registry 选择真实运行，或创建新的限额 Run；这里不会展示静态伪造结果。'}</p>
       </div>
       <div className="ops-runtime-pills">
-        <em>{blueprint?.runtime.llm.provider || 'llm'} · {blueprint?.runtime.llm.mode || 'loading'}</em>
+        <em>配置模型 {configuredModel || 'loading'} · {blueprint?.runtime.llm.provider || 'llm'}</em>
+        <em className={fallbackUsed ? 'fallback' : actualModel ? 'live' : ''}>
+          Run 实际模型 {actualModel || '尚未运行'}{fallbackUsed ? ' · fallback' : ''}
+        </em>
         <em className={ragLive ? 'live' : 'fallback'}>
           {ragLive ? 'mongodb-atlas-vector-search live' : `${ragRuntime?.retrievalBackend || ragRuntime?.vectorStore || 'vector'} fallback`}
         </em>

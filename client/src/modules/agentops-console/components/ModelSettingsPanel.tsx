@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, CheckCircle2, History, PlayCircle, RotateCcw, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiError } from '../../../api/client';
+import { notifyRuntimeModelSettingsChanged } from '../../../platform/runtimeModelEvents';
 import {
     getRuntimeModelSettings,
     publishRuntimeModelSettings,
@@ -33,7 +34,7 @@ function formatDate(value?: string) {
     return new Date(value).toLocaleString('zh-CN', { hour12: false });
 }
 
-export function ModelSettingsPanel({ onRuntimeChanged }: { onRuntimeChanged?: () => void }) {
+export function ModelSettingsPanel() {
     const [data, setData] = useState<RuntimeModelSettingsResponse | null>(null);
     const [primaryKey, setPrimaryKey] = useState('');
     const [fallbackKeys, setFallbackKeys] = useState<string[]>([]);
@@ -108,7 +109,11 @@ export function ModelSettingsPanel({ onRuntimeChanged }: { onRuntimeChanged?: ()
             hydrate(result);
             setChangeNote('');
             setMessage({ type: 'success', text: `v${result.setting.version} 已发布，所有新请求即时生效，无需重启服务。` });
-            onRuntimeChanged?.();
+            notifyRuntimeModelSettingsChanged({
+                version: result.setting.version,
+                primary: result.setting.primary,
+                reason: 'publish'
+            });
         } catch (error) {
             const text = error instanceof ApiError && error.status === 409
                 ? '配置已被其他管理员更新，请刷新后重新确认。'
@@ -129,7 +134,11 @@ export function ModelSettingsPanel({ onRuntimeChanged }: { onRuntimeChanged?: ()
             });
             hydrate(result);
             setMessage({ type: 'success', text: `已基于 v${targetVersion} 创建并启用 v${result.setting.version}。` });
-            onRuntimeChanged?.();
+            notifyRuntimeModelSettingsChanged({
+                version: result.setting.version,
+                primary: result.setting.primary,
+                reason: 'rollback'
+            });
         } catch (error) {
             setMessage({ type: 'error', text: error instanceof Error ? error.message : '回滚失败' });
         } finally { setBusy(''); }

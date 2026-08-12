@@ -51,7 +51,16 @@ export type AgentRun = {
   reviewHistory?: Array<{ _id?: string; action: string; note?: string; reviewerId?: string; nextStatus?: string; createdAt?: string }>;
   controlHistory?: Array<{ id: string; action: string; status: string; reason?: string; createdAt: string }>;
   evalResult?: { score: number; passed: number; total: number; verdict: string };
-  provider?: Record<string, unknown>;
+  provider?: {
+    provider?: string;
+    mode?: string;
+    model?: string;
+    requestedModel?: string;
+    primaryModel?: string;
+    runtimeVersion?: number;
+    fallbackUsed?: boolean;
+    attemptedModels?: string[];
+  };
   createdAt?: string;
 };
 

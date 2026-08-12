@@ -20,6 +20,8 @@ import type { ShellContext } from '../../platform/subapps';
 import { getAgentStudioBlueprint } from '../../services/blueprintService';
 import * as sessionService from '../../services/sessionService';
 import { getAgentStudioRun } from '../../services/agentRunService';
+import { readBlueprintCache, writeBlueprintCache } from '../../services/blueprintCache';
+import { subscribeRuntimeModelSettingsChanged } from '../../platform/runtimeModelEvents';
 
 const deliveryTaskModes = [
     { id: 'product-workflow', title: '产品交付工作流', desc: '需求澄清、PRD、页面结构、接口协议和任务拆解', agentId: 'product-delivery-agent', scopes: ['architecture', 'standards', 'ai-native', 'frontend', 'frontend-observability', 'engineering-governance', 'performance'], promptSuffix: '请按产品交付工作流输出 PRD 摘要、页面结构、接口协议、状态流转、研发任务拆解、风险和待确认问题。' },
@@ -86,15 +88,9 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
     }, [artifacts]);
     const load = useCallback(async () => {
         try {
-            // 先读本地缓存，避免 fallback 闪烁
-            const cachedBlueprint = localStorage.getItem('aidemo.blueprint');
-            if (cachedBlueprint) {
-                try {
-                    setBlueprint(JSON.parse(cachedBlueprint));
-                } catch {
-                    localStorage.removeItem('aidemo.blueprint');
-                }
-            }
+            // 仅缓存租户隔离的稳定 Blueprint；动态 LLM 路由始终从服务端获取。
+            const cachedBlueprint = readBlueprintCache<RuntimeBlueprint>(tenantId);
+            if (cachedBlueprint) setBlueprint(cachedBlueprint);
 
             const [blueprintResult, sessionResult, caseResult] = await Promise.all([
                 getAgentStudioBlueprint(),
@@ -102,7 +98,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
                 loadEvalCases()
             ]);
             setBlueprint(blueprintResult);
-            localStorage.setItem('aidemo.blueprint', JSON.stringify(blueprintResult));
+            writeBlueprintCache(tenantId, blueprintResult);
             setCases(caseResult.cases || []);
 
             // Keep Alive：优先恢复上次的 active session
@@ -124,9 +120,18 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
         } finally {
             loadedRef.current = true;
         }
-    }, [loadEvalCases, setCases, setActive, sessionState]);
+    }, [loadEvalCases, setCases, setActive, sessionState, tenantId]);
+
+    const refreshBlueprint = useCallback(async () => {
+        const next = await getAgentStudioBlueprint();
+        setBlueprint(next);
+        writeBlueprintCache(tenantId, next);
+    }, [tenantId]);
 
     useEffect(() => { load().catch(console.error); }, [load]);
+    useEffect(() => subscribeRuntimeModelSettingsChanged(() => {
+        void refreshBlueprint().catch((error) => console.warn('[DeliveryCopilot] runtime blueprint refresh failed:', error));
+    }), [refreshBlueprint]);
     useEffect(() => { if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight; }, [answer, running]);
 
     // Keep Alive：session 加载完成后恢复 run 与视图状态
@@ -219,6 +224,8 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
         setArtifacts([]);
         setTrace([]);
         setQuality(null);
+        // 新 Run 尚未返回真实 provider，避免继续显示上一条历史 Run 的模型。
+        setActiveRun(null);
         setStatus('validating');
         setNotice('');
         try {
@@ -341,7 +348,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
                 </div>
             ) : null}
             {notice ? <div className="delivery-run-notice" role="status">{notice}</div> : null}
-            <SessionPanel blueprint={blueprint} ragRuntime={ragRuntime} ragLive={ragLive} quality={quality} />
+            <SessionPanel blueprint={blueprint} activeRun={activeRun} ragRuntime={ragRuntime} ragLive={ragLive} quality={quality} />
             <ArtifactOverview artifactSummary={artifactSummary} activeArtifactId={activeArtifact?.id} onSelectArtifact={selectArtifact} />
             <main className="delivery-workspace delivery-workspace-v2">
                 <section className="delivery-workspace-col delivery-workspace-left">

@@ -1,14 +1,17 @@
-import type { RagRuntime, RunQuality, RuntimeBlueprint } from '../types';
+import type { AgentRun, RagRuntime, RunQuality, RuntimeBlueprint } from '../types';
 
 type Props = {
     blueprint: RuntimeBlueprint | null;
+    activeRun: AgentRun | null;
     ragRuntime?: RagRuntime;
     ragLive: boolean;
     quality: RunQuality | null;
 };
 
-export function SessionPanel({ blueprint, ragRuntime, ragLive, quality }: Props) {
+export function SessionPanel({ blueprint, activeRun, ragRuntime, ragLive, quality }: Props) {
     const llm = blueprint?.runtime.llm;
+    const runProvider = activeRun?.provider;
+    const actualModel = runProvider?.requestedModel || runProvider?.model;
     return (
         <section className="delivery-hero panel">
             <div>
@@ -18,9 +21,17 @@ export function SessionPanel({ blueprint, ragRuntime, ragLive, quality }: Props)
             </div>
             <div className="delivery-hero-metrics">
                 <article>
-                    <strong>{llm?.provider || 'runtime'}</strong>
-                    <span>{llm?.mode || 'loading'} · {llm?.model || 'model'}</span>
+                    <strong>当前配置模型</strong>
+                    <span>{llm?.model || 'loading'}</span>
+                    <small>{llm?.provider || 'runtime'} · {llm?.mode || 'loading'}</small>
                 </article>
+                {actualModel ? (
+                    <article className={runProvider?.fallbackUsed ? 'warning' : 'live'}>
+                        <strong>本次 Run 实际模型</strong>
+                        <span>{actualModel}</span>
+                        <small>{runProvider?.provider || 'runtime'} · {runProvider?.fallbackUsed ? `备用模型（主模型 ${runProvider.primaryModel || 'unknown'}）` : '主模型'}</small>
+                    </article>
+                ) : null}
                 <article className={ragLive ? 'live' : 'warning'}>
                     <strong>{ragLive ? 'live vector store' : 'fallback retrieval'}</strong>
                     <span>{ragRuntime?.retrievalBackend || ragRuntime?.backend || 'loading'} · {ragRuntime?.index || 'chunks_vector_index'}</span>

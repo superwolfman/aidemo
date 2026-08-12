@@ -7,6 +7,7 @@ export const AppEvents = {
   KNOWLEDGE_DOCUMENT_CREATED: 'knowledge:document-created',
   SPEC_GENERATED: 'spec:generated',
   SKILL_RUN_COMPLETED: 'skill:run-completed',
+  RUNTIME_MODEL_SETTINGS_CHANGED: 'runtime:model-settings-changed',
   FLOW_NODE_SELECTED: 'flow:node-selected',
   FLOW_COMMAND_EXECUTED: 'flow:command-executed',
   TELEMETRY_EVENT: 'telemetry:event'

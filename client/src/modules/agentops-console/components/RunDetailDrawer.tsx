@@ -48,7 +48,7 @@ export function RunDetailDrawer({ open, activeRun, blueprint, detailTab, onTabCh
                             <article>
                                 <span>Runtime</span>
                                 <strong>{String(activeRun?.provider?.provider || blueprint?.runtime.llm.provider || 'LLM')}</strong>
-                                <p>{String(activeRun?.provider?.mode || blueprint?.runtime.llm.mode || 'unknown')} · {String(activeRun?.provider?.model || blueprint?.runtime.llm.model || 'model')}</p>
+                                <p>{String(activeRun?.provider?.mode || blueprint?.runtime.llm.mode || 'unknown')} · {String(activeRun?.provider?.requestedModel || activeRun?.provider?.model || blueprint?.runtime.llm.model || 'model')}{activeRun?.provider?.fallbackUsed ? ' · fallback' : ''}</p>
                             </article>
                             <article>
                                 <span>Evidence</span>

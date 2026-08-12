@@ -92,6 +92,16 @@ export type AgentRun = {
     artifacts?: Artifact[];
     trace?: TraceStep[];
     quality?: RunQuality;
+    provider?: {
+        provider?: string;
+        mode?: string;
+        model?: string;
+        requestedModel?: string;
+        primaryModel?: string;
+        runtimeVersion?: number;
+        fallbackUsed?: boolean;
+        attemptedModels?: string[];
+    };
 };
 
 export type EvalCase = {

@@ -25,8 +25,27 @@ export interface RuntimeBlueprint {
     };
 }
 
+let blueprintGeneration = 0;
+let blueprintRequest: { generation: number; promise: Promise<RuntimeBlueprint> } | null = null;
+
+export function invalidateAgentStudioBlueprint() {
+    blueprintGeneration += 1;
+    blueprintRequest = null;
+}
+
 export async function getAgentStudioBlueprint(): Promise<RuntimeBlueprint> {
-    return request('/api/agent-studio/blueprint');
+    if (blueprintRequest?.generation === blueprintGeneration) return blueprintRequest.promise;
+    const generation = blueprintGeneration;
+    const promise = request('/api/agent-studio/blueprint') as Promise<RuntimeBlueprint>;
+    blueprintRequest = { generation, promise };
+    try {
+        return await promise;
+    } finally {
+        // Keep only in-flight deduplication. A later user refresh still reaches the server truth.
+        if (blueprintRequest?.generation === generation && blueprintRequest.promise === promise) {
+            blueprintRequest = null;
+        }
+    }
 }
 
 export interface CopilotRuntime {

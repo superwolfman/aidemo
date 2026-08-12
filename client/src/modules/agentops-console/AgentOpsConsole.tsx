@@ -17,6 +17,7 @@ import * as agentRunService from '../../services/agentRunService';
 import { getAgentStudioRun } from '../../services/agentRunService';
 import { useTenantSessionState } from '../../hooks/useTenantSessionState';
 import type { ShellContext } from '../../platform/subapps';
+import { subscribeRuntimeModelSettingsChanged } from '../../platform/runtimeModelEvents';
 
 type AgentSession = {
     _id: string;
@@ -71,7 +72,16 @@ type AgentRun = {
     reviewHistory?: Array<{ _id?: string; action: string; note?: string; reviewerId?: string; nextStatus?: string; createdAt?: string }>;
     controlHistory?: Array<{ id: string; action: string; status: string; reason?: string; createdAt: string }>;
     evalResult?: { score: number; passed: number; total: number; verdict: string };
-    provider?: Record<string, unknown>;
+    provider?: {
+        provider?: string;
+        mode?: string;
+        model?: string;
+        requestedModel?: string;
+        primaryModel?: string;
+        runtimeVersion?: number;
+        fallbackUsed?: boolean;
+        attemptedModels?: string[];
+    };
     createdAt?: string;
 };
 
@@ -268,7 +278,14 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
         }
     }, [setActive, setRuns, setBlueprint, tenantSessionState]);
 
+    const refreshBlueprint = useCallback(async () => {
+        setBlueprint(await getAgentStudioBlueprint());
+    }, [setBlueprint]);
+
     useEffect(() => { load().catch(console.error); }, [load]);
+    useEffect(() => subscribeRuntimeModelSettingsChanged(() => {
+        void refreshBlueprint().catch((error) => console.warn('[AgentOps] runtime blueprint refresh failed:', error));
+    }), [refreshBlueprint]);
 
     // 列表接口不返回 trace/artifacts/logs，选中 run 后通过详情接口补全，避免运行完后被列表覆盖导致 Trace 为空
     useEffect(() => {
@@ -361,7 +378,7 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
                 </div>
             ) : null}
             {consoleView === 'models' && canManageRuntimeModels ? (
-                <ModelSettingsPanel onRuntimeChanged={() => { void load(); }} />
+                <ModelSettingsPanel />
             ) : (
             <>
             <RuntimeSummary activeRun={activeRunMemo} blueprint={blueprint} ragRuntime={ragRuntime} ragLive={ragLive} />
