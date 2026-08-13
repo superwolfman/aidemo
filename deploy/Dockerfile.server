@@ -21,6 +21,7 @@ ENV APP_COMMIT=$APP_COMMIT APP_BRANCH=$APP_BRANCH APP_VERSION=$APP_VERSION APP_D
 ENV HOST=0.0.0.0
 ENV PORT=4000
 COPY --from=deps /app/node_modules ./node_modules
+COPY release-info.json ./release-info.json
 COPY server/ ./server/
 EXPOSE 4000
 # 健康检查命中 /health（server/src/index.js:42）

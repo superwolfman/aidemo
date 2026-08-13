@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -20,7 +21,17 @@ function git (args: string[]): string | null {
     }
 }
 
-const commit = process.env.APP_COMMIT || git(['rev-parse', 'HEAD']) || 'unknown';
+function releaseCommit (): string | null {
+    try {
+        const value = JSON.parse(readFileSync(join(repoRoot, 'release-info.json'), 'utf8')).commit;
+        return /^[0-9a-f]{40}$/i.test(value) ? value : null;
+    } catch {
+        return null;
+    }
+}
+
+const envCommit = /^[0-9a-f]{40}$/i.test(process.env.APP_COMMIT || '') ? process.env.APP_COMMIT : null;
+const commit = envCommit || git(['rev-parse', 'HEAD']) || releaseCommit() || 'unknown';
 const shortCommit = commit === 'unknown' ? 'unknown' : commit.slice(0, 7);
 const branch = process.env.APP_BRANCH || git(['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown';
 const dirty = process.env.APP_DIRTY !== undefined
@@ -34,7 +45,8 @@ const buildMeta = {
     __APP_BRANCH__: JSON.stringify(branch),
     __APP_DESCRIBE__: JSON.stringify(describe),
     __APP_DIRTY__: JSON.stringify(dirty),
-    __APP_BUILD_TIME__: JSON.stringify(process.env.APP_BUILD_TIME || new Date().toISOString())
+    __APP_BUILD_TIME__: JSON.stringify(process.env.APP_BUILD_TIME || new Date().toISOString()),
+    __APP_ENV__: JSON.stringify(process.env.APP_ENV || 'development')
 };
 
 export default defineConfig({

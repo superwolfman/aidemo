@@ -45,6 +45,7 @@ services:
       args:
         # build 阶段注入前端 API 地址，换 IP/域名后需 --build 重新构建
         VITE_API_BASE: ${VITE_API_BASE}
+        APP_ENV: production
         APP_COMMIT: ${APP_COMMIT:-unknown}
         APP_BRANCH: ${APP_BRANCH:-unknown}
         APP_VERSION: ${APP_VERSION:-unknown}

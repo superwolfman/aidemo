@@ -34,10 +34,20 @@ function readHeadFromGitFolder () {
     }
 }
 
+function readReleaseCommit () {
+    try {
+        const release = JSON.parse(readFileSync(join(repoRoot, 'release-info.json'), 'utf8'));
+        return /^[0-9a-f]{40}$/i.test(release.commit) ? release.commit : null;
+    } catch {
+        return null;
+    }
+}
+
 export function getVersionInfo () {
     if (cachedVersion) return cachedVersion;
 
-    const commit = process.env.APP_COMMIT || runGit(['rev-parse', 'HEAD']) || readHeadFromGitFolder() || 'unknown';
+    const envCommit = /^[0-9a-f]{40}$/i.test(process.env.APP_COMMIT || '') ? process.env.APP_COMMIT : null;
+    const commit = envCommit || runGit(['rev-parse', 'HEAD']) || readHeadFromGitFolder() || readReleaseCommit() || 'unknown';
     const shortCommit = commit === 'unknown' ? 'unknown' : commit.slice(0, 7);
     const branch = process.env.APP_BRANCH || runGit(['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown';
     const dirty = process.env.APP_DIRTY !== undefined
