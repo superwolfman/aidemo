@@ -4,7 +4,13 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 ARG VITE_API_BASE
+ARG APP_COMMIT=unknown
+ARG APP_BRANCH=unknown
+ARG APP_VERSION=unknown
+ARG APP_DIRTY=false
+ARG APP_BUILD_TIME
 ENV VITE_API_BASE=$VITE_API_BASE
+ENV APP_COMMIT=$APP_COMMIT APP_BRANCH=$APP_BRANCH APP_VERSION=$APP_VERSION APP_DIRTY=$APP_DIRTY APP_BUILD_TIME=$APP_BUILD_TIME
 COPY package.json package-lock.json ./
 COPY client/package.json ./client/
 COPY server/package.json ./server/

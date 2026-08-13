@@ -37,11 +37,13 @@ function readHeadFromGitFolder () {
 export function getVersionInfo () {
     if (cachedVersion) return cachedVersion;
 
-    const commit = runGit(['rev-parse', 'HEAD']) || readHeadFromGitFolder() || 'unknown';
+    const commit = process.env.APP_COMMIT || runGit(['rev-parse', 'HEAD']) || readHeadFromGitFolder() || 'unknown';
     const shortCommit = commit === 'unknown' ? 'unknown' : commit.slice(0, 7);
-    const branch = runGit(['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown';
-    const dirty = (runGit(['status', '--porcelain']) || '').length > 0;
-    const describe = runGit(['describe', '--always', '--tags', '--dirty']) || shortCommit;
+    const branch = process.env.APP_BRANCH || runGit(['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown';
+    const dirty = process.env.APP_DIRTY !== undefined
+        ? process.env.APP_DIRTY === 'true'
+        : (runGit(['status', '--porcelain']) || '').length > 0;
+    const describe = process.env.APP_VERSION || runGit(['describe', '--always', '--tags', '--dirty']) || shortCommit;
 
     cachedVersion = {
         commit,
@@ -49,7 +51,7 @@ export function getVersionInfo () {
         branch,
         dirty,
         describe,
-        buildTime: new Date().toISOString(),
+        buildTime: process.env.APP_BUILD_TIME || new Date().toISOString(),
         node: process.version
     };
     return cachedVersion;

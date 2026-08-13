@@ -20,11 +20,13 @@ function git (args: string[]): string | null {
     }
 }
 
-const commit = git(['rev-parse', 'HEAD']) || 'unknown';
+const commit = process.env.APP_COMMIT || git(['rev-parse', 'HEAD']) || 'unknown';
 const shortCommit = commit === 'unknown' ? 'unknown' : commit.slice(0, 7);
-const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown';
-const dirty = (git(['status', '--porcelain']) || '').length > 0;
-const describe = git(['describe', '--always', '--tags', '--dirty']) || shortCommit;
+const branch = process.env.APP_BRANCH || git(['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown';
+const dirty = process.env.APP_DIRTY !== undefined
+    ? process.env.APP_DIRTY === 'true'
+    : (git(['status', '--porcelain']) || '').length > 0;
+const describe = process.env.APP_VERSION || git(['describe', '--always', '--tags', '--dirty']) || shortCommit;
 
 const buildMeta = {
     __APP_COMMIT__: JSON.stringify(commit),
@@ -32,7 +34,7 @@ const buildMeta = {
     __APP_BRANCH__: JSON.stringify(branch),
     __APP_DESCRIBE__: JSON.stringify(describe),
     __APP_DIRTY__: JSON.stringify(dirty),
-    __APP_BUILD_TIME__: JSON.stringify(new Date().toISOString())
+    __APP_BUILD_TIME__: JSON.stringify(process.env.APP_BUILD_TIME || new Date().toISOString())
 };
 
 export default defineConfig({

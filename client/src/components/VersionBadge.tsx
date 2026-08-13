@@ -30,8 +30,14 @@ export function VersionBadge() {
             .catch((err) => setError(err instanceof Error ? err.message : String(err)));
     }, []);
 
-    const consistent = server && server.commit === clientVersion.commit;
+    const validCommit = (value?: string) => Boolean(value && /^[0-9a-f]{40}$/i.test(value));
+    const clientKnown = validCommit(clientVersion.commit);
+    const serverKnown = validCommit(server?.commit);
+    const consistent = clientKnown && serverKnown && server?.commit === clientVersion.commit;
     const statusClass = error ? 'version-error' : consistent ? 'version-ok' : 'version-mismatch';
+
+    // 本地开发或旧镜像没有注入可信构建信息时不展示，避免出现没有诊断价值的 unknown。
+    if (!clientKnown || (!serverKnown && !error)) return null;
 
     return (
         <div className={`version-badge ${statusClass}`} title={`client=${clientVersion.commit} server=${server?.commit || error}`}>
@@ -43,7 +49,7 @@ export function VersionBadge() {
                 <span className="version-label">BE</span>
                 <span className="version-value">{error ? '—' : server?.shortCommit}{server?.dirty ? '*' : ''}</span>
             </div>
-            {consistent === false && !error ? <div className="version-hint">版本不一致</div> : null}
+            {!consistent && !error ? <div className="version-hint">版本不一致</div> : null}
         </div>
     );
 }

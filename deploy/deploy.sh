@@ -53,8 +53,17 @@ ORIGIN_PUBLIC_IP="${ORIGIN_PUBLIC_IP:-$(read_env_value ORIGIN_PUBLIC_IP)}"
 export VITE_API_BASE
 export PUBLIC_HOST
 export ORIGIN_PUBLIC_IP
+
+# 前后端镜像注入同一份不可变构建身份；运行时无需挂载 .git。
+APP_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
+APP_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+APP_VERSION="$(git describe --always --tags 2>/dev/null || true)"
+APP_BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+if [ -n "$(git status --porcelain 2>/dev/null || true)" ]; then APP_DIRTY=true; else APP_DIRTY=false; fi
+export APP_COMMIT APP_BRANCH APP_VERSION APP_BUILD_TIME APP_DIRTY
 echo "✓ VITE_API_BASE=$VITE_API_BASE"
 echo "✓ PUBLIC_HOST=$PUBLIC_HOST"
+echo "✓ RELEASE=${APP_VERSION:-unknown} · dirty=$APP_DIRTY"
 
 echo "✓ 域名由阿里云 DNS 指向 ECS，HTTPS 证书由 Caddy 自动管理"
 

@@ -13,6 +13,12 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.server
+      args:
+        APP_COMMIT: ${APP_COMMIT:-unknown}
+        APP_BRANCH: ${APP_BRANCH:-unknown}
+        APP_VERSION: ${APP_VERSION:-unknown}
+        APP_DIRTY: ${APP_DIRTY:-false}
+        APP_BUILD_TIME: ${APP_BUILD_TIME:-}
     image: aidemo-api:prod
     container_name: aidemo-api
     env_file:
@@ -39,6 +45,11 @@ services:
       args:
         # build 阶段注入前端 API 地址，换 IP/域名后需 --build 重新构建
         VITE_API_BASE: ${VITE_API_BASE}
+        APP_COMMIT: ${APP_COMMIT:-unknown}
+        APP_BRANCH: ${APP_BRANCH:-unknown}
+        APP_VERSION: ${APP_VERSION:-unknown}
+        APP_DIRTY: ${APP_DIRTY:-false}
+        APP_BUILD_TIME: ${APP_BUILD_TIME:-}
     image: aidemo-web:prod
     container_name: aidemo-web
     expose:
