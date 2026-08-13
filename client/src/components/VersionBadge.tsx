@@ -23,11 +23,13 @@ type ServerVersion = {
 export function VersionBadge() {
     const [server, setServer] = useState<ServerVersion | null>(null);
     const [error, setError] = useState<string>('');
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         request('/api/version')
             .then((data) => setServer(data as ServerVersion))
-            .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+            .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+            .finally(() => setLoading(false));
     }, []);
 
     const validCommit = (value?: string) => Boolean(value && /^[0-9a-f]{40}$/i.test(value));
@@ -38,7 +40,7 @@ export function VersionBadge() {
     const production = typeof __APP_ENV__ !== 'undefined' && __APP_ENV__ === 'production';
 
     // 生产版本一致时保持界面干净；开发环境保留版本信息用于联调。
-    if (production && consistent) return null;
+    if (production && (loading || consistent)) return null;
 
     const hint = !clientKnown || !serverKnown
         ? '版本信息缺失'

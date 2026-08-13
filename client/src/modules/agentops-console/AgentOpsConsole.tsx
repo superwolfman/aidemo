@@ -221,6 +221,7 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
     const [detailOpen, setDetailOpen] = useState(false);
     const [detailTab, setDetailTab] = useState<'overview' | 'trace' | 'artifacts' | 'sources' | 'raw'>('overview');
     const [runs, setRuns] = useState<AgentRun[]>([]);
+    const [initializing, setInitializing] = useState(true);
     const activeRunIdRef = useRef(activeRunId);
     useEffect(() => { activeRunIdRef.current = activeRunId; }, [activeRunId]);
 
@@ -286,7 +287,13 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
         setBlueprint(await getAgentStudioBlueprint());
     }, [setBlueprint]);
 
-    useEffect(() => { load().catch(console.error); }, [load]);
+    useEffect(() => {
+        let active = true;
+        load()
+            .catch(console.error)
+            .finally(() => { if (active) setInitializing(false); });
+        return () => { active = false; };
+    }, [load]);
     useEffect(() => subscribeRuntimeModelSettingsChanged(() => {
         void refreshBlueprint().catch((error) => console.warn('[AgentOps] runtime blueprint refresh failed:', error));
     }), [refreshBlueprint]);
@@ -402,6 +409,14 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
                 <ModelSettingsPanel />
             ) : consoleView === 'timeout' && canManageRuntimeModels ? (
                 <TimeoutPolicyPanel />
+            ) : initializing ? (
+                <section className="ops-initial-loading panel" aria-busy="true" aria-live="polite">
+                    <div className="stream-skeleton">
+                        <strong>正在恢复运行现场</strong>
+                        <span />
+                        <span />
+                    </div>
+                </section>
             ) : (
             <>
             <RuntimeSummary activeRun={activeRunMemo} blueprint={blueprint} ragRuntime={ragRuntime} ragLive={ragLive} />
