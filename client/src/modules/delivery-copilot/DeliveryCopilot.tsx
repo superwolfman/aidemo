@@ -240,8 +240,6 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
                 trace: (payload) => setTrace((items) => [...items.filter((item) => item.id !== payload.id), payload]),
                 sources: (payload) => {
                     setSources(payload.sources || []);
-                    setExternalSources(payload.externalSources || []);
-                    setExternalStatus(payload.externalStatus || null);
                     setFilteredChunks(payload.filteredChunks || []);
                     setRagDiagnostics(payload.diagnostics || null);
                 },
