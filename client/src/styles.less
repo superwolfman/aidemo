@@ -294,6 +294,55 @@ textarea:focus {
     font-size: 12px;
 }
 
+.version-badge {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    display: grid;
+    gap: 4px;
+    font-size: 11px;
+    color: #c8d4df;
+}
+
+.version-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.version-label {
+    width: 24px;
+    border-radius: 4px;
+    padding: 1px 4px;
+    background: rgba(255, 255, 255, 0.12);
+    color: #8ea2b3;
+    font-weight: 700;
+    text-align: center;
+    font-size: 10px;
+}
+
+.version-value {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.version-hint {
+    color: #fbbf24;
+    font-weight: 700;
+}
+
+.version-ok .version-value {
+    color: #86efac;
+}
+
+.version-mismatch .version-value {
+    color: #fca5a5;
+}
+
+.version-error .version-value {
+    color: #f87171;
+}
+
 .workspace {
     min-width: 0;
     height: 100vh;

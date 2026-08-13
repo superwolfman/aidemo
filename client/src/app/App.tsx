@@ -4,6 +4,7 @@ import { BrainCircuit, LogOut, PanelLeftClose, PanelLeftOpen, ShieldCheck, Users
 import { ApiError, configureAccessSession, request, tokenKey } from '../api/client';
 import { TenantSwitcher } from './TenantSwitcher';
 import { Header } from '../components/ui';
+import { VersionBadge } from '../components/VersionBadge';
 import { eventBus, AppEvents } from '../platform/events';
 import { MicroAppContainer } from '../platform/microFrontend';
 import { useShellRouter } from '../platform/router';
@@ -169,6 +170,7 @@ function Shell({ user, onLogout, onSwitchTenant }: { user: any; onLogout: () => 
             </div>
           )}
           <button onClick={onLogout}><LogOut size={16} />退出</button>
+          <VersionBadge />
         </div>
       </aside>
       <main className="workspace">

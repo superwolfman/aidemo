@@ -14,6 +14,7 @@ import { enforceDemoPermissions } from './middleware/demoAuthorization.js';
 import { initializeRuntimeModelSettings } from './services/runtimeModelSettings.js';
 import { initializeRuntimeTimeoutSettings } from './services/runtimeTimeoutSettings.js';
 import { setLlmTimingTelemetrySink } from './services/llmTimingMetrics.js';
+import { getVersionInfo } from './services/versionInfo.js';
 
 const store = await createStore();
 await initializeRuntimeModelSettings(store);
@@ -57,8 +58,13 @@ app.get('/health', (req, res) => {
         ok: true,
         store: store.kind,
         environment: config.mongodbEnvironment,
-        database: store.kind === 'mongo' ? config.mongodbDatabase : undefined
+        database: store.kind === 'mongo' ? config.mongodbDatabase : undefined,
+        version: getVersionInfo()
     });
+});
+
+app.get('/api/version', (req, res) => {
+    res.json(getVersionInfo());
 });
 
 app.use('/api/auth', authRouter(store, auth));
