@@ -88,6 +88,11 @@ test('runtime settings persist, become active immediately, and preserve actor hi
             qwen37Models.filter((model) => !view.catalog.some((item) => item.model === model)),
             []
         );
+        const qwen38Models = ['qwen3.8-2.4t-a95b', 'qwen3.8-max'];
+        assert.deepEqual(
+            qwen38Models.filter((model) => !view.catalog.some((item) => item.model === model)),
+            []
+        );
     } finally {
         restore();
         __resetRuntimeModelSettingsForTests();

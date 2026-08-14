@@ -46,7 +46,9 @@ const dashscopeModels = [
     ['qwen3.7-max-preview', 'Qwen 3.7 Max Preview', 'preview', true],
     ['qwen3.7-max-2026-05-20', 'Qwen 3.7 Max 2026-05-20', 'general', true],
     ['qwen3.7-plus-2026-05-26', 'Qwen 3.7 Plus 2026-05-26', 'general', true],
-    ['qwen3.7-max-2026-05-17', 'Qwen 3.7 Max 2026-05-17', 'general', true]
+    ['qwen3.7-max-2026-05-17', 'Qwen 3.7 Max 2026-05-17', 'general', true],
+    ['qwen3.8-2.4t-a95b', 'Qwen 3.8 2.4T A95B', 'general', true],
+    ['qwen3.8-max', 'Qwen 3.8 Max', 'general', true]
 ];
 
 export const runtimeModelCatalog = Object.freeze([
