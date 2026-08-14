@@ -40,7 +40,13 @@ const dashscopeModels = [
     ['qwen3-coder-flash', 'Qwen 3 Coder Flash', 'code', false],
     ['deepseek-r1-distill-qwen-7b', 'DeepSeek R1 Distill Qwen 7B', 'reasoning', false],
     ['qwen3.7-flash', 'Qwen 3.7 Flash', 'general', true],
-    ['qwen3.6-35b-a3b', 'Qwen 3.6 35B A3B', 'general', true]
+    ['qwen3.6-35b-a3b', 'Qwen 3.6 35B A3B', 'general', true],
+    ['qwen3.7-max', 'Qwen 3.7 Max', 'general', true],
+    ['qwen3.7-max-2026-06-08', 'Qwen 3.7 Max 2026-06-08', 'general', true],
+    ['qwen3.7-max-preview', 'Qwen 3.7 Max Preview', 'preview', true],
+    ['qwen3.7-max-2026-05-20', 'Qwen 3.7 Max 2026-05-20', 'general', true],
+    ['qwen3.7-plus-2026-05-26', 'Qwen 3.7 Plus 2026-05-26', 'general', true],
+    ['qwen3.7-max-2026-05-17', 'Qwen 3.7 Max 2026-05-17', 'general', true]
 ];
 
 export const runtimeModelCatalog = Object.freeze([

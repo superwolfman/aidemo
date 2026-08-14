@@ -29,6 +29,12 @@ function modelKey(value: RuntimeModelRef) {
     return `${value.provider}:${value.model}`;
 }
 
+function unavailableReason(item: RuntimeModelCatalogItem) {
+    if (!item.deliveryEligible) return '不适用于通用交付链';
+    if (!item.credentialConfigured) return '凭据未配置';
+    return '';
+}
+
 function formatDate(value?: string) {
     if (!value) return '-';
     return new Date(value).toLocaleString('zh-CN', { hour12: false });
@@ -59,10 +65,10 @@ export function ModelSettingsPanel() {
     useEffect(() => { void load(); }, [load]);
 
     const byKey = useMemo(() => new Map((data?.catalog || []).map((item) => [modelKey(item), item])), [data]);
-    const eligible = useMemo(() => (data?.catalog || []).filter((item) => item.deliveryEligible), [data]);
-    const availableFallbacks = eligible.filter((item) => {
+    const catalog = data?.catalog || [];
+    const availableFallbacks = catalog.filter((item) => {
         const key = modelKey(item);
-        return item.credentialConfigured && key !== primaryKey && !fallbackKeys.includes(key);
+        return key !== primaryKey && !fallbackKeys.includes(key);
     });
     const dirty = Boolean(data) && (
         primaryKey !== modelKey(data!.setting.primary) ||
@@ -177,7 +183,10 @@ export function ModelSettingsPanel() {
                             setPrimaryKey(next);
                             setFallbackKeys((items) => items.filter((item) => item !== next));
                         }}>
-                            {eligible.map((item) => <option key={modelKey(item)} value={modelKey(item)} disabled={!item.credentialConfigured}>{item.label} · {item.provider}{item.credentialConfigured ? '' : '（凭据未配置）'}</option>)}
+                            {catalog.map((item) => {
+                                const reason = unavailableReason(item);
+                                return <option key={modelKey(item)} value={modelKey(item)} disabled={Boolean(reason)}>{item.label} · {item.provider}{reason ? `（${reason}）` : ''}</option>;
+                            })}
                         </select>
                     </label>
                     <label>
@@ -200,7 +209,10 @@ export function ModelSettingsPanel() {
                     <div className="ops-fallback-add">
                         <select value={fallbackCandidate} onChange={(event) => setFallbackCandidate(event.target.value)}>
                             <option value="">选择备用模型</option>
-                            {availableFallbacks.map((item) => <option key={modelKey(item)} value={modelKey(item)}>{item.label}</option>)}
+                            {availableFallbacks.map((item) => {
+                                const reason = unavailableReason(item);
+                                return <option key={modelKey(item)} value={modelKey(item)} disabled={Boolean(reason)}>{item.label}{reason ? `（${reason}）` : ''}</option>;
+                            })}
                         </select>
                         <button type="button" disabled={!fallbackCandidate || fallbackKeys.length >= 5} onClick={() => {
                             setFallbackKeys((items) => [...items, fallbackCandidate]);

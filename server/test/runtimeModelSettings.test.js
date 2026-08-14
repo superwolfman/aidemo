@@ -73,6 +73,21 @@ test('runtime settings persist, become active immediately, and preserve actor hi
         const specialty = view.catalog.find((item) => item.model === 'qwen3-vl-flash');
         assert.equal(specialty.deliveryEligible, false);
         assert.equal(specialty.freeTierStatus, 'console-managed');
+        const qwen37Models = [
+            'qwen3.7-plus',
+            'qwen3.7-flash-2026-07-15',
+            'qwen3.7-max',
+            'qwen3.7-max-2026-06-08',
+            'qwen3.7-max-preview',
+            'qwen3.7-max-2026-05-20',
+            'qwen3.7-plus-2026-05-26',
+            'qwen3.7-max-2026-05-17',
+            'qwen3.7-flash'
+        ];
+        assert.deepEqual(
+            qwen37Models.filter((model) => !view.catalog.some((item) => item.model === model)),
+            []
+        );
     } finally {
         restore();
         __resetRuntimeModelSettingsForTests();
