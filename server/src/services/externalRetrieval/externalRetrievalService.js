@@ -7,9 +7,9 @@ import { searchExternal } from './externalSearchProvider.js';
 import {
     getExternalRetrievalConfig,
     isDomainAllowed,
+    isExternalRetrievalEligible,
     isExternalRetrievalEnabled,
     isHighRiskScope,
-    isScopeExternalEligible,
     resolveAuthority,
     EXTERNAL_AUTHORITY_LABELS
 } from './externalRetrievalConfig.js';
@@ -127,11 +127,12 @@ function toExternalSource (raw, paragraphs, authorityLevel, crawlTime) {
  */
 export async function retrieveExternalKnowledge ({ store, context, query, scopes = [], taskModeId, signal }) {
     const cfg = getExternalRetrievalConfig();
+    const eligible = isExternalRetrievalEligible({ scopes, taskModeId });
     const baseStatus = {
         enabled: cfg.enabled,
         configured: cfg.configured,
         provider: cfg.provider,
-        eligible: isScopeExternalEligible(scopes),
+        eligible,
         highRisk: isHighRiskScope(scopes)
     };
 
@@ -145,8 +146,16 @@ export async function retrieveExternalKnowledge ({ store, context, query, scopes
             externalDiagnostics: { reason: cfg.configurationError }
         };
     }
-    if (!isScopeExternalEligible(scopes)) {
-        return { externalSources: [], externalStatus: { ...baseStatus, status: 'scope-not-eligible' }, externalDiagnostics: { reason: '当前 scope 不在 EXTERNAL_ENABLED_SCOPES 中', scopes } };
+    if (!eligible) {
+        return {
+            externalSources: [],
+            externalStatus: { ...baseStatus, status: 'scope-not-eligible' },
+            externalDiagnostics: {
+                reason: '当前 Task Mode 与 scope 均不在外部检索准入名单中',
+                taskModeId: taskModeId || null,
+                scopes
+            }
+        };
     }
 
     const startedAt = Date.now();

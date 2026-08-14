@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
     isDomainAllowed,
+    isExternalRetrievalEligible,
     isHighRiskScope,
     isScopeExternalEligible,
     resolveAuthority
@@ -60,6 +61,55 @@ test('scope eligibility and high-risk classification', () => {
     } finally { restore(); }
 });
 
+test('task mode can enable external retrieval without inventing a knowledge scope', () => {
+    const restore = withEnv({
+        EXTERNAL_ENABLED_SCOPES: 'investment-research',
+        EXTERNAL_ENABLED_TASK_MODES: 'product-workflow,delivery-review'
+    });
+    try {
+        assert.equal(isExternalRetrievalEligible({ scopes: ['architecture'], taskModeId: 'product-workflow' }), true);
+        assert.equal(isExternalRetrievalEligible({ scopes: ['architecture'], taskModeId: 'unknown-mode' }), false);
+    } finally { restore(); }
+});
+
+test('tavily receives trusted domains and task-mode-only request can return evidence', async () => {
+    const restore = withEnv({
+        EXTERNAL_SEARCH_ENABLED: 'true',
+        EXTERNAL_SEARCH_PROVIDER: 'tavily',
+        EXTERNAL_SEARCH_ENDPOINT: 'http://127.0.0.1/search',
+        EXTERNAL_SEARCH_API_KEY: 'test-key',
+        EXTERNAL_DOMAIN_WHITELIST: 'mongodb.com,react.dev',
+        EXTERNAL_ENABLED_SCOPES: 'investment-research',
+        EXTERNAL_ENABLED_TASK_MODES: 'product-workflow'
+    });
+    const originalFetch = global.fetch;
+    let requestBody;
+    global.fetch = async (_url, options) => {
+        requestBody = JSON.parse(options.body);
+        return new Response(JSON.stringify({
+            results: [{
+                url: 'https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-stage/',
+                title: 'MongoDB Atlas Vector Search',
+                content: 'MongoDB 官方文档介绍 Atlas Vector Search 的检索阶段、过滤条件和生产配置建议，内容足够用于引用。'
+            }]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    try {
+        const result = await retrieveExternalKnowledge({
+            store: null,
+            query: '建设 AI 产品交付工作台',
+            scopes: ['architecture', 'frontend'],
+            taskModeId: 'product-workflow'
+        });
+        assert.deepEqual(requestBody.include_domains, ['mongodb.com', 'react.dev']);
+        assert.equal(result.externalStatus.status, 'ok');
+        assert.equal(result.externalSources.length, 1);
+    } finally {
+        global.fetch = originalFetch;
+        restore();
+    }
+});
+
 test('splitParagraphs splits newline-separated blocks into citeable chunks', () => {
     const content = '这是第一段足够长的内容用于引用测试，确保它超过最小字符阈值。\n\n这是第二段独立内容，同样需要超过最小阈值才能被保留。\n短。';
     const paragraphs = splitParagraphs(content);
@@ -91,9 +141,19 @@ test('retrieveExternalKnowledge returns disabled when EXTERNAL_SEARCH_ENABLED=fa
 });
 
 test('retrieveExternalKnowledge returns scope-not-eligible for non-realtime scopes', async () => {
-    const restore = withEnv({ EXTERNAL_SEARCH_ENABLED: 'true' });
+    const restore = withEnv({
+        EXTERNAL_SEARCH_ENABLED: 'true',
+        EXTERNAL_SEARCH_PROVIDER: 'http-json',
+        EXTERNAL_SEARCH_ENDPOINT: 'http://127.0.0.1/search',
+        EXTERNAL_SEARCH_API_KEY: 'test-key'
+    });
     try {
-        const result = await retrieveExternalKnowledge({ store: null, query: 'x', scopes: ['architecture', 'frontend'] });
+        const result = await retrieveExternalKnowledge({
+            store: null,
+            query: 'x',
+            scopes: ['architecture', 'frontend'],
+            taskModeId: 'unknown-mode'
+        });
         assert.deepEqual(result.externalSources, []);
         assert.equal(result.externalStatus.status, 'scope-not-eligible');
     } finally { restore(); }

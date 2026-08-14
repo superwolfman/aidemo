@@ -20,6 +20,11 @@ const DEFAULT_ENABLED_SCOPES = [
 const DEFAULT_HIGH_RISK_SCOPES = [
     'investment-research', 'research-report-generation', 'financial-analysis'
 ];
+// Task Mode 表达业务流程，scope 表达知识域；二者任一命中即可启用外部证据。
+// 独立配置可避免为了开启在线检索而伪造知识 scope。
+const DEFAULT_ENABLED_TASK_MODES = [
+    'product-workflow', 'requirement-analysis', 'knowledge-assistant', 'delivery-review'
+];
 const DEFAULT_WHITELIST = [
     'cninfo.com.cn', 'sse.com.cn', 'szse.cn', 'bse.cn', 'csrc.gov.cn',
     'pbc.gov.cn', 'gov.cn', 'eastmoney.com', '10jqka.com.cn',
@@ -97,6 +102,7 @@ export function getExternalRetrievalConfig () {
         snapshotTtlDays: boundedNumberFromEnv('EXTERNAL_SEARCH_SNAPSHOT_TTL_DAYS', 30, 1, 365),
         domainWhitelist: listFromEnv('EXTERNAL_DOMAIN_WHITELIST', DEFAULT_WHITELIST.join(',')).map(normalizeDomain),
         enabledScopes: listFromEnv('EXTERNAL_ENABLED_SCOPES', DEFAULT_ENABLED_SCOPES.join(',')),
+        enabledTaskModes: listFromEnv('EXTERNAL_ENABLED_TASK_MODES', DEFAULT_ENABLED_TASK_MODES.join(',')),
         highRiskScopes: listFromEnv('EXTERNAL_HIGH_RISK_SCOPES', DEFAULT_HIGH_RISK_SCOPES.join(',')),
         authorityRegistry: { ...AUTHORITY_REGISTRY }
     };
@@ -109,6 +115,11 @@ export function isExternalRetrievalEnabled () {
 export function isScopeExternalEligible (scopes = []) {
     const cfg = getExternalRetrievalConfig();
     return scopes.some((scope) => cfg.enabledScopes.includes(scope));
+}
+
+export function isExternalRetrievalEligible ({ scopes = [], taskModeId } = {}) {
+    const cfg = getExternalRetrievalConfig();
+    return isScopeExternalEligible(scopes) || Boolean(taskModeId && cfg.enabledTaskModes.includes(taskModeId));
 }
 
 export function isHighRiskScope (scopes = []) {

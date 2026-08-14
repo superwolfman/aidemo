@@ -53,7 +53,15 @@ function buildProviderRequest (cfg, query, maxResults) {
     if (cfg.provider === 'tavily') {
         return {
             headers: { 'Content-Type': 'application/json' },
-            body: { api_key: cfg.apiKey, query, max_results: maxResults, include_answer: false, include_raw_content: 'markdown' }
+            body: {
+                api_key: cfg.apiKey,
+                query,
+                max_results: maxResults,
+                include_answer: false,
+                include_raw_content: 'markdown',
+                // 在 Provider 侧先限定可信来源，服务端返回后仍执行二次白名单校验。
+                include_domains: cfg.domainWhitelist
+            }
         };
     }
     if (cfg.provider === 'serper') {
