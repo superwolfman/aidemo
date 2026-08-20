@@ -17,6 +17,8 @@ npm-debug.log*
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+*.egg-info/
 
 # 部署：生产密钥不入库（.example 保留）
 deploy/.env.production
