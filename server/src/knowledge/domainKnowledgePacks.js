@@ -8,6 +8,16 @@ const BASELINE = {
     reviewDueAt: '2027-02-12T00:00:00.000Z'
 };
 
+const KERING_RETAIL_DEMO_PACK = 'kering-greater-china-retail-demo';
+const KERING_RETAIL_DEMO_BASELINE = {
+    sourceName: 'aidemo KERING 定向面试知识包',
+    reviewStatus: 'approved',
+    version: '1.0.0',
+    effectiveAt: '2026-08-20T00:00:00.000Z',
+    reviewDueAt: '2026-11-20T00:00:00.000Z',
+    usageBoundary: 'interview-demo-only'
+};
+
 function knowledgeDocument ({ pack, slug, title, tags, scopes, content }) {
     return {
         title,
@@ -18,6 +28,30 @@ function knowledgeDocument ({ pack, slug, title, tags, scopes, content }) {
             ...BASELINE,
             knowledgePack: pack,
             sourceUri: `internal://knowledge-packs/${pack}/${slug}`
+        }
+    };
+}
+
+function keringRetailDemoDocument ({ slug, title, tags, scopes, content, publicSource = false }) {
+    return {
+        title,
+        tags: ['copilot', KERING_RETAIL_DEMO_PACK, 'luxury-retail', ...tags],
+        scopes,
+        content,
+        knowledgeMetadata: {
+            ...KERING_RETAIL_DEMO_BASELINE,
+            knowledgePack: KERING_RETAIL_DEMO_PACK,
+            sourceName: publicSource ? 'KERING 官方网站' : KERING_RETAIL_DEMO_BASELINE.sourceName,
+            sourceType: publicSource ? 'official-public' : 'synthetic-demo',
+            authorityLevel: publicSource ? 'official' : 'reviewed',
+            provenanceKind: publicSource ? 'public-official' : 'synthetic-demo',
+            isSynthetic: !publicSource,
+            sourceUri: publicSource
+                ? 'https://www.kering.com/cn/group/discover-kering/our-strategy/'
+                : `demo://knowledge-packs/${KERING_RETAIL_DEMO_PACK}/${slug}`,
+            disclaimer: publicSource
+                ? '基于 KERING 官网公开信息整理，仅用于面试演示，不代表 KERING 内部政策或未公开事实。'
+                : '为面试演示设计的模拟企业规范，不代表 KERING、旗下品牌或任何真实企业的内部政策。'
         }
     };
 }
@@ -40,6 +74,15 @@ export const CUSTOMER_SERVICE_SCOPES = [
     'conversation-operations',
     'service-quality',
     'citation-compliance'
+];
+
+// 复用当前线上产品已有 Scope，确保新增 seed 无需修改 Atlas filter mapping。
+// House、region、role、locale、effectiveAt 仍只是文档治理概念，不代表已实现检索前多维过滤。
+export const KERING_RETAIL_DEMO_SCOPES = [
+    'architecture',
+    'standards',
+    'ai-native',
+    'frontend'
 ];
 
 const investmentResearchDocuments = [
@@ -144,7 +187,54 @@ const customerServiceDocuments = [
     })
 ];
 
+const keringGreaterChinaRetailDemoDocuments = [
+    keringRetailDemoDocument({
+        slug: 'reconkering-public-strategy',
+        title: 'KERING ReconKering 公开战略摘要',
+        tags: ['kering-public', 'strategy', 'reconkering'],
+        scopes: ['architecture', 'standards'],
+        publicSource: true,
+        content: `本条只摘要 KERING 官网公开战略信息。ReconKering 强调进一步提升旗下品牌吸引力、追求卓越运营，并继续发挥集团平台能力；公开表述同时关注技术变化、客户期望与市场环境变化带来的新要求。对 AI 产品设计的可引用启示是：能力应服务品牌长期价值和运营质量，通过集团级可复用平台提升效率，同时保留各品牌的差异化表达与治理边界。该公开战略不能被推导为任何门店退款时限、VIP 权益、商品护理、库存状态或客户身份规则；遇到这些具体运营问题，系统必须检索经过授权且处于有效期内的业务知识，证据不足时返回 Knowledge Gap 并转人工。引用本条时必须展示 KERING 官网来源和“公开战略摘要”属性，不得包装成内部制度。`
+    }),
+    keringRetailDemoDocument({
+        slug: 'greater-china-store-copilot-boundary',
+        title: '高端精品集团中国区门店运营知识 Copilot 产品边界（模拟）',
+        tags: ['greater-china', 'store-operations', 'product-boundary'],
+        scopes: ['architecture', 'ai-native', 'frontend'],
+        content: `这是面试演示用的模拟产品边界。门店运营知识 Copilot 面向中国区店员、店长、客户服务与知识运营人员，处理已发布 SOP、服务流程、商品护理指引和常见运营问答。系统可以检索证据、生成带 citation 的答复草稿、提示知识版本并发起人工交接；不得自动承诺退款金额或到账时限，不得判断 VIP 等级或客户资格，不得执行库存调拨、价格修改、账号变更和支付相关动作。页面至少展示问题、当前租户与知识范围、答案、来源版本、有效期、Knowledge Gap、Trace 和转人工入口。BFF 必须从认证 principal 获取 tenantId，客户端输入只用于选择已授权范围。所有输出均为辅助信息，高风险结论在人工确认前不得对外发布。`
+    }),
+    keringRetailDemoDocument({
+        slug: 'multi-house-isolation',
+        title: '多 House 知识隔离与权限规范（模拟）',
+        tags: ['house', 'tenant-isolation', 'authorization'],
+        scopes: ['architecture', 'standards'],
+        content: `这是面试演示用的模拟权限规范。集团共享能力与各 House 知识必须分层治理：tenantId 是强制安全边界，House、region、role 和 locale 是租户内的授权与适用范围。正确顺序是认证中间件解析 principal，校验用户与租户及工作空间 membership，再把服务端确认的 tenantId 与允许范围写入检索查询，最后才执行向量召回和重排。禁止先全库召回再在应用层隐藏，也禁止直接信任请求体声明的 tenantId、House 或 role。共享集团规范只有在明确标记为 group-shared 且通过发布审核后才能跨 House 使用；House 专属内容默认不可见。越权请求返回稳定错误码并记录 requestId、actorId、tenantId、requestedScope 和拒绝原因，日志不得记录完整客户隐私数据。`
+    }),
+    keringRetailDemoDocument({
+        slug: 'store-knowledge-lifecycle',
+        title: '门店知识版本、有效期与发布规范（模拟）',
+        tags: ['knowledge-governance', 'versioning', 'effective-date'],
+        scopes: ['standards', 'architecture'],
+        content: `这是面试演示用的模拟知识治理规范。门店知识从 draft、review_required、approved 到 published 流转，发布记录必须包含 owner、sourceUri、version、locale、适用区域、effectiveAt、expiresAt、reviewDueAt 和 contentHash。新版本发布后旧版本进入 superseded，但引用快照和审批记录必须保留，便于复盘当时答案使用的证据。检索只应使用已发布且在查询时点有效的内容；未到生效时间、已过期、复审逾期或索引构建失败的文档不得作为确定性答案依据。退款、支付、隐私、客户权益等高风险知识需要双人复核和更短复审周期。内容或 metadata 变化后应重建 chunk 与向量，不需要清空整个数据库；若 embedding 失败留下无有效向量的文档，下一次 seed 应自动补建。`
+    }),
+    keringRetailDemoDocument({
+        slug: 'knowledge-gap-handoff',
+        title: '门店问答 Knowledge Gap 与转人工规范（模拟）',
+        tags: ['knowledge-gap', 'human-handoff', 'safety'],
+        scopes: ['ai-native', 'frontend', 'standards'],
+        content: `这是面试演示用的模拟拒答与转人工规范。零命中、相关度低于校准阈值、引用不能支持结论、来源互相冲突、知识过期或问题涉及未授权范围时，系统返回 Knowledge Gap，而不是继续调用模型猜测。业务响应可保持 HTTP 200，并返回 status=knowledge_gap、knowledge_gap=true、answer=null、citations=[]、requestId 和稳定原因码；身份或权限错误仍使用 401/403。需要转人工时，交接包只包含必要的问题摘要、已选知识范围、检索结果、缺口原因、requestId 和 Trace 链接，不携带无关个人信息。页面应明确区分“系统失败”和“没有可靠证据”，允许运营人员把高频缺口送入知识补全流程，但用户对话或模型草稿不能自动升级为正式知识。`
+    }),
+    keringRetailDemoDocument({
+        slug: 'retail-rag-release-gate',
+        title: '零售 RAG 评测与上线门禁（模拟）',
+        tags: ['rag-evaluation', 'release-gate', 'retail'],
+        scopes: ['standards', 'ai-native'],
+        content: `这是面试演示用的模拟评测规范。零售 RAG 上线前使用经业务审核的 Golden Dataset，覆盖常见门店问法、中文口语改写、品牌与区域差异、版本和有效期、越权查询、冲突证据、知识库外问题及转人工场景。核心指标至少包括 Recall@5、citation precision、answer faithfulness、Knowledge Gap 识别率、越权召回率、过期知识拦截率和端到端延迟；其中跨租户或未授权 House 召回必须为零。每次知识包、embedding 模型、chunk 策略、检索 pipeline 或 Atlas index 变化都要重跑回归，报告保存 datasetVersion、knowledgePackVersion、model、index、threshold、metrics 和 evaluatedAt。只有来源真实支持 Artifact、后端确认 live vector 且关键指标达到门禁，才允许把 KERING 定向案例作为主演示。`
+    })
+];
+
 export const domainKnowledgeDocuments = [
     ...investmentResearchDocuments,
-    ...customerServiceDocuments
+    ...customerServiceDocuments,
+    ...keringGreaterChinaRetailDemoDocuments
 ];

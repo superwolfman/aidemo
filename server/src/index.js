@@ -20,7 +20,12 @@ const store = await createStore();
 await initializeRuntimeModelSettings(store);
 await initializeRuntimeTimeoutSettings(store);
 setLlmTimingTelemetrySink((payload) => store.createTelemetry(payload));
-const seedResult = await seedKnowledgeIfEmpty(store);
+// 入口层的兜底 seed 必须与认证演示账号使用同一租户，不能回落到 tenant-demo。
+// Store 自身可能已经完成 seed；seedKnowledgeIfEmpty 幂等，因此这里重复校验不会重复创建。
+const seedResult = await seedKnowledgeIfEmpty(store, {
+    tenantId: config.demoTenantId,
+    actorId: 'system-seed'
+});
 if (seedResult.seeded) {
     console.log(`[server] auto seeded ${seedResult.count} knowledge documents`);
 }
