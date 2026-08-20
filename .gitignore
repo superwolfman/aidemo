@@ -10,7 +10,13 @@ server/data/demo-db.json
 *.credentials.env
 *.md
 !.githooks/**/*.md
+!mini-rag-py/README.md
 npm-debug.log*
+
+# Python（mini-rag-py 本地虚拟环境）
+.venv/
+__pycache__/
+*.pyc
 
 # 部署：生产密钥不入库（.example 保留）
 deploy/.env.production
