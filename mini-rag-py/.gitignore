@@ -1,0 +1,2 @@
+# 仓库级规则忽略 Markdown；此项目需要交付面试演示文档。
+!INTERVIEW_DEMO.md

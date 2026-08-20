@@ -1,63 +1,67 @@
 # mini-rag-py
 
-最小 RAG 代理服务：FastAPI + Pydantic + OpenAI SDK。用于证明 aidemo（Node/TypeScript）中的核心设计可以迁移到 Python 生态。
+一个刻意保持小而完整的 FastAPI RAG 服务，用于演示生产级信任边界，而不是堆叠框架：
 
-## 三个核心设计（面试讲法）
+- Bearer token 解析 principal，租户来自认证身份且经过 membership 校验；
+- tenant filter 在召回和打分之前执行；
+- 零命中返回 `knowledge_gap`、`answer: null`，并且不调用 LLM；
+- `request_id`、稳定错误码、`retryable` 和 `fallback_allowed`；
+- `/healthz` 存活检查与 `/readyz` 依赖就绪检查；
+- Provider 依赖注入，自动化测试不访问真实模型。
 
-1. **租户过滤发生在检索之前** —— 不允许先全量召回再由前端隐藏，与 aidemo 多租户边界一致。
-2. **零命中显式返回 knowledge_gap** —— 不调用 LLM、不让模型编造；"没有证据"不是"系统故障"。
-3. **LLM 错误分类** —— 超时 → 504（可 fallback）；鉴权/配置错误 → 500（禁止 fallback）；限流/连接/上游 5xx → 502（可重试）。
+完整面试话术和逐步命令见 [INTERVIEW_DEMO.md](INTERVIEW_DEMO.md)。
 
-## 安装与运行
+## 安装与测试
 
 ```bash
 cd mini-rag-py
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-
-# 跑测试（不需要任何 API Key）
-pytest tests -v
-
-# 起服务（零命中查询同样不需要 Key）
-uvicorn app.main:app --port 8100
+uv sync --extra dev
+uv run --extra dev pytest tests -q
 ```
 
-## 配置 LLM（可选）
+也可以使用 Python 3.10+ 的 venv：
 
-服务兼容任意 OpenAI 兼容端点，包括 DashScope compatible-mode：
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+pytest tests -q
+```
+
+## 无外部依赖的面试演示
+
+```bash
+RAG_LLM_MODE=stub uv run uvicorn app.main:app --port 8100
+```
+
+另开终端：
+
+```bash
+curl -s http://localhost:8100/healthz | python3 -m json.tool
+curl -s http://localhost:8100/readyz | python3 -m json.tool
+
+curl -s -X POST http://localhost:8100/query \
+  -H 'Authorization: Bearer demo-store-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"门店退换货政策是什么？"}' | python3 -m json.tool
+```
+
+或者安装完成后直接运行：
+
+```bash
+bash demo.sh
+```
+
+## 使用 OpenAI 兼容端点
+
+不设置 `RAG_LLM_MODE=stub` 时默认使用 OpenAI Provider：
 
 ```bash
 export OPENAI_API_KEY=sk-xxxx
-export OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-export RAG_LLM_MODEL=qwen-plus
+export OPENAI_BASE_URL=https://example.com/v1  # 官方端点可省略
+export RAG_LLM_MODEL=gpt-4o-mini
 export RAG_LLM_TIMEOUT_SECONDS=30
+uv run uvicorn app.main:app --port 8100
 ```
 
-## 演示查询
-
-```bash
-# 正常命中（store-ops 租户的退货政策）
-curl -s -X POST http://localhost:8100/query \
-  -H 'Content-Type: application/json' \
-  -d '{"question": "门店退换货政策是什么"}' | python3 -m json.tool
-
-# 知识缺口（知识库没有的内容，不调用 LLM）
-curl -s -X POST http://localhost:8100/query \
-  -H 'Content-Type: application/json' \
-  -d '{"question": "薛定谔方程怎么求解"}' | python3 -m json.tool
-
-# 租户过滤（brand-knowledge 租户查不到 store-ops 的内容）
-curl -s -X POST http://localhost:8100/query \
-  -H 'Content-Type: application/json' \
-  -d '{"question": "门店退换货政策是什么", "tenant_id": "brand-knowledge"}' | python3 -m json.tool
-```
-
-## 与 aidemo（Node 版）的对应关系
-
-| 设计点 | aidemo (TypeScript) | mini-rag-py (Python) |
-|---|---|---|
-| 租户过滤在检索前 | Atlas 查询阶段 tenant/scope filter | `retriever.search()` 先 filter 再 score |
-| 零命中语义 | knowledge gap 显式返回 | `knowledge_gap=True`，不调 LLM |
-| 超时分类 | connect/TTFT/idle/total 分级 | OpenAI SDK timeout → 504 |
-| 错误分类 fallback 边界 | 额度耗尽可切、鉴权失败不切 | timeout 可 fallback、auth 禁止 fallback |
-| 请求校验 | Zod / 手写校验 | Pydantic `Field` 约束 → 422 |
+演示 token 仅用于说明认证后的 principal 如何约束租户。生产环境必须替换为 JWT/Session 校验与真实 IAM 或数据库 membership 查询。

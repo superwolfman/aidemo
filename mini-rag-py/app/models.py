@@ -1,26 +1,29 @@
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class QueryRequest(BaseModel):
     """RAG 查询请求。
 
-    - tenant_id 用于演示"租户过滤发生在检索之前，而不是召回后再隐藏"。
+    tenant_id 刻意不在请求体中：租户必须由认证后的 principal 解析，
+    客户端若提交未知字段会被拒绝，而不是被静默忽略。
     - top_k 有界，防止一次请求拖垮上下文。
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     question: str = Field(min_length=1, max_length=2000)
     top_k: int = Field(default=5, ge=1, le=20)
-    tenant_id: str | None = Field(default=None, max_length=120)
 
 
-class SourceHit(BaseModel):
+class Citation(BaseModel):
     """单条检索证据。"""
 
-    id: str
+    chunk_id: str
     excerpt: str
     score: float
     source: str
-    tenant: str
 
 
 class QueryResponse(BaseModel):
@@ -31,7 +34,22 @@ class QueryResponse(BaseModel):
     - model 为实际使用的模型 ID（LLM 未被调用时为 None）。
     """
 
-    answer: str
-    sources: list[SourceHit]
+    status: Literal["ok", "knowledge_gap"]
+    answer: str | None
+    citations: list[Citation]
     knowledge_gap: bool
+    request_id: str
     model: str | None = None
+
+
+class ErrorDetail(BaseModel):
+    code: str
+    message: str
+    retryable: bool
+    fallback_allowed: bool
+
+
+class ErrorResponse(BaseModel):
+    status: Literal["error"] = "error"
+    error: ErrorDetail
+    request_id: str

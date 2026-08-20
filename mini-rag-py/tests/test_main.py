@@ -1,100 +1,195 @@
-"""mini-rag-py 核心行为测试。
+"""只使用依赖注入 Stub 的 API 契约测试，不访问真实 LLM。"""
 
-覆盖面试要讲的三个设计点：
-1. 零命中 -> knowledge_gap=True 且不触发 LLM
-2. 有证据 -> 正常返回带引用来源的回答
-3. LLM 超时 -> 504（错误分类），鉴权/配置错误 -> 500
-4. 租户过滤发生在检索之前
-"""
+from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app, llm
-from app.llm_client import LLMConfigError, LLMTimeoutError
+from app.llm_client import LLMTimeoutError
+from app.main import app, get_answer_provider
 
-client = TestClient(app)
-
-
-def test_health() -> None:
-    resp = client.get("/health")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
+STORE_AUTH = {"Authorization": "Bearer demo-store-token"}
+BRAND_AUTH = {"Authorization": "Bearer demo-brand-token"}
 
 
-def test_query_knowledge_gap_without_llm(monkeypatch) -> None:
-    """零命中：显式 knowledge_gap，且绝不调用 LLM。"""
+class StubProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.error: Exception | None = None
 
-    def _fail_if_called(*args, **kwargs):
-        raise AssertionError("knowledge gap path must not call the LLM")
+    def readiness(self) -> tuple[bool, str]:
+        return True, "stub-ready"
 
-    monkeypatch.setattr(llm, "generate_answer", _fail_if_called)
+    def generate_answer(
+        self, question: str, hits: list[dict[str, Any]]
+    ) -> tuple[str, str]:
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return f"{question}：根据门店 SOP，应在30天内办理 [1]。", "stub-model"
 
-    resp = client.post("/query", json={"question": "薛定谔方程的边界条件怎么求解"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["knowledge_gap"] is True
-    assert body["sources"] == []
-    assert body["model"] is None
+
+@pytest.fixture()
+def provider() -> StubProvider:
+    stub = StubProvider()
+    app.dependency_overrides[get_answer_provider] = lambda: stub
+    yield stub
+    app.dependency_overrides.clear()
 
 
-def test_query_with_hits_and_citation(monkeypatch) -> None:
-    """有证据：LLM 被调用，返回来源与模型信息。"""
+@pytest.fixture()
+def client(provider: StubProvider) -> TestClient:
+    del provider
+    return TestClient(app)
 
-    def _fake_generate(question, hits):
-        return f"根据门店 SOP，{hits[0]['source']} 规定退货需在30天内办理 [1]。", "stub-model"
 
-    monkeypatch.setattr(llm, "generate_answer", _fake_generate)
+def test_healthz_and_readyz(client: TestClient) -> None:
+    health = client.get("/healthz")
+    ready = client.get("/readyz")
 
-    resp = client.post("/query", json={"question": "门店退换货政策是什么"})
-    assert resp.status_code == 200
-    body = resp.json()
+    assert health.status_code == 200
+    assert health.json()["status"] == "ok"
+    assert ready.status_code == 200
+    assert ready.json()["status"] == "ready"
+    assert ready.json()["checks"]["llm_provider"] == "stub-ready"
+
+
+def test_normal_hit_returns_citation_and_request_id(
+    client: TestClient, provider: StubProvider
+) -> None:
+    response = client.post(
+        "/query",
+        headers={**STORE_AUTH, "X-Request-ID": "interview_req_001"},
+        json={"question": "门店退换货政策是什么"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
     assert body["knowledge_gap"] is False
-    assert len(body["sources"]) >= 1
-    assert body["sources"][0]["tenant"] == "store-ops"
+    assert body["request_id"] == "interview_req_001"
+    assert response.headers["X-Request-ID"] == "interview_req_001"
+    assert body["citations"][0]["chunk_id"] == "store-sop-return"
+    assert body["citations"][0]["score"] > 0
     assert "[1]" in body["answer"]
     assert body["model"] == "stub-model"
+    assert provider.calls == 1
 
 
-def test_query_llm_timeout_returns_504(monkeypatch) -> None:
-    """LLM 超时被分类为上游超时 -> HTTP 504。"""
-
-    def _raise_timeout(question, hits):
-        raise LLMTimeoutError("LLM upstream timeout after 30s")
-
-    monkeypatch.setattr(llm, "generate_answer", _raise_timeout)
-
-    resp = client.post("/query", json={"question": "门店退换货政策是什么"})
-    assert resp.status_code == 504
-    assert "timeout" in resp.json()["detail"].lower()
-
-
-def test_query_llm_config_error_returns_500(monkeypatch) -> None:
-    """鉴权/配置错误不 fallback、不重试，直接暴露为配置问题 -> HTTP 500。"""
-
-    def _raise_config(question, hits):
-        raise LLMConfigError("LLM authentication failed")
-
-    monkeypatch.setattr(llm, "generate_answer", _raise_config)
-
-    resp = client.post("/query", json={"question": "门店退换货政策是什么"})
-    assert resp.status_code == 500
-
-
-def test_tenant_filter_before_scoring() -> None:
-    """租户过滤发生在检索阶段：brand-knowledge 租户查不到 store-ops 的退换货内容。"""
-    resp = client.post(
+def test_knowledge_gap_has_null_answer_and_does_not_call_llm(
+    client: TestClient, provider: StubProvider
+) -> None:
+    response = client.post(
         "/query",
-        json={"question": "门店退换货政策是什么", "tenant_id": "brand-knowledge"},
+        headers=STORE_AUTH,
+        json={"question": "薛定谔方程的边界条件怎么求解"},
     )
-    assert resp.status_code == 200
-    body = resp.json()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "knowledge_gap"
     assert body["knowledge_gap"] is True
-    assert body["sources"] == []
+    assert body["answer"] is None
+    assert body["citations"] == []
+    assert body["model"] is None
+    assert body["request_id"].startswith("req_")
+    assert provider.calls == 0
 
 
-def test_request_validation() -> None:
-    """Pydantic 边界：空问题 / top_k 越界 -> 422。"""
-    assert client.post("/query", json={"question": ""}).status_code == 422
-    assert (
-        client.post("/query", json={"question": "退货政策", "top_k": 99}).status_code == 422
+def test_cross_tenant_document_is_invisible_before_scoring(
+    client: TestClient, provider: StubProvider
+) -> None:
+    response = client.post(
+        "/query",
+        headers=BRAND_AUTH,
+        json={"question": "门店退换货政策是什么"},
     )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "knowledge_gap"
+    assert response.json()["citations"] == []
+    assert provider.calls == 0
+
+
+def test_client_cannot_declare_tenant_in_body(client: TestClient) -> None:
+    response = client.post(
+        "/query",
+        headers=BRAND_AUTH,
+        json={"question": "门店退换货政策是什么", "tenant_id": "store-ops"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == {
+        "code": "invalid_request",
+        "message": "请求参数校验失败",
+        "retryable": False,
+        "fallback_allowed": False,
+    }
+
+
+def test_workspace_selection_requires_membership(client: TestClient) -> None:
+    response = client.post(
+        "/query",
+        headers={**BRAND_AUTH, "X-Tenant-ID": "store-ops"},
+        json={"question": "门店退换货政策是什么"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "tenant_access_denied"
+    assert response.json()["error"]["retryable"] is False
+
+
+def test_multi_tenant_member_can_select_workspace(client: TestClient) -> None:
+    response = client.post(
+        "/query",
+        headers={
+            "Authorization": "Bearer demo-multi-token",
+            "X-Tenant-ID": "brand-knowledge",
+        },
+        json={"question": "皮革制品怎么保养"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["citations"][0]["chunk_id"] == "brand-care-leather"
+
+
+def test_authentication_is_required(client: TestClient) -> None:
+    response = client.post("/query", json={"question": "退换货政策"})
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "authentication_required"
+    assert response.headers["WWW-Authenticate"] == "Bearer"
+
+
+def test_llm_timeout_has_stable_retry_contract(
+    client: TestClient, provider: StubProvider
+) -> None:
+    provider.error = LLMTimeoutError("LLM upstream timeout after 30s")
+
+    response = client.post(
+        "/query",
+        headers=STORE_AUTH,
+        json={"question": "门店退换货政策是什么"},
+    )
+
+    assert response.status_code == 504
+    assert response.json()["error"] == {
+        "code": "llm_timeout",
+        "message": "LLM upstream timeout after 30s",
+        "retryable": True,
+        "fallback_allowed": True,
+    }
+    assert response.json()["request_id"].startswith("req_")
+
+
+def test_request_validation_uses_structured_error(client: TestClient) -> None:
+    response = client.post(
+        "/query",
+        headers=STORE_AUTH,
+        json={"question": "退货", "top_k": 99},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["status"] == "error"
+    assert response.json()["error"]["code"] == "invalid_request"
+    assert response.json()["error"]["retryable"] is False

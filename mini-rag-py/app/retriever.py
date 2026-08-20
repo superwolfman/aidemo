@@ -107,6 +107,11 @@ class InMemoryRetriever:
         self._docs = docs
         self._vectors = {doc["id"]: _vectorize(doc["text"]) for doc in docs}
 
+    def readiness(self) -> tuple[bool, str]:
+        if not self._docs or len(self._vectors) != len(self._docs):
+            return False, "retriever index is unavailable"
+        return True, "ready"
+
     def search(
         self,
         query: str,
