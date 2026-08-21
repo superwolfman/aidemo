@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Database, ExternalLink, Globe, ShieldAlert } from 'lucide-react';
 import type { FilteredChunk } from '../types';
 
@@ -91,6 +91,7 @@ type Diagnostics = {
         knowledgeDomain?: string | null;
         taskModeId?: string | null;
         effectiveScopes?: string[];
+        scopeSource?: string;
         queryStrategy?: string;
         requestedTopK?: number;
         candidateLimit?: number;
@@ -156,9 +157,21 @@ function ExpandableText({ value, size = 160 }: { value: string; size?: number })
     );
 }
 
+function HoverPopoverText({ value }: { value: string }) {
+    const tooltipId = useId();
+    return (
+        <span className="rag-hover-popover" tabIndex={0} aria-describedby={tooltipId}>
+            <span className="rag-hover-popover-trigger">{value}</span>
+            <span id={tooltipId} className="rag-hover-popover-content" role="tooltip">{value}</span>
+        </span>
+    );
+}
+
 export function RagDebugPanel({ query, sources, externalSources = [], externalStatus = null, ragRuntime, retrievalView, filteredChunks, diagnostics }: Props) {
     const topK = diagnostics?.retrieval?.requestedTopK || Math.max(sources.length, 5);
     const externalBaseIndex = sources.length;
+    const entitiesText = diagnostics?.retrieval?.entities?.join(' / ') || 'none';
+    const effectiveScopes = diagnostics?.retrieval?.effectiveScopes || [];
 
     const filteredReason = (() => {
         if (sources.length) return '已按当前 Skill scope、topK 和 score 阈值返回候选 chunk。';
@@ -184,15 +197,23 @@ export function RagDebugPanel({ query, sources, externalSources = [], externalSt
             <div className="rag-debug-grid">
                 <article>
                     <em>query</em>
-                    <strong><ExpandableText value={query || '等待用户输入需求'} size={80} /></strong>
+                    <strong className="rag-debug-overflow-field"><HoverPopoverText value={query || '等待用户输入需求'} /></strong>
                 </article>
                 <article>
                     <em>query plan</em>
                     <strong>{diagnostics?.retrieval?.knowledgeDomain || 'general'} · {diagnostics?.retrieval?.taskModeId || 'no-task-mode'}</strong>
                 </article>
+                <article className="rag-debug-scope-card">
+                    <em>effective knowledge scope</em>
+                    <div className="rag-debug-scope-list">
+                        {effectiveScopes.map((scope) => <span key={scope}>{scope}</span>)}
+                        {!effectiveScopes.length ? <span>minimal-context</span> : null}
+                    </div>
+                    <small>source: {diagnostics?.retrieval?.scopeSource || 'runtime-effective-filter'}</small>
+                </article>
                 <article>
                     <em>entities</em>
-                    <strong>{diagnostics?.retrieval?.entities?.join(' / ') || 'none'}</strong>
+                    <strong className="rag-debug-overflow-field"><HoverPopoverText value={entitiesText} /></strong>
                 </article>
                 <article>
                     <em>topK / hits</em>

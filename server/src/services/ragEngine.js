@@ -138,6 +138,7 @@ function buildRetrievalDiagnostics (diagnostics, queryPlan, plan, strategy, outc
             knowledgeDomain: queryPlan.domain,
             taskModeId: queryPlan.taskModeId,
             effectiveScopes: queryPlan.scopes,
+            scopeSource: queryPlan.scopeSource,
             queryStrategy: strategy,
             requestedTopK: plan.topK,
             candidateLimit: plan.candidateLimit,

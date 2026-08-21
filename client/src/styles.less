@@ -7279,6 +7279,97 @@ kbd {
     white-space: nowrap;
 }
 
+.rag-debug-grid strong.rag-debug-overflow-field {
+    position: relative;
+    overflow: visible;
+    white-space: normal;
+}
+
+.rag-hover-popover {
+    position: relative;
+    display: block;
+    min-width: 0;
+    border-radius: 4px;
+    cursor: help;
+    outline: none;
+}
+
+.rag-hover-popover:focus-visible {
+    box-shadow: 0 0 0 2px rgba(15, 118, 110, .3);
+}
+
+.rag-hover-popover-trigger {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rag-hover-popover-content {
+    position: absolute;
+    z-index: 80;
+    top: calc(100% + 8px);
+    left: -8px;
+    width: max-content;
+    min-width: 280px;
+    max-width: min(560px, calc(100vw - 64px));
+    max-height: 240px;
+    overflow: auto;
+    border: 1px solid #b8cbd8;
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: #fff;
+    box-shadow: 0 14px 36px rgba(15, 23, 42, .18);
+    color: #172b3a;
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(-4px);
+    transition: opacity .15s ease, transform .15s ease, visibility .15s ease;
+}
+
+.rag-hover-popover:hover .rag-hover-popover-content,
+.rag-hover-popover:focus .rag-hover-popover-content,
+.rag-hover-popover:focus-within .rag-hover-popover-content {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+
+.rag-debug-grid .rag-debug-scope-card {
+    grid-column: 1 / -1;
+}
+
+.rag-debug-scope-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.rag-debug-scope-list span {
+    border-radius: 999px;
+    padding: 4px 8px;
+    background: rgba(15, 118, 110, .1);
+    color: #0f766e;
+    font-size: 11px;
+    font-weight: 850;
+    line-height: 1.2;
+}
+
+.rag-debug-scope-card small {
+    display: block;
+    margin-top: 7px;
+    color: #66788a;
+    font-size: 10px;
+}
+
 .rag-debug-note {
     display: grid;
     gap: 5px;
