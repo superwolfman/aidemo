@@ -1,6 +1,6 @@
 import { Search } from 'lucide-react';
 import type { AgentRun } from '../types';
-import { formatTime } from '../utils';
+import { formatDateTime } from '../utils';
 
 type Props = {
   runs: AgentRun[];
@@ -34,7 +34,7 @@ export function RunRegistry({ runs, activeRun, keyword, filter, onKeywordChange,
         {runs.map((run) => (
           <button key={run._id} className={activeRun?._id === run._id ? 'active' : ''} onClick={() => onSelectRun(run)}>
             <strong>{run.executionContext?.taskMode?.label || run.intent?.label || 'Agent Run'}</strong>
-            <span>{run.status} · Agent {run.selectedSkill?.name || 'Runtime'} · {formatTime(run.createdAt)}</span>
+            <span>{run.status} · Agent {run.selectedSkill?.name || 'Runtime'} · {formatDateTime(run.createdAt)}</span>
             <p>{run.prompt}</p>
           </button>
         ))}

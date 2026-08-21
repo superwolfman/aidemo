@@ -902,7 +902,12 @@ export function agentStudioRouter (store) {
                 sendEvent(res, 'run_status', { runDbId: runRecord._id, runId, status, label, at: now(), intent, selectedSkill, executionContext, plan, ...extra });
             };
             const emitStep = async (payload) => {
-                trace.push(payload);
+                const existingIndex = trace.findIndex((item) => item.id === payload.id);
+                if (existingIndex >= 0) {
+                    trace[existingIndex] = { ...trace[existingIndex], ...payload };
+                } else {
+                    trace.push(payload);
+                }
                 await persistRun({ trace });
                 sendEvent(res, 'trace', payload);
                 await sleep(110);

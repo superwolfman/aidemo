@@ -353,6 +353,12 @@ export function buildEvalCases () {
             title: '投研报告生成工作台',
             prompt: '建设投研报告生成工作台，支持上传资料、检索公司和行业知识、生成报告大纲、输出章节草稿、展示引用来源并进入合规复核。',
             expected: ['业务边界明确', '页面结构覆盖资料/生成/审阅', '接口协议有审计字段', 'Trace 支持合规复核', '需求匹配度', '引用一致性']
+        },
+        {
+            id: 'kering-greater-china-retail-copilot',
+            title: 'KERING 大中华区门店知识 Copilot',
+            prompt: '以 KERING Greater China 为假设业务背景，设计一个跨 House 的门店运营知识 Copilot。仅使用 KERING 官方公开资料和知识库中明确标注的模拟规范；面向 Client Advisor、Store Manager、Knowledge Owner 与 IT / Security Reviewer。检索前必须按 tenant、House 和 Knowledge Scope 过滤，回答展示 citation、来源版本和有效期；证据不足返回 Knowledge Gap，高风险及跨 House 请求进入人工确认。输出 PRD、页面结构、API Contract、研发任务、风险清单，以及引用命中、权限隔离、拒答和 HITL 的上线评测门禁。',
+            expected: ['引用来源命中', 'PRD 完整度', 'API Contract 合理性', '风险包含幻觉治理', 'Trace 可复盘', '需求匹配度', '引用一致性']
         }
     ];
 }

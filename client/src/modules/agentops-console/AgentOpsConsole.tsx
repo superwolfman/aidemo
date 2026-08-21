@@ -232,7 +232,11 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
     const activeSources = useMemo(() => activeRunMemo?.sources || [], [activeRunMemo]);
     const retrievalView = useMemo(() => getRunRetrievalView(ragRuntime, activeSources), [ragRuntime, activeSources]);
     const ragLive = retrievalView.live;
-    const trace = useMemo(() => activeRunMemo?.trace || [], [activeRunMemo]);
+    const trace = useMemo(() => {
+        const latestById = new Map<string, any>();
+        (activeRunMemo?.trace || []).forEach((item) => latestById.set(item.id, item));
+        return [...latestById.values()];
+    }, [activeRunMemo]);
     const latestTraceById = useMemo(() => { const map = new Map<string, any>(); trace.forEach((item) => map.set(item.id, item)); return map; }, [trace]);
     const stateSteps = useMemo(() => stateOrder.map((state) => latestTraceById.get(state.id) || { id: state.id, name: state.label, status: 'pending' as const }), [latestTraceById]);
     const activeTrace = trace.find((item) => item.id === activeTraceId) || trace[0];

@@ -11,7 +11,10 @@ import { copilotRouter } from './routes/copilot.js';
 import { agentStudioRouter } from './routes/agentStudio.js';
 import { seedKnowledgeIfEmpty } from './utils/seedKnowledge.js';
 import { enforceDemoPermissions } from './middleware/demoAuthorization.js';
-import { initializeRuntimeModelSettings } from './services/runtimeModelSettings.js';
+import {
+    getRuntimeModelSettingsSnapshot,
+    initializeRuntimeModelSettings
+} from './services/runtimeModelSettings.js';
 import { initializeRuntimeTimeoutSettings } from './services/runtimeTimeoutSettings.js';
 import { setLlmTimingTelemetrySink } from './services/llmTimingMetrics.js';
 import { getVersionInfo } from './services/versionInfo.js';
@@ -70,6 +73,18 @@ app.get('/health', (req, res) => {
 
 app.get('/api/version', (req, res) => {
     res.json(getVersionInfo());
+});
+
+// 仅公开 Python companion service 路由模型所需的非敏感字段。
+// API Key 始终留在各服务端环境变量中，不通过浏览器或此接口传递。
+app.get('/api/runtime/model-config', (req, res) => {
+    const snapshot = getRuntimeModelSettingsSnapshot();
+    res.json({
+        version: snapshot.version,
+        primary: snapshot.primary,
+        updatedAt: snapshot.updatedAt,
+        source: snapshot.source
+    });
 });
 
 app.use('/api/auth', authRouter(store, auth));
