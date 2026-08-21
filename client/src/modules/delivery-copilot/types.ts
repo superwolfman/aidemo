@@ -17,6 +17,18 @@ export type Source = {
     rerankScore?: number;
     rerankStrategy?: string;
     filterReason?: string;
+    evidenceQuality?: { authority?: string; freshness?: string; ageDays?: number | null };
+    knowledgeMetadata?: {
+        sourceType?: string;
+        authorityLevel?: string;
+        provenanceKind?: string;
+        isSynthetic?: boolean;
+        version?: string;
+        effectiveAt?: string;
+        reviewDueAt?: string;
+        sourceUri?: string;
+        disclaimer?: string;
+    };
 };
 
 export type FilteredChunk = {
@@ -38,7 +50,7 @@ export type Artifact = {
     versions?: Array<{ version: number; status: string; createdAt: string }>;
     approvals?: Array<{ action: string; note?: string; createdAt: string }>;
     exports?: Array<{ id: string; format: string; filename: string; exportedAt: string }>;
-    sourceRefs?: Array<{ id: string; index: number; title: string; score: number; retrievalBackend?: string }>;
+    sourceRefs?: Array<{ id: string; index: number; title: string; score: number; retrievalBackend?: string; sourceType?: string; authorityLevel?: string; isSynthetic?: boolean; version?: string }>;
     generatedBy?: { tool: string; traceStepId: string; generatedAt: string };
     evalId?: string;
 };
@@ -126,6 +138,11 @@ export type EvalCase = {
     title: string;
     prompt: string;
     expected: string[];
+    taskModeId?: string;
+    scopes?: string[];
+    audience?: string;
+    deliveryTarget?: string;
+    constraints?: string;
     lastResult?: RunQuality;
     evalHistory?: Array<{ score: number; verdict: string; createdAt: string }>;
 };

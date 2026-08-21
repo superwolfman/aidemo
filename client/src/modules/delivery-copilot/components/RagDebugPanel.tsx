@@ -15,6 +15,16 @@ type Source = {
     filterReason?: string;
     retrievalBackend?: string;
     sourcePath?: string;
+    evidenceQuality?: { authority?: string; freshness?: string; ageDays?: number | null };
+    knowledgeMetadata?: {
+        sourceType?: string;
+        authorityLevel?: string;
+        isSynthetic?: boolean;
+        version?: string;
+        effectiveAt?: string;
+        reviewDueAt?: string;
+        disclaimer?: string;
+    };
 };
 
 type ExternalSource = {
@@ -122,6 +132,16 @@ function displayRelevance(source: Source) {
     return Math.min(1, Math.max(0, score));
 }
 
+function provenanceLabel(source: Source) {
+    if (source.knowledgeMetadata?.isSynthetic || source.knowledgeMetadata?.sourceType === 'synthetic-demo') {
+        return 'synthetic-demo · 非 KERING 内部制度';
+    }
+    if (source.knowledgeMetadata?.sourceType === 'official-public') {
+        return 'official-public · KERING 官网公开资料';
+    }
+    return source.knowledgeMetadata?.sourceType || 'source type unknown';
+}
+
 function ExpandableText({ value, size = 160 }: { value: string; size?: number }) {
     const [open, setOpen] = useState(false);
     const needsExpand = value.length > size;
@@ -208,7 +228,7 @@ export function RagDebugPanel({ query, sources, externalSources = [], externalSt
                     <article id={`src-${index}`} key={source._id || `${source.documentTitle}-${index}`}>
                         <header>
                             <strong>[{index + 1}] {source.documentTitle || 'Untitled source'}</strong>
-                            <span>relevance {displayRelevance(source).toFixed(4)}</span>
+                            <span>{provenanceLabel(source)} · rerank score {displayRelevance(source).toFixed(4)}</span>
                         </header>
                         <p><ExpandableText value={source.content || ''} size={180} /></p>
                         <footer>
@@ -217,8 +237,10 @@ export function RagDebugPanel({ query, sources, externalSources = [], externalSt
                             <span>rank {source.candidateRank || index + 1}</span>
                             {source.vectorRank ? <span>vector rank {source.vectorRank}</span> : null}
                             {source.vectorScore !== undefined ? <span>vector {Number(source.vectorScore).toFixed(4)}</span> : null}
-                            <span>rerank relevance {displayRelevance(source).toFixed(4)}</span>
+                            <span>rerank score {displayRelevance(source).toFixed(4)} · not confidence</span>
                             <span>{source.rerankStrategy || 'score-desc'}</span>
+                            <span>authority {source.evidenceQuality?.authority || source.knowledgeMetadata?.authorityLevel || 'unknown'}</span>
+                            <span>version {source.knowledgeMetadata?.version || 'unknown'} · effective {source.knowledgeMetadata?.effectiveAt?.slice(0, 10) || 'unknown'}</span>
                             <span>{source.filterReason || 'passed current retrieval filters'}</span>
                         </footer>
                     </article>

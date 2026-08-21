@@ -214,6 +214,9 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
             activeTaskMode.promptSuffix
         ].join('\n');
         const evalCaseId = opts.evalCaseId ?? selectedEvalCaseId;
+        const runEvalCase = cases.find((item) => item.id === evalCaseId);
+        const runScopes = runEvalCase?.scopes?.length ? runEvalCase.scopes : activeTaskMode.scopes;
+        const runTaskModeId = runEvalCase?.taskModeId || activeTaskMode.id;
         if (!retrievalQuery) return;
         const controller = new AbortController();
         abortRef.current = controller;
@@ -234,7 +237,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
                 message: nextPrompt,
                 retrievalQuery,
                 evalCaseId,
-                commandOptions: { agentId: activeTaskMode.agentId, scopes: activeTaskMode.scopes, taskModeId: activeTaskMode.id, source: 'delivery-copilot' }
+                commandOptions: { agentId: activeTaskMode.agentId, scopes: runScopes, taskModeId: runTaskModeId, source: 'delivery-copilot' }
             }, {
                 run_status: (payload) => setStatus(payload.status || 'running'),
                 trace: (payload) => setTrace((items) => [...items.filter((item) => item.id !== payload.id), payload]),
@@ -294,7 +297,13 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
         if (running) return;
         setSelectedEvalCaseId(item.id);
         setRequirement(item.prompt);
-        setConstraints(`验收重点：${item.expected.join('、')}`);
+        if (item.taskModeId) setTaskModeId(item.taskModeId);
+        if (item.audience) setAudience(item.audience);
+        if (item.deliveryTarget) setDeadline(item.deliveryTarget);
+        setConstraints([
+            item.constraints,
+            `验收重点：${item.expected.join('、')}`
+        ].filter(Boolean).join('\n'));
     }
 
     async function refreshEvalCases() { await refreshEval(); }

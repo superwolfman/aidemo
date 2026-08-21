@@ -11,7 +11,13 @@ export function normalizeSourceRef (source, index) {
         rerankStrategy: source.rerankStrategy,
         filterReason: source.filterReason,
         retrievalBackend: source.retrievalBackend,
-        sourcePath: source.sourcePath
+        sourcePath: source.sourcePath,
+        sourceType: source.knowledgeMetadata?.sourceType,
+        authorityLevel: source.knowledgeMetadata?.authorityLevel,
+        isSynthetic: Boolean(source.knowledgeMetadata?.isSynthetic),
+        version: source.knowledgeMetadata?.version,
+        effectiveAt: source.knowledgeMetadata?.effectiveAt,
+        disclaimer: source.knowledgeMetadata?.disclaimer
     };
 }
 

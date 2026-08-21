@@ -31,6 +31,7 @@ export function ArtifactWorkbench({
     readOnly = false
 }: ArtifactWorkbenchProps) {
     const isConfirmed = activeArtifact?.status === 'confirmed' || activeArtifact?.reviewStatus === 'confirmed';
+    const confirmedCount = artifacts.filter((artifact) => artifact.status === 'confirmed' || artifact.reviewStatus === 'confirmed').length;
     return (
         <section className="panel delivery-artifacts">
             <div className="section-head">
@@ -38,7 +39,7 @@ export function ArtifactWorkbench({
                     <h2>Artifact 交付物总览</h2>
                     <p>把模型输出变成可预览、可复制、可确认、可导出的产品资产。</p>
                 </div>
-                <span>{artifacts.length} artifacts</span>
+                <span>{artifacts.length} artifacts · {confirmedCount} confirmed · {artifacts.length - confirmedCount} pending</span>
             </div>
             {readOnly ? <p className="delivery-readonly-hint">当前为受限演示账号：生成结果可查看，版本保存、导出、确认和送审已禁用。</p> : null}
             <div className="delivery-artifact-shell">
@@ -77,7 +78,7 @@ export function ArtifactWorkbench({
                                     <span>Tool · {activeArtifact.generatedBy?.tool || 'planDelivery'}</span>
                                     {activeArtifact.evalId ? <span>Eval · {activeArtifact.evalId}</span> : null}
                                     {(activeArtifact.sourceRefs || []).slice(0, 4).map((item) => (
-                                        <span key={item.id}>[{item.index}] {item.title} · {Number(item.score || 0).toFixed(4)}</span>
+                                        <span key={item.id}>[{item.index}] {item.title} · {item.isSynthetic ? 'synthetic-demo' : (item.sourceType || 'source')} · score {Number(item.score || 0).toFixed(4)}</span>
                                     ))}
                                     {(activeArtifact.versions || []).slice(0, 5).map((item) => (
                                         <span key={`${item.version}-${item.createdAt}`}>v{item.version} · {item.status}</span>

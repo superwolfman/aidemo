@@ -72,7 +72,12 @@ export const scopeOptions = [
   { id: 'ai-native', label: 'AI Native' },
   { id: 'frontend', label: '前端交互' },
   { id: 'im', label: 'IM / 会话' },
-  { id: 'sdk', label: 'SDK / 质量' }
+  { id: 'sdk', label: 'SDK / 质量' },
+  { id: 'retail-operations', label: '门店运营' },
+  { id: 'knowledge-governance', label: '知识治理' },
+  { id: 'access-control', label: '权限隔离' },
+  { id: 'rag-evaluation', label: 'RAG 评测' },
+  { id: 'public-strategy', label: '官方公开战略' }
 ];
 
 export const stateOrder = [

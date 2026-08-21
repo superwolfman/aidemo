@@ -403,6 +403,7 @@ const AUTHORITY_FACTORS = {
     official: 1.12,
     'internal-reviewed': 1.1,
     reviewed: 1.06,
+    'synthetic-reviewed': 1,
     community: 0.92,
     unknown: 0.96
 };

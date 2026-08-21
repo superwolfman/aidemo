@@ -1,4 +1,3 @@
-import { CUSTOMER_SERVICE_SCOPES, INVESTMENT_RESEARCH_SCOPES } from '../knowledge/domainKnowledgePacks.js';
 import { resolveKnowledgeDomain } from '../knowledge/knowledgeDomain.js';
 
 const TASK_MODE_SCOPES = {
@@ -10,7 +9,8 @@ const TASK_MODE_SCOPES = {
 
 const DOMAIN_SYNONYMS = {
     'investment-research': ['投研', '研报', '公司研究', '行业研究', '引用合规'],
-    'customer-service': ['智能客服', '知识库', '问答', '纠错', '转人工']
+    'customer-service': ['智能客服', '知识库', '问答', '纠错', '转人工'],
+    'kering-retail': ['KERING', 'Greater China', 'House', '门店运营', '知识治理', '权限隔离', 'Knowledge Gap']
 };
 
 const ENTITY_PATTERN = /(?:[A-Za-z][A-Za-z0-9.+#_-]{1,30}|[\u4e00-\u9fff]{2,16}(?:公司|行业|平台|工作台|知识库|报告|政策|流程|系统))/gu;
@@ -27,9 +27,7 @@ export function buildRetrievalPlan ({ query, scopes = [], taskModeId } = {}) {
         .trim() || originalQuery;
     const domain = resolveKnowledgeDomain(semanticQuery);
     const entities = extractBusinessEntities(semanticQuery);
-    const domainScopes = domain?.id === 'investment-research'
-        ? INVESTMENT_RESEARCH_SCOPES
-        : domain?.id === 'customer-service' ? CUSTOMER_SERVICE_SCOPES : [];
+    const domainScopes = domain?.scopes || [];
     const expandedTerms = [...new Set([...entities, ...(DOMAIN_SYNONYMS[domain?.id] || [])])];
     return {
         originalQuery,

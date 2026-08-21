@@ -1,3 +1,5 @@
+import { KERING_RETAIL_SCOPES } from '../knowledge/domainKnowledgePacks.js';
+
 // export function scoreRunQuality ({ sources = [], artifacts = [], trace = [], provider = {}, intent = {}, prompt = '' }) {
 //     const prdArtifact = artifacts.find((artifact) => artifact.type === 'prd');
 //     const apiArtifact = artifacts.find((artifact) => artifact.type === 'api');
@@ -109,8 +111,11 @@ const METRICS = {
         weight: 1.5,
         score: (c) => {
             if (!c.hasPrd) return 0;
-            const required = ['## 产品目标', '## 核心用户'];
-            const hit = required.filter((s) => c.prdText.includes(s)).length;
+            const required = [
+                ['## 产品目标', '## 产品定位'],
+                ['## 核心用户', '## 目标用户']
+            ];
+            const hit = required.filter((alternatives) => alternatives.some((heading) => c.prdText.includes(heading))).length;
             const lengthScore = Math.min(1, c.prdText.length / 1200); // 300字→0.25，1200字→1
             return Math.min(1, (hit / required.length) * 0.6 + lengthScore * 0.4);
         }
@@ -358,6 +363,11 @@ export function buildEvalCases () {
             id: 'kering-greater-china-retail-copilot',
             title: 'KERING 大中华区门店知识 Copilot',
             prompt: '以 KERING Greater China 为假设业务背景，设计一个跨 House 的门店运营知识 Copilot。仅使用 KERING 官方公开资料和知识库中明确标注的模拟规范；面向 Client Advisor、Store Manager、Knowledge Owner 与 IT / Security Reviewer。检索前必须按 tenant、House 和 Knowledge Scope 过滤，回答展示 citation、来源版本和有效期；证据不足返回 Knowledge Gap，高风险及跨 House 请求进入人工确认。输出 PRD、页面结构、API Contract、研发任务、风险清单，以及引用命中、权限隔离、拒答和 HITL 的上线评测门禁。',
+            taskModeId: 'product-workflow',
+            scopes: KERING_RETAIL_SCOPES,
+            audience: 'Client Advisor、Store Manager、Regional Retail Operations、Knowledge Owner、IT / Security Reviewer',
+            deliveryTarget: '5 个工作日完成可演示 MVP；跑通认证→受限检索→引用回答→Knowledge Gap→HITL→AgentOps 审计闭环',
+            constraints: '5 日目标仅是可演示 vertical slice，不表述为 production-ready；仅使用 KERING 官方公开资料与明确标注的 synthetic-demo 模拟规范；公开战略不得作为内部 SOP；tenant/House/scope 必须检索前校验；所有分数均为 retrieval/rerank score，不得表述为答案置信概率。',
             expected: ['引用来源命中', 'PRD 完整度', 'API Contract 合理性', '风险包含幻觉治理', 'Trace 可复盘', '需求匹配度', '引用一致性']
         }
     ];

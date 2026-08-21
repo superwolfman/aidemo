@@ -11,8 +11,24 @@ function buildSourceBlock (sources) {
 function buildSourceContext (sources) {
     if (!sources || !Array.isArray(sources) || !sources.length) return '（无引用来源）';
     return sources
-        .map((s, i) => `[${i + 1}] ${s.documentTitle}\n路径: ${s.sourcePath || 'unknown'}\n内容: ${String(s.content || '').slice(0, 500)}`)
+        .map((s, i) => {
+            const metadata = s.knowledgeMetadata || {};
+            const provenance = metadata.isSynthetic || metadata.sourceType === 'synthetic-demo'
+                ? 'synthetic-demo（面试模拟规范，不代表 KERING 内部制度）'
+                : metadata.sourceType === 'official-public'
+                    ? 'official-public（KERING 官网公开资料）'
+                    : metadata.sourceType || 'unknown';
+            return `[${i + 1}] ${s.documentTitle}\n来源属性: ${provenance}\n权威等级: ${metadata.authorityLevel || 'unknown'}\n版本/生效日: ${metadata.version || 'unknown'} / ${metadata.effectiveAt || 'unknown'}\n路径: ${s.sourcePath || metadata.sourceUri || 'unknown'}\n内容: ${String(s.content || '').slice(0, 700)}`;
+        })
         .join('\n\n');
+}
+
+function sanitizeMarkdownCitations (text, sourceCount) {
+    return String(text || '').replace(/\[([^\]\n]+)\]/g, (match, label) => {
+        if (!/^\d+$/.test(label)) return '';
+        const index = Number(label);
+        return index >= 1 && index <= sourceCount ? match : '';
+    });
 }
 
 async function llmGenerateArtifact ({ type, prompt, sources, intent, fallback }) {
@@ -29,11 +45,11 @@ ${sourceContext}
 
 输出要求：
 1. 用 Markdown 格式
-2. 包含：产品定位、目标用户、核心功能、功能模块、验收标准
-3. 引用规则：只有当某句结论确实来自上面某条来源的原文时，才在该句末尾标注对应编号 [n]；不同结论各自引用真正支持它的来源，禁止把多条结论都挂在同一个编号上
-4. 属于通用产品实践、非来源原文支持的内容，不带引用标记
-5. 只能引用上面列出的来源，禁止编造引用编号
-6. 如果来源没覆盖某个问题，明确写"未在知识库中找到相关资料"，且该句不带引用`,
+2. 包含：产品目标与非目标、已知事实与假设、核心用户与权限、核心流程、功能模块、非功能要求、可量化验收标准、依赖与待确认问题
+3. 必须区分“当前已验证能力”“目标状态”“待确认假设”，并区分 official-public、synthetic-demo 与通用建议；没有 Runtime 证据时不得把目标要求写成已经实现，也不得把模拟规范写成 KERING 内部既有事实
+4. 引用规则：只有当某句结论确实来自上面某条来源原文时，才在句末标注 [n]；不同结论引用真正支持它的来源
+5. 通用产品建议不带引用；只能使用数字引用 [1]..[${sourceCount}]，禁止 [User Request] 等伪引用
+6. 来源未覆盖的内容放入“待确认问题”，明确写“未在知识库中找到相关资料”`,
 
         flow: `你是前端架构师。基于以下需求和引用来源，设计页面结构和状态流转。
 
@@ -45,10 +61,14 @@ ${sourceContext}
 {
   "goal": "一句话描述产品目标",
   "pages": [{ "name": "页面名", "modules": ["模块1", "模块2"] }],
-  "states": ["idle", "intent_detected", "retrieving", "streaming", "review_required", "completed"],
-  "interactionRules": ["交互规则1"]
+  "states": ["idle", "scope_validated", "retrieving", "streaming", "knowledge_gap", "review_required", "completed", "failed"],
+  "transitions": [{ "from": "idle", "event": "SUBMIT", "to": "scope_validated", "guard": "规则" }],
+  "permissions": [{ "role": "角色", "allowed": ["动作"], "denied": ["动作"] }],
+  "errorStates": [{ "code": "稳定错误码", "recovery": "恢复方式" }],
+  "interactionRules": ["交互规则1"],
+  "openQuestions": ["未被来源覆盖的问题"]
 }
-只输出 JSON，不要其他文字。`,
+只输出合法 JSON，不要其他文字；引用只能出现在字符串值中，且只能使用 [1]..[${sourceCount}]。`,
 
         api: `你是后端架构师。基于以下需求和引用来源，设计 BFF API Contract。
 
@@ -58,11 +78,19 @@ ${sourceContext}
 
 输出要求（纯 JSON，不要 markdown 代码块）：
 {
-  "POST /api/xxx": { "request": { "field": "type" }, "response": ["field1"] },
-  "GET /api/xxx/:id": { "response": ["field1"] },
-  "guardrails": ["约束1", "约束2"]
+  "contractVersion": "v1",
+  "securityContext": { "derivedFrom": "authenticated principal", "clientSuppliedFields": ["requestedHouse", "requestedScopes"] },
+  "endpoints": [{
+    "method": "POST", "path": "/api/v1/xxx", "purpose": "用途",
+    "request": { "headers": {}, "path": {}, "query": {}, "body": {} },
+    "response": { "http": 200, "body": {} },
+    "errors": [{ "http": 422, "code": "STABLE_CODE", "retryable": false }],
+    "idempotency": "规则", "authorization": "规则", "audit": ["request_id"]
+  }],
+  "guardrails": ["约束1", "约束2"],
+  "openQuestions": ["知识库未定义的契约"]
 }
-只输出 JSON，不要其他文字。`,
+要求：tenantId、role 和最终 effective scope 只能来自认证 principal；客户端只能请求候选 House/Scope，服务端必须校验 membership。只输出合法 JSON，不要其他文字。`,
 
         task: `你是技术负责人。基于以下需求和引用来源，拆解研发任务。
 
@@ -72,11 +100,13 @@ ${sourceContext}
 
 输出要求（Markdown）：
 ## Frontend
-- 任务（优先级P0/P1/P2，验收标准）
+- 任务（优先级、依赖、验收标准、Definition of Done）
 ## BFF
-- 任务
+- 任务（权限边界、可观测性、错误契约）
 ## QA
-- 任务
+- 任务（正向、Knowledge Gap、越权、过期知识、回归门禁）
+## Rollout
+- 灰度、监控、回滚与责任人
 引用规则：仅当某条任务的依据确实来自上面某条来源原文时，才在该条末尾标注对应编号 [n]；通用工程实践不带引用，禁止编造编号或把所有任务挂同一编号。`,
 
         risk: `你是风险评估专家。基于以下需求和引用来源，识别风险和待确认问题。
@@ -86,7 +116,10 @@ ${sourceContext}
 ${sourceContext}
 
 输出结构（Markdown）：
-## 主要风险
+## 风险登记表
+每条风险包含：概率、影响、触发信号、缓解措施、Owner、剩余风险
+## 人工确认策略
+明确触发条件、审批角色、SLA、证据快照和审计字段
 ## 待确认问题
 ## 引用依据
 
@@ -100,7 +133,7 @@ ${sourceContext}
 
     try {
         const result = await generateLlmAnswer({
-            systemPrompt: '你是企业级 AI 产品交付专家。严格按引用来源生成内容，禁止编造引用编号。',
+            systemPrompt: '你是企业级 AI 产品交付专家。严格区分已验证现状、目标设计和模拟证据；严格按引用来源生成内容，禁止编造引用编号。',
             prompt: prompts[type] || prompts.prd,
             modelConfig: {},
             fallback
@@ -119,7 +152,9 @@ ${sourceContext}
             console.warn(`[toolExecutor] ${type} LLM 返回空或太短，使用 fallback`);
             return fallback;
         }
-        return text;
+        return ['prd', 'task', 'risk'].includes(type)
+            ? sanitizeMarkdownCitations(text, sourceCount)
+            : text;
     } catch (error) {
         console.error(`[toolExecutor] LLM 生成 ${type} 异常:`, error.message);
         return fallback;
