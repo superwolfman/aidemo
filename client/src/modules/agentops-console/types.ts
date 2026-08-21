@@ -21,7 +21,8 @@ export type AgentRun = {
   runId: string;
   status: string;
   prompt: string;
-  intent?: { id?: string; label: string; goal: string; riskLevel: string; confidence?: number; signals?: string[] };
+  intent?: { id?: string; label: string; goal: string; riskLevel: string; confidence?: number; signals?: string[]; scopes?: string[] };
+  commandOptions?: { agentId?: string; skillId?: string; scopes?: string[]; taskModeId?: string; source?: string };
   selectedSkill?: { id?: string; name: string; tools: string[] };
   executionContext?: {
     source: string;
@@ -67,6 +68,9 @@ export type AgentRun = {
     runtimeVersion?: number;
     fallbackUsed?: boolean;
     attemptedModels?: string[];
+  };
+  ragDiagnostics?: {
+    retrieval?: { effectiveScopes?: string[]; scopeSource?: string };
   };
   createdAt?: string;
 };

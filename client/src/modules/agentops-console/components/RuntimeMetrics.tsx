@@ -1,5 +1,6 @@
 import { Database } from 'lucide-react';
 import type { Blueprint, Capability, MetricTrends, RuntimeMetrics as RuntimeMetricsData } from '../types';
+import { scopeOptions } from '../utils';
 import { MetricTrendCard } from './Common';
 
 type RetrievalView = {
@@ -71,7 +72,7 @@ export function RuntimeMetrics({
         <span>Vector {retrievalView.backend} · {retrievalView.label} · {ragRuntime?.index || 'index pending'}</span>
         <span>{ragLive ? `Live ${ragRuntime?.vectorPath || 'embedding'} · ${ragRuntime?.dimensions || 0} dims` : (retrievalView.message || ragRuntime?.error || 'fallback retrieval')}</span>
         <span>新建 Run Agent {selectedAgent?.name || 'Agent Runtime'}</span>
-        <span>Scope {selectedScopeLabels.length}/6 · {selectedScopeLabels.join(' / ') || 'minimal context'}</span>
+        <span>Scope {selectedScopeLabels.length}/{scopeOptions.length} · {selectedScopeLabels.join(' / ') || 'minimal context'}</span>
       </div>
     </section>
   );

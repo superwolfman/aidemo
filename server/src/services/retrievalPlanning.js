@@ -28,6 +28,8 @@ export function buildRetrievalPlan ({ query, scopes = [], taskModeId } = {}) {
     const domain = resolveKnowledgeDomain(semanticQuery);
     const entities = extractBusinessEntities(semanticQuery);
     const domainScopes = domain?.scopes || [];
+    const explicitScopes = [...new Set((scopes || []).filter(Boolean))];
+    const defaultScopes = [...new Set([...(TASK_MODE_SCOPES[taskModeId] || []), ...domainScopes])];
     const expandedTerms = [...new Set([...entities, ...(DOMAIN_SYNONYMS[domain?.id] || [])])];
     return {
         originalQuery,
@@ -35,7 +37,10 @@ export function buildRetrievalPlan ({ query, scopes = [], taskModeId } = {}) {
         fullTextQuery: [semanticQuery, ...expandedTerms].filter(Boolean).join(' '),
         entities,
         domain: domain?.id || null,
-        scopes: [...new Set([...(scopes || []), ...(TASK_MODE_SCOPES[taskModeId] || []), ...domainScopes])],
+        // 显式 Scope 是安全边界，不能被 Task Mode 或领域识别静默扩域。
+        // 只有调用方未指定 Scope 时，才使用编排和领域默认值。
+        scopes: explicitScopes.length ? explicitScopes : defaultScopes,
+        scopeSource: explicitScopes.length ? 'explicit-command' : 'task-mode-domain-default',
         taskModeId: taskModeId || null
     };
 }

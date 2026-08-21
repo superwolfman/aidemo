@@ -232,6 +232,16 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
 
 
     const activeRunMemo = useMemo(() => runs.find((run) => run._id === activeRunId) || runs[0], [activeRunId, runs]);
+    const activeRunScopes = useMemo(() => {
+        const knownScopes = new Set(scopeOptions.map((scope) => scope.id));
+        const candidates = [
+            activeRunMemo?.commandOptions?.scopes,
+            activeRunMemo?.intent?.scopes,
+            activeRunMemo?.ragDiagnostics?.retrieval?.effectiveScopes
+        ];
+        const resolved = candidates.find((items) => Array.isArray(items) && items.length) || [];
+        return [...new Set(resolved)].filter((scope) => knownScopes.has(scope));
+    }, [activeRunMemo]);
     const selectedAgent = useMemo(() => blueprint?.capabilities?.find((item) => item.id === selectedAgentId) || blueprint?.capabilities?.[0], [blueprint, selectedAgentId]);
     const ragRuntime = blueprint?.runtime.rag;
     const activeSources = useMemo(() => activeRunMemo?.sources || [], [activeRunMemo]);
@@ -260,6 +270,16 @@ export default function AgentOpsConsole({ shell }: { shell: ShellContext }) {
     }, [runs]);
     const trendPath = useMemo(() => buildSparkline(runs.slice(0, 12).reverse().map((run) => (run.trace || []).reduce((sum, item) => sum + (item.durationMs || 0), 0))), [runs]);
     const metricTrends = useMemo(() => { const sample = runs.slice(0, 12).reverse(); return { latency: buildSparkline(sample.map((run) => (run.trace || []).reduce((sum, item) => sum + (item.durationMs || 0), 0))), tokens: buildSparkline(sample.map((run) => (run.trace || []).reduce((sum, item) => sum + (item.tokenUsage || 0), 0))), quality: buildSparkline(sample.map((run) => run.quality?.score || 0)) }; }, [runs]);
+
+    // Command Center 默认继承当前 Run 的原始显式 Scope，保证 Delivery Copilot → AgentOps 联动一致。
+    // 优先使用 commandOptions，避免用领域推断结果反向扩大下一次运行的检索边界。
+    useEffect(() => {
+        if (activeRunScopes.length) setSelectedScopes(activeRunScopes);
+        const runAgentId = activeRunMemo?.commandOptions?.agentId || activeRunMemo?.selectedSkill?.id;
+        if (runAgentId && blueprint?.capabilities?.some((item) => item.id === runAgentId)) {
+            setSelectedAgentId(runAgentId);
+        }
+    }, [activeRunMemo?._id, activeRunScopes.join('|'), blueprint]);
 
     const load = useCallback(async () => {
         const [blueprintResult, runResult, sessionResult] = await Promise.all([getAgentStudioBlueprint(), agentRunService.listRuns(), sessionService.listAgentStudioSessions()]);
