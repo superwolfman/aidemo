@@ -62,7 +62,7 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
     const artifact = useArtifact();
 
     const { setActive, active } = session;
-    const { status, setStatus, answer, setAnswer, trace, setTrace, sources, setSources, externalSources, externalStatus, filteredChunks, setFilteredChunks, ragDiagnostics, setRagDiagnostics, artifacts, setArtifacts, quality, setQuality, activeRun, setActiveRun, start } = agentRun;
+    const { status, setStatus, answer, setAnswer, trace, setTrace, sources, setSources, externalSources, setExternalSources, externalStatus, setExternalStatus, filteredChunks, setFilteredChunks, ragDiagnostics, setRagDiagnostics, artifacts, setArtifacts, quality, setQuality, activeRun, setActiveRun, start } = agentRun;
     const { cases, setCases, load: loadEvalCases, refresh: refreshEval } = evalCase;
 
     const activeArtifact = useMemo(() => artifacts.find((item) => item.id === activeArtifactId) || artifacts[0], [activeArtifactId, artifacts]);
@@ -256,6 +256,8 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
                     setStatus(payload.run?.status || 'review_required');
                     setAnswer(payload.run?.answer || '');
                     setSources(payload.run?.sources || []);
+                    setExternalSources(payload.run?.externalSources || []);
+                    setExternalStatus(payload.run?.externalStatus || payload.run?.ragDiagnostics?.externalStatus || null);
                     setFilteredChunks(payload.run?.filteredChunks || []);
                     setRagDiagnostics(payload.run?.ragDiagnostics || null);
                     setArtifacts(payload.run?.artifacts || []);
@@ -318,6 +320,8 @@ export default function DeliveryCopilot({ shell }: { shell: ShellContext }) {
         setArtifacts(run.artifacts || []);
         setTrace(run.trace || []);
         setSources(run.sources || []);
+        setExternalSources(run.externalSources || []);
+        setExternalStatus(run.externalStatus || run.ragDiagnostics?.externalStatus || null);
         setFilteredChunks(run.filteredChunks || []);
         setRagDiagnostics(run.ragDiagnostics || null);
         setQuality(run.quality || null);

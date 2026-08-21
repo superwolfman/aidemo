@@ -8,6 +8,7 @@ const AUTHORITY_REGISTRY = {
     'csrc.gov.cn': 1, 'pbc.gov.cn': 1, 'gov.cn': 1, 'stats.gov.cn': 1,
     'sse-info.com': 2, 'eastmoney.com': 3, '10jqka.com.cn': 3,
     'reuters.com': 2, 'bloomberg.com': 2, 'xinhuanet.com': 2,
+    'kering.com': 1,
     'wind.com.cn': 2, 'cs.com.cn': 2, 'stcn.com': 3, 'yicai.com': 3,
     'caixin.com': 2, 'thepaper.cn': 4
 };
@@ -28,7 +29,7 @@ const DEFAULT_ENABLED_TASK_MODES = [
 const DEFAULT_WHITELIST = [
     'cninfo.com.cn', 'sse.com.cn', 'szse.cn', 'bse.cn', 'csrc.gov.cn',
     'pbc.gov.cn', 'gov.cn', 'eastmoney.com', '10jqka.com.cn',
-    'reuters.com', 'bloomberg.com', 'xinhuanet.com', 'caixin.com'
+    'reuters.com', 'bloomberg.com', 'xinhuanet.com', 'caixin.com', 'kering.com'
 ];
 
 function listFromEnv (name, fallback = '') {
@@ -92,7 +93,7 @@ export function getExternalRetrievalConfig () {
         endpoint,
         apiKeyRequired,
         apiKey: process.env.EXTERNAL_SEARCH_API_KEY || '',
-        timeoutMs: boundedNumberFromEnv('EXTERNAL_SEARCH_TIMEOUT_MS', 5000, 1000, 15000),
+        timeoutMs: boundedNumberFromEnv('EXTERNAL_SEARCH_TIMEOUT_MS', 10000, 1000, 20000),
         maxResults: boundedNumberFromEnv('EXTERNAL_SEARCH_MAX_RESULTS', 5, 1, 10),
         maxResponseBytes: boundedNumberFromEnv('EXTERNAL_SEARCH_MAX_RESPONSE_BYTES', 1_000_000, 10_000, 5_000_000),
         maxContentChars: boundedNumberFromEnv('EXTERNAL_SEARCH_MAX_CONTENT_CHARS', 12_000, 500, 50_000),

@@ -133,7 +133,8 @@ export async function retrieveExternalKnowledge ({ store, context, query, scopes
         configured: cfg.configured,
         provider: cfg.provider,
         eligible,
-        highRisk: isHighRiskScope(scopes)
+        highRisk: isHighRiskScope(scopes),
+        timeoutMs: cfg.timeoutMs
     };
 
     if (!isExternalRetrievalEnabled()) {
@@ -163,10 +164,11 @@ export async function retrieveExternalKnowledge ({ store, context, query, scopes
     const searchResult = await searchExternal({ query: safeQuery, maxResults: cfg.maxResults, signal });
 
     if (!searchResult.results.length) {
+        const latencyMs = Date.now() - startedAt;
         return {
             externalSources: [],
-            externalStatus: { ...baseStatus, status: searchResult.status, error: searchResult.error },
-            externalDiagnostics: { reason: searchResult.status, latencyMs: Date.now() - startedAt }
+            externalStatus: { ...baseStatus, status: searchResult.status, error: searchResult.error, latencyMs },
+            externalDiagnostics: { reason: searchResult.status, latencyMs }
         };
     }
 
@@ -245,6 +247,7 @@ export async function retrieveExternalKnowledge ({ store, context, query, scopes
         });
     } catch { /* 审计写入失败不得阻断只读检索 */ }
 
+    const latencyMs = Date.now() - startedAt;
     return {
         externalSources,
         externalStatus: {
@@ -252,10 +255,11 @@ export async function retrieveExternalKnowledge ({ store, context, query, scopes
             status: externalSources.length ? 'ok' : 'no-eligible-results',
             fetched: searchResult.results.length,
             accepted: externalSources.length,
-            skipped: skipped.length
+            skipped: skipped.length,
+            latencyMs
         },
         externalDiagnostics: {
-            latencyMs: Date.now() - startedAt,
+            latencyMs,
             queryRedacted: safeQuery !== String(query || ''),
             skipped,
             providerStatus: searchResult.status

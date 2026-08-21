@@ -85,6 +85,8 @@ export type AgentRun = {
     status: string;
     answer?: string;
     sources?: Source[];
+    externalSources?: any[];
+    externalStatus?: any;
     filteredChunks?: FilteredChunk[];
     retrievalQuery?: string;
     ragDiagnostics?: {
@@ -94,6 +96,7 @@ export type AgentRun = {
         error?: string;
         status?: RagRuntime;
         outcome?: RetrievalOutcome;
+        externalStatus?: any;
         retrieval?: {
             query?: string;
             originalQuery?: string;

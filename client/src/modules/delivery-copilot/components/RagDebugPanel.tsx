@@ -55,6 +55,8 @@ type ExternalStatus = {
     accepted?: number;
     skipped?: number;
     error?: string;
+    latencyMs?: number;
+    timeoutMs?: number;
 };
 
 type RagRuntime = {
@@ -83,6 +85,7 @@ type Diagnostics = {
     vectorSearchReady?: boolean;
     error?: string;
     outcome?: { type?: string; code?: string; message?: string };
+    externalStatus?: ExternalStatus;
     retrieval?: {
         query?: string;
         originalQuery?: string;
@@ -172,6 +175,14 @@ export function RagDebugPanel({ query, sources, externalSources = [], externalSt
     const externalBaseIndex = sources.length;
     const entitiesText = diagnostics?.retrieval?.entities?.join(' / ') || 'none';
     const effectiveScopes = diagnostics?.retrieval?.effectiveScopes || [];
+    const displayedExternalStatus: ExternalStatus = externalStatus || diagnostics?.externalStatus || {
+        status: 'not-run',
+        enabled: false,
+        configured: false,
+        fetched: 0,
+        accepted: 0,
+        skipped: 0
+    };
 
     const filteredReason = (() => {
         if (sources.length) return '已按当前 Skill scope、topK 和 score 阈值返回候选 chunk。';
@@ -267,32 +278,33 @@ export function RagDebugPanel({ query, sources, externalSources = [], externalSt
                     </article>
                 ))}
                 {!sources.length ? <div className="runtime-empty">运行后展示 query、chunk、score、citation 和过滤原因。</div> : null}
-                {externalStatus ? (
-                    <div className="rag-debug-external">
+                <div className="rag-debug-external">
                         <div className="rag-debug-external-head">
                             <Globe size={15} />
                             <strong>外部在线证据（{externalSources.length}）</strong>
-                            <span>{externalStatus.status || 'ok'} · 抓取 {externalStatus.fetched ?? 0} · 采用 {externalStatus.accepted ?? 0} · 跳过 {externalStatus.skipped ?? 0}</span>
+                            <span>{displayedExternalStatus.status || 'ok'} · 抓取 {displayedExternalStatus.fetched ?? 0} · 采用 {displayedExternalStatus.accepted ?? 0} · 跳过 {displayedExternalStatus.skipped ?? 0}{displayedExternalStatus.latencyMs !== undefined ? ` · ${displayedExternalStatus.latencyMs}ms` : ''}</span>
                         </div>
                         {!externalSources.length ? (
                             <div className="rag-debug-external-empty">
-                                {externalStatus.status === 'disabled' || externalStatus.enabled === false
+                                {displayedExternalStatus.status === 'not-run'
+                                    ? '当前 Run 尚未执行或未记录外部在线检索状态。新 Run 将在此展示 disabled、timeout、no-hits 或已采用证据。'
+                                    : displayedExternalStatus.status === 'disabled' || displayedExternalStatus.enabled === false
                                     ? '外部在线检索已关闭：请在服务端私有环境变量设置 EXTERNAL_SEARCH_ENABLED=true，并配置 Provider、HTTPS Endpoint 与 API Key。'
-                                    : externalStatus.status === 'not-configured' || externalStatus.configured === false
-                                        ? `外部在线检索尚未完成配置：${externalStatus.error || '缺少 Provider、HTTPS Endpoint 或服务端 API Key'}。`
-                                    : (externalStatus.status === 'not-eligible' || externalStatus.status === 'scope-not-eligible')
+                                    : displayedExternalStatus.status === 'not-configured' || displayedExternalStatus.configured === false
+                                        ? `外部在线检索尚未完成配置：${displayedExternalStatus.error || '缺少 Provider、HTTPS Endpoint 或服务端 API Key'}。`
+                                    : (displayedExternalStatus.status === 'not-eligible' || displayedExternalStatus.status === 'scope-not-eligible')
                                         ? '当前 Task Mode / scope 不在外部检索白名单内，仅使用本地 Atlas 知识库。'
-                                        : externalStatus.status === 'no-hits'
+                                        : displayedExternalStatus.status === 'no-hits'
                                             ? '外部检索已执行，未命中白名单内的相关结果。'
-                                            : externalStatus.status === 'error' || externalStatus.status === 'provider-error'
-                                                ? `外部检索失败：${externalStatus.error || 'unknown'}`
-                                                : externalStatus.status === 'timeout'
-                                                    ? '外部检索超时，已降级为仅使用本地 Atlas。'
-                                                    : externalStatus.status === 'circuit-open'
+                                            : displayedExternalStatus.status === 'error' || displayedExternalStatus.status === 'provider-error'
+                                                ? `外部检索失败：${displayedExternalStatus.error || 'unknown'}`
+                                                : displayedExternalStatus.status === 'timeout'
+                                                    ? `外部检索超过 ${displayedExternalStatus.timeoutMs || 10000}ms，已降级为仅使用本地 Atlas。`
+                                                    : displayedExternalStatus.status === 'circuit-open'
                                                         ? '外部检索供应商连续失败，熔断器已开启；当前 Run 仅使用本地 Atlas。'
-                                                        : externalStatus.status === 'rate-limited'
+                                                        : displayedExternalStatus.status === 'rate-limited'
                                                             ? '外部检索达到并发上限；当前 Run 仅使用本地 Atlas。'
-                                                            : externalStatus.status === 'skipped'
+                                                            : displayedExternalStatus.status === 'skipped'
                                                         ? '外部检索被跳过。'
                                                         : '外部检索未返回结果。'}
                             </div>
@@ -317,8 +329,7 @@ export function RagDebugPanel({ query, sources, externalSources = [], externalSt
                                 </article>
                             );
                         })}
-                    </div>
-                ) : null}
+                </div>
                 <div className="rag-debug-filtered">
                     <details>
                         <summary>被过滤来源（{filteredChunks?.length || 0}）</summary>
