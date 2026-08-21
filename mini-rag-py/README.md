@@ -9,8 +9,6 @@
 - `/healthz` 存活检查与 `/readyz` 依赖就绪检查；
 - Provider 依赖注入，自动化测试不访问真实模型。
 
-完整面试话术和逐步命令见 [INTERVIEW_DEMO.md](INTERVIEW_DEMO.md)。
-
 ## 安装与测试
 
 ```bash
