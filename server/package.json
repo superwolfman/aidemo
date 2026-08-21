@@ -12,6 +12,7 @@
     "access:manage": "node scripts/manage-demo-access.mjs",
     "demo-password:manage": "node scripts/manage-password-demo.mjs",
     "database:migrate": "node scripts/migrate-database-environment.mjs",
+    "knowledge:seed": "node scripts/seed-tenant-knowledge.mjs",
     "rag:evaluate": "node scripts/evaluate-rag-golden.mjs",
     "rag:evaluate:apply": "node scripts/evaluate-rag-golden.mjs --apply",
     "test": "NODE_ENV=test node --test test/*.test.js"
