@@ -55,15 +55,34 @@ export PUBLIC_HOST
 export ORIGIN_PUBLIC_IP
 
 # 前后端镜像注入同一份不可变构建身份；运行时无需挂载 .git。
-APP_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
-APP_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-APP_VERSION="$(git describe --always --tags 2>/dev/null || true)"
+# 优先使用调用方预先 export 的 APP_COMMIT 等变量（tar 解压目录无 git，必须依赖此途径），
+# 退回 .deploy-version（运维维护的小文件），最后才尝试 git rev-parse。
+APP_COMMIT="${APP_COMMIT:-$(cat .deploy-version 2>/dev/null | awk -F= '/^commit=/{print $2}' || true)}"
+APP_COMMIT="${APP_COMMIT:-$(git rev-parse HEAD 2>/dev/null || true)}"
+APP_BRANCH="${APP_BRANCH:-$(cat .deploy-version 2>/dev/null | awk -F= '/^branch=/{print $2}' || true)}"
+APP_BRANCH="${APP_BRANCH:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)}"
+APP_VERSION="${APP_VERSION:-$(git describe --always --tags 2>/dev/null || true)}"
 APP_BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 if [ -n "$(git status --porcelain 2>/dev/null || true)" ]; then APP_DIRTY=true; else APP_DIRTY=false; fi
 export APP_COMMIT APP_BRANCH APP_VERSION APP_BUILD_TIME APP_DIRTY
 echo "✓ VITE_API_BASE=$VITE_API_BASE"
 echo "✓ PUBLIC_HOST=$PUBLIC_HOST"
-echo "✓ RELEASE=${APP_VERSION:-unknown} · dirty=$APP_DIRTY"
+echo "✓ RELEASE=${APP_VERSION:-unknown} · commit=${APP_COMMIT:-unknown} · branch=${APP_BRANCH:-unknown} · dirty=$APP_DIRTY"
+
+# 同步写入 release-info.json，避免 git archive 占位符未替换导致版本号全 unknown。
+# 即使 APP_COMMIT 为空，这里也会写一份占位（后续 git 恢复后可重写）。
+SHORT_COMMIT="${APP_COMMIT:0:7}"
+SHORT_COMMIT="${SHORT_COMMIT:-unknown}"
+cat > release-info.json <<EOF
+{
+  "commit": "${APP_COMMIT:-unknown}",
+  "shortCommit": "${SHORT_COMMIT}",
+  "branch": "${APP_BRANCH:-unknown}",
+  "version": "${APP_VERSION:-unknown}",
+  "dirty": ${APP_DIRTY:-false},
+  "buildTime": "${APP_BUILD_TIME:-}"
+}
+EOF
 
 echo "✓ 域名由阿里云 DNS 指向 ECS，HTTPS 证书由 Caddy 自动管理"
 

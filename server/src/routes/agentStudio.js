@@ -400,16 +400,18 @@ export function agentStudioRouter (store) {
         }
 
         res.json({
-            cases: buildEvalCases().map((item) => {
-                const run = runByEvalCase.get(item.id);
-                return {
-                    ...item,
-                    status: 'ready',
-                    lastRunId: run?._id,
-                    lastResult: run?.quality,
-                    evalHistory: (historyByCase.get(item.id) || []).slice(0, 5)
-                };
-            })
+            cases: buildEvalCases()
+                .filter((item) => !item.hidden)
+                .map((item) => {
+                    const run = runByEvalCase.get(item.id);
+                    return {
+                        ...item,
+                        status: 'ready',
+                        lastRunId: run?._id,
+                        lastResult: run?.quality,
+                        evalHistory: (historyByCase.get(item.id) || []).slice(0, 5)
+                    };
+                })
         });
     });
 

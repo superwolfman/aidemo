@@ -362,6 +362,8 @@ export function buildEvalCases () {
         {
             id: 'kering-greater-china-retail-copilot',
             title: 'KERING 大中华区门店知识 Copilot',
+            // 暂不在 Eval Cases 面板展示，case 配置与 KERING seed 文档完整保留，后续可重新打开。
+            hidden: true,
             prompt: '以 KERING Greater China 为假设业务背景，设计一个跨 House 的门店运营知识 Copilot。仅使用 KERING 官方公开资料和知识库中明确标注的模拟规范；面向 Client Advisor、Store Manager、Knowledge Owner 与 IT / Security Reviewer。检索前必须按 tenant、House 和 Knowledge Scope 过滤，回答展示 citation、来源版本和有效期；证据不足返回 Knowledge Gap，高风险及跨 House 请求进入人工确认。输出 PRD、页面结构、API Contract、研发任务、风险清单，以及引用命中、权限隔离、拒答和 HITL 的上线评测门禁。',
             taskModeId: 'product-workflow',
             scopes: KERING_RETAIL_SCOPES,
