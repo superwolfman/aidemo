@@ -1,7 +1,8 @@
 import {
     CUSTOMER_SERVICE_SCOPES,
     INVESTMENT_RESEARCH_SCOPES,
-    KERING_RETAIL_SCOPES
+    KERING_RETAIL_SCOPES,
+    SGS_FRONTEND_AI_SCOPES
 } from './domainKnowledgePacks.js';
 
 const DOMAIN_RULES = [
@@ -9,6 +10,11 @@ const DOMAIN_RULES = [
         id: 'kering-retail',
         pattern: /KERING|ReconKering|Greater China|跨\s*House|门店运营|门店知识|高端精品/iu,
         scopes: KERING_RETAIL_SCOPES
+    },
+    {
+        id: 'sgs-frontend-ai-delivery',
+        pattern: /SGS|通标标准|检验认证机构|前端研发交付评审/iu,
+        scopes: SGS_FRONTEND_AI_SCOPES
     },
     {
         id: 'investment-research',

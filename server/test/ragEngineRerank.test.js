@@ -123,9 +123,10 @@ test('Atlas 高原始分经过 boost 后仍不超过 1，并保持领域文档�
 });
 
 test('Query 规划保留原始需求，提取业务实体并联动 Task Mode scope', () => {
+    // 未显式指定 Scope 时，Task Mode 与领域识别共同决定检索范围。
     const plan = buildRetrievalPlan({
         query: '建设智能客服知识库平台，支持 FAQ 纠错和转人工',
-        scopes: ['architecture'],
+        scopes: [],
         taskModeId: 'knowledge-assistant'
     });
 
@@ -133,6 +134,16 @@ test('Query 规划保留原始需求，提取业务实体并联动 Task Mode sco
     assert.ok(plan.scopes.includes('customer-service-knowledge'));
     assert.ok(plan.scopes.includes('knowledge-correction'));
     assert.ok(plan.entities.includes('FAQ'));
+
+    // 显式 Scope 是安全边界，不能被 Task Mode 或领域识别静默扩域。
+    const explicitPlan = buildRetrievalPlan({
+        query: '建设智能客服知识库平台，支持 FAQ 纠错和转人工',
+        scopes: ['architecture'],
+        taskModeId: 'knowledge-assistant'
+    });
+    assert.deepEqual(explicitPlan.scopes, ['architecture']);
+    assert.equal(explicitPlan.scopeSource, 'explicit-command');
+
     assert.deepEqual(extractBusinessEntities('React API 客服平台'), ['React', 'API', '客服平台']);
 });
 

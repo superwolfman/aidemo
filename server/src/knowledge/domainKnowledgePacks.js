@@ -54,7 +54,7 @@ function keringRetailDemoDocument ({ slug, title, tags, scopes, content, publicS
             provenanceKind: publicSource ? 'public-official' : 'synthetic-demo',
             isSynthetic: !publicSource,
             sourceUri: publicSource
-                ? 'https://www.kering.com/en/group/discover-kering/our-strategy/'
+                ? 'https://www.kering.com/cn/group/discover-kering/our-strategy/'
                 : `demo://knowledge-packs/${KERING_RETAIL_DEMO_PACK}/${slug}`,
             publishedAt: publicSource ? '2026-04-16T00:00:00.000Z' : undefined,
             disclaimer: publicSource
@@ -63,6 +63,25 @@ function keringRetailDemoDocument ({ slug, title, tags, scopes, content, publicS
         }
     };
 }
+
+const SGS_FRONTEND_AI_DEMO_PACK = 'sgs-frontend-ai-delivery-demo';
+// public-strategy 必须包含：公开资料 doc 只有这一个 scope，缺了会被 Atlas $vectorSearch 硬过滤掉。
+export const SGS_FRONTEND_AI_SCOPES = [
+    'public-strategy',
+    'frontend-component-governance',
+    'bff-api-contract',
+    'test-quality-gate',
+    'human-approval-flow',
+    'rag-evaluation'
+];
+const SGS_FRONTEND_AI_DEMO_BASELINE = {
+    sourceName: 'aidemo SGS 定向面试知识包',
+    reviewStatus: 'approved',
+    version: '1.0.0',
+    effectiveAt: '2026-08-28T00:00:00.000Z',
+    reviewDueAt: '2026-11-28T00:00:00.000Z',
+    usageBoundary: 'interview-demo-only'
+};
 
 export const INVESTMENT_RESEARCH_SCOPES = [
     'investment-research',
@@ -84,14 +103,30 @@ export const CUSTOMER_SERVICE_SCOPES = [
     'citation-compliance'
 ];
 
-// 复用当前线上产品已有 Scope，确保新增 seed 无需修改 Atlas filter mapping。
-// House、region、role、locale、effectiveAt 仍只是文档治理概念，不代表已实现检索前多维过滤。
-export const KERING_RETAIL_DEMO_SCOPES = [
-    'architecture',
-    'standards',
-    'ai-native',
-    'frontend'
-];
+function sgsFrontendAiDemoDocument ({ slug, title, tags, scopes, content, publicSource = false }) {
+    return {
+        title,
+        tags: ['copilot', SGS_FRONTEND_AI_DEMO_PACK, 'sgs-engineering', ...tags],
+        scopes,
+        content,
+        knowledgeMetadata: {
+            ...SGS_FRONTEND_AI_DEMO_BASELINE,
+            knowledgePack: SGS_FRONTEND_AI_DEMO_PACK,
+            sourceName: publicSource ? 'SGS 官方网站/公开数字化资料' : SGS_FRONTEND_AI_DEMO_BASELINE.sourceName,
+            sourceType: publicSource ? 'official-public' : 'synthetic-demo',
+            authorityLevel: publicSource ? 'official' : 'synthetic-reviewed',
+            provenanceKind: publicSource ? 'public-official' : 'synthetic-demo',
+            isSynthetic: !publicSource,
+            sourceUri: publicSource
+                ? 'https://www.sgs.com/en/our-services/digital-services'
+                : `demo://knowledge-packs/${SGS_FRONTEND_AI_DEMO_PACK}/${slug}`,
+            publishedAt: publicSource ? '2026-06-30T00:00:00.000Z' : undefined,
+            disclaimer: publicSource
+                ? '基于 SGS 官网公开数字化服务与 AI 治理资料整理，仅用于面试演示，不代表 SGS 内部 SOP、检测方法或合规判定。'
+                : '为面试演示设计的模拟工程规范，不代表 SGS 或其合作方的真实内部流程、合规要求、组件库版本或私有包。'
+        }
+    };
+}
 
 const investmentResearchDocuments = [
     knowledgeDocument({
@@ -241,8 +276,108 @@ const keringGreaterChinaRetailDemoDocuments = [
     })
 ];
 
+const sgsGreaterChinaFrontendAiDemoDocuments = [
+    sgsFrontendAiDemoDocument({
+        slug: 'sgs-public-digital-services',
+        title: 'SGS 公开数字化服务与 AI 治理摘要',
+        tags: ['sgs-public', 'digital', 'ai-governance'],
+        scopes: ['public-strategy'],
+        publicSource: true,
+        content: `本条只摘要 SGS 官网公开数字化服务与 AI 治理信息，仅用于面试演示。
+
+SGS 集团 1878 年成立于法国鲁昂，是全球领先的测试、检验与认证（TIC）机构，拥有超过 100,000 名员工和 2,600 多个分支机构与实验室，服务覆盖农产品、矿产、石油化工、纺织服装鞋类、玩具及婴幼用品、电子电气、建筑、工业、交通、生命科学、环境和电商等多个行业。SGS 在中国的业务主体为通标标准技术服务有限公司。
+
+SGS 公开的数字化战略强调以数字化和 AI 技术提升 TIC 服务的效率、质量与可追溯性，公开的数字化服务方向包括测试数据管理、报告生成自动化、合规审计与跨实验室协同；集团同时公开关注技术演进、客户期望变化与市场环境对检测认证服务提出的新要求。
+
+该公开信息可用于解释 SGS 对 AI 应用与研发效率的总体方向，但不得推导为任何具体的内部 SOP、检测方法、合规判定、客户合同条款或私有技术栈；遇到具体业务问题，系统必须检索经过授权且处于有效期内的知识，证据不足时返回 Confidence Gap 并转人工。引用本条必须展示 SGS 官方公开来源和"公开数字化服务摘要"属性，不得包装成内部制度。`
+    }),
+    sgsFrontendAiDemoDocument({
+        slug: 'frontend-ai-delivery-boundary',
+        title: 'SGS 前端研发 AI 交付评审 Copilot 产品边界（模拟）',
+        tags: ['product-boundary', 'ai-delivery', 'frontend'],
+        scopes: ['sgs-frontend-ai-delivery', 'frontend-component-governance'],
+        content: `[synthetic-demo·系统边界] 本条为面试演示设计的模拟产品边界，不代表 SGS 真实内部流程或产品决策。
+
+产品定位与角色：SGS 前端研发 AI 交付评审 Copilot 面向前端工程师、组件 Owner、AI Coding 推广负责人、QA、业务产品方与 IT/Compliance Reviewer；输入需求、目标页面、组件库版本与约束，输出带 citation 的 PRD 摘要、组件选用清单、BFF 接口契约、测试计划与质量门禁、人工审核节点与 Confidence Gap 标记。
+
+系统允许的动作：检索证据并展示引用与 score、生成带 citation 的交付草案、提示知识版本与有效期、发起人工交接。所有输出均为辅助信息，高风险改动在人工确认前不得对外发布。
+
+系统禁止的动作：自动签发组件版本或合并生产代码；自动执行 npm publish、PR merge 或 Breaking Change；绕过 code review、QA、a11y/SEO 检查与合规审批；把 retrieval score 表述为答案置信概率。`
+    }),
+    sgsFrontendAiDemoDocument({
+        slug: 'component-governance',
+        title: '前端组件复用、Element Plus 与公司内部私有包治理（模拟）',
+        tags: ['component', 'element-plus', 'private-package'],
+        scopes: ['frontend-component-governance'],
+        content: `[synthetic-demo·组件治理] 本条为面试演示设计的模拟组件治理规范，不代表 SGS 真实私有组件库或 Design System。
+
+组件四层分层：基础层是 Element Plus 表单、表格、布局等共享 UI 资产；业务层是跨应用复用的业务组件（如委托单表单、报告预览卡片、样品条码扫描）；应用层是仅在单个应用内使用的组件；私有层是 npm 私有包，受版本与维护契约约束。
+
+Element Plus 主题定制：通过 SCSS 设计令牌覆盖实现，核心变量包括 --el-color-primary、--el-color-success、--el-border-radius-base、--el-font-size-base；配合 unplugin-vue-components 按需引入控制产物体积；禁止直接修改 node_modules，禁止在业务组件内硬编码覆盖主题变量。
+
+新增组件准入条件：能力相对稳定、至少两个应用真实复用、与具体业务低耦合、输入输出与异常边界清晰、有明确 Owner。跨业务线复用必须经过组件 Owner 评审，所有新增组件登记到组件清单并接入 Design System 索引。`
+    }),
+    sgsFrontendAiDemoDocument({
+        slug: 'bff-api-contract',
+        title: 'BFF 接口契约、CLI / MCP / 自定义 Agent 二次开发（模拟）',
+        tags: ['bff', 'cli', 'mcp', 'agent'],
+        scopes: ['bff-api-contract'],
+        content: `[synthetic-demo·BFF 契约] 本条为面试演示设计的模拟接口与 AI 工具链规范，不代表 SGS 真实 BFF 实现或私有工具链。
+
+BFF 职责与契约：BFF 层负责鉴权、限流、审计、幂等与 TraceId 注入；所有写操作必须携带 tenantId、actorId、traceId、idempotencyKey；接口协议必须包含 request、response、错误码与审计字段；Breaking Change 必须经过版本协商与灰度发布。
+
+CLI 工具链：仓库 scripts/ 目录提供 build、seed、migrate、evaluate 四类命令，统一从 config 读取环境变量，禁止散落的硬编码脚本；每个命令支持 --dry-run 预演模式。
+
+MCP 集成与自定义 Agent：接入第三方 AI 工具时遵循 MCP 协议，每个工具声明 name、description、inputSchema、outputSchema 与权限边界；自定义 Agent 在 Skill Runtime 内注册，受 inputSchema、outputSchema、allowedTools 三重约束，禁止未注册工具直接调用。`
+    }),
+    sgsFrontendAiDemoDocument({
+        slug: 'test-quality-gate',
+        title: '测试金字塔、a11y/SEO 与质量门禁（模拟）',
+        tags: ['test', 'a11y', 'seo', 'quality-gate'],
+        scopes: ['test-quality-gate'],
+        content: `[synthetic-demo·质量门禁] 本条为面试演示设计的模拟测试规范，不代表 SGS 真实 CI 门禁参数。
+
+覆盖率阈值：unit 覆盖率 ≥ 80%，关键路径 100%；integration 覆盖 BFF、Skill Runtime、Tool Executor、Agent Trace 核心链路；E2E 使用 Playwright 跑核心路径冒烟。
+
+a11y 与 SEO：a11y 按 WCAG 2.1 AA 执行，覆盖键盘可达性、对比度、焦点管理与语义标签；SEO 覆盖页面结构、meta、sitemap 与 robots 配置。
+
+性能与安全预算：FCP < 1.8s、LCP < 2.5s、INP < 200ms（P75 口径）；依赖审计与 XSS / CSRF / SQLi 扫描任一失败即阻断合并。
+
+CI 阻断规则与质量指标：lint + typecheck + unit + integration + 组件库版本审计 + a11y + 性能预算，任一失败阻断合并；AI 生成代码必须经过人工 code review 与自动化测试双重验证，不得直接进入主分支。质量指标包括组件复用采纳率、缺陷逃逸率、返工率与平均定位时间。`
+    }),
+    sgsFrontendAiDemoDocument({
+        slug: 'hitl-approval-flow',
+        title: '人工审核闭环与发布治理（模拟）',
+        tags: ['hitl', 'approval', 'release'],
+        scopes: ['human-approval-flow'],
+        content: `[synthetic-demo·人工审核] 本条为面试演示设计的模拟人工审核闭环规范，不代表 SGS 真实审批流程。
+
+人工审核触发条件：组件版本变更、Breaking Change、跨业务线依赖、合规相关改动、权限与隐私变更、AI 自动生成的关键路径代码、生产配置变更、npm publish 与 PR merge。
+
+审批记录字段：reviewerId、decision（approve / reject / request-changes）、comment、evidenceSnapshot（PRD、组件清单、接口契约、测试报告快照）、modelId、promptHash、createdAt。批准后锁定内容与引用快照；任何修改产生新版本并重新审批；拒绝与修订原因进入审计历史，但不反向覆盖原始证据。
+
+Trace 可追溯：requestId 与 traceId 串联 AI 草稿、组件清单、接口契约到人工决策节点，审批全链路在 Agent Trace 中可复盘。`
+    }),
+    sgsFrontendAiDemoDocument({
+        slug: 'frontend-rag-release-gate',
+        title: '前端 AI 交付 RAG 评测与上线门禁（模拟）',
+        tags: ['rag-evaluation', 'release-gate', 'frontend'],
+        scopes: ['rag-evaluation'],
+        content: `[synthetic-demo·评测门禁] 本条为面试演示设计的模拟评测规范，不代表 SGS 真实上线门禁。
+
+Golden Dataset：经业务与 QA 审核，覆盖常见需求问法、口语改写、组件版本差异、冲突知识、过期规范、未授权组件、私有包越权与未覆盖场景。
+
+核心指标：Recall@5、citation precision、answer faithfulness、Confidence Gap 识别率、组件选用采纳率、人工审核命中率与端到端延迟。
+
+回归触发条件：知识包、embedding 模型、chunk 策略、检索 pipeline、组件库版本或 Atlas index 任一变化都必须重跑回归；报告保存 datasetVersion、knowledgePackVersion、model、index、threshold、metrics 与 evaluatedAt。
+
+上线条件：引用真实支持 Artifact、关键指标达到门禁、Confidence Gap 路径与人工审核闭环验证通过，三者齐备才允许把 SGS 定向案例作为主演示。`
+    })
+];
+
 export const domainKnowledgeDocuments = [
     ...investmentResearchDocuments,
     ...customerServiceDocuments,
-    ...keringGreaterChinaRetailDemoDocuments
+    ...keringGreaterChinaRetailDemoDocuments,
+    ...sgsGreaterChinaFrontendAiDemoDocuments
 ];

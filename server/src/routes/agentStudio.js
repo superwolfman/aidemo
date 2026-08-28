@@ -22,6 +22,7 @@ import { ROLES } from '../security/roles.js';
 import { recordAuthorizationDenied } from '../security/authorizationAudit.js';
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
 import { resolveRetrievalQuery } from '../services/retrievalQuery.js';
+import { resolveKnowledgeScopes } from '../knowledge/knowledgeDomain.js';
 import { agentCapabilities, buildRunExecutionContext, getAgentCapability, resolveTaskModeIntent } from '../services/skillRegistry.js';
 import { buildDeliveryArtifacts, buildFallbackAnswer } from '../services/toolExecutor.js';
 import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
@@ -821,6 +822,9 @@ export function agentStudioRouter (store) {
             if (Array.isArray(commandOptions.scopes) && commandOptions.scopes.length) {
                 intent = { ...intent, scopes: commandOptions.scopes };
             }
+            // 领域识别把 KERING / SGS 等定向知识域 scope 并入检索范围；
+            // 只影响知识选择，不绕过 tenant 级 allowedKnowledgeScopes 权限校验。
+            intent = { ...intent, scopes: resolveKnowledgeScopes(retrievalQuery || prompt, intent.scopes) };
             intent = resolveTaskModeIntent(intent, commandOptions);
             const requestedCapability = agentCapabilities.find((capability) => (
                 capability.id === commandOptions.agentId || capability.id === commandOptions.skillId

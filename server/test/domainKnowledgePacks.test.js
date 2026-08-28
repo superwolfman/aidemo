@@ -4,7 +4,7 @@ import {
     CUSTOMER_SERVICE_SCOPES,
     domainKnowledgeDocuments,
     INVESTMENT_RESEARCH_SCOPES,
-    KERING_RETAIL_DEMO_SCOPES
+    KERING_RETAIL_SCOPES
 } from '../src/knowledge/domainKnowledgePacks.js';
 import { ragGoldenDataset } from '../src/knowledge/ragGoldenDataset.js';
 import { resolveKnowledgeDomain, resolveKnowledgeScopes } from '../src/knowledge/knowledgeDomain.js';
@@ -64,7 +64,7 @@ test('KERING 定向知识包恰好包含一条官方公开资料和五条明确�
 
     for (const item of synthetic) {
         assert.equal(item.knowledgeMetadata.sourceType, 'synthetic-demo');
-        assert.equal(item.knowledgeMetadata.authorityLevel, 'reviewed');
+        assert.equal(item.knowledgeMetadata.authorityLevel, 'synthetic-reviewed');
         assert.equal(item.knowledgeMetadata.isSynthetic, true);
         assert.ok(item.knowledgeMetadata.sourceUri.startsWith('demo://knowledge-packs/'));
         assert.match(item.knowledgeMetadata.disclaimer, /不代表 KERING/);
@@ -76,7 +76,9 @@ test('KERING 定向知识包恰好包含一条官方公开资料和五条明确�
         assert.match(item.knowledgeMetadata.version, /^\d+\.\d+\.\d+$/);
         assert.ok(item.knowledgeMetadata.effectiveAt);
         assert.ok(item.knowledgeMetadata.reviewDueAt);
-        assert.ok(item.scopes.some((scope) => KERING_RETAIL_DEMO_SCOPES.includes(scope)));
+        // 定向域 doc 依赖 knowledgeDomain 域识别 + 调用侧 resolveKnowledgeScopes 并入 run 检索，
+        // 不要求 doc 自身携带 product-workflow 的通用 scope。
+        assert.ok(item.scopes.some((scope) => KERING_RETAIL_SCOPES.includes(scope)));
         assert.ok(item.content.length > 200);
     }
 });
@@ -92,6 +94,40 @@ test('KERING 定向 seed payload 保留来源等级、来源 URI 和内容哈希
         assert.equal(payload.sourcePath, item.knowledgeMetadata.sourceUri);
         assert.equal(payload.sourceUpdatedAt, item.knowledgeMetadata.effectiveAt);
         assert.equal(payload.contentHash, knowledgeContentHash(item));
+    }
+});
+
+test('SGS 定向知识包含一条官方公开资料和六条带前缀的模拟规范', () => {
+    const documents = domainKnowledgeDocuments.filter((item) => (
+        item.knowledgeMetadata.knowledgePack === 'sgs-frontend-ai-delivery-demo'
+    ));
+    assert.equal(documents.length, 7);
+
+    const official = documents.filter((item) => item.knowledgeMetadata.provenanceKind === 'public-official');
+    const synthetic = documents.filter((item) => item.knowledgeMetadata.provenanceKind === 'synthetic-demo');
+    assert.equal(official.length, 1);
+    assert.equal(synthetic.length, 6);
+    assert.equal(official[0].knowledgeMetadata.sourceType, 'official-public');
+    assert.equal(official[0].knowledgeMetadata.isSynthetic, false);
+    assert.ok(official[0].scopes.includes('public-strategy'));
+
+    for (const item of synthetic) {
+        assert.equal(item.knowledgeMetadata.sourceType, 'synthetic-demo');
+        assert.equal(item.knowledgeMetadata.authorityLevel, 'synthetic-reviewed');
+        assert.equal(item.knowledgeMetadata.isSynthetic, true);
+        assert.match(item.knowledgeMetadata.disclaimer, /不代表 SGS/);
+        // 每条模拟规范正文以 [synthetic-demo·主题] 开头，让 rerank 可分辨来源属性
+        assert.match(item.content, /^\[synthetic-demo·[^\]]+\]/);
+        // 正文按 \n\n 分段，保证 chunk 粒度可拆
+        assert.ok(item.content.includes('\n\n'));
+        assert.ok(item.content.length > 200);
+    }
+
+    for (const item of documents) {
+        assert.equal(item.knowledgeMetadata.reviewStatus, 'approved');
+        assert.equal(item.knowledgeMetadata.usageBoundary, 'interview-demo-only');
+        assert.ok(item.knowledgeMetadata.effectiveAt);
+        assert.ok(item.knowledgeMetadata.reviewDueAt);
     }
 });
 

@@ -1,4 +1,4 @@
-import { KERING_RETAIL_SCOPES } from '../knowledge/domainKnowledgePacks.js';
+import { KERING_RETAIL_SCOPES, SGS_FRONTEND_AI_SCOPES } from '../knowledge/domainKnowledgePacks.js';
 
 // export function scoreRunQuality ({ sources = [], artifacts = [], trace = [], provider = {}, intent = {}, prompt = '' }) {
 //     const prdArtifact = artifacts.find((artifact) => artifact.type === 'prd');
@@ -368,6 +368,17 @@ export function buildEvalCases () {
             audience: 'Client Advisor、Store Manager、Regional Retail Operations、Knowledge Owner、IT / Security Reviewer',
             deliveryTarget: '5 个工作日完成可演示 MVP；跑通认证→受限检索→引用回答→Knowledge Gap→HITL→AgentOps 审计闭环',
             constraints: '5 日目标仅是可演示 vertical slice，不表述为 production-ready；仅使用 KERING 官方公开资料与明确标注的 synthetic-demo 模拟规范；公开战略不得作为内部 SOP；tenant/House/scope 必须检索前校验；所有分数均为 retrieval/rerank score，不得表述为答案置信概率。',
+            expected: ['引用来源命中', 'PRD 完整度', 'API Contract 合理性', '风险包含幻觉治理', 'Trace 可复盘', '需求匹配度', '引用一致性']
+        },
+        {
+            id: 'sgs-frontend-ai-delivery-copilot',
+            title: 'SGS 前端研发交付评审',
+            prompt: '以 SGS 中国数字化研发为假设业务背景，设计一个面向前端工程师、组件 Owner、AI Coding 推广负责人、QA、业务产品方与 IT/Compliance Reviewer 的"AI 辅助前端研发交付评审"Copilot。系统仅使用 SGS 公开数字化服务与 AI 治理资料（public-strategy scope）+ 明确标注的 synthetic-demo 模拟工程规范；输入需求、目标页面、组件库版本、检测方法与约束，输出带 citation 的 PRD 摘要、组件选用清单、Element Plus / 内部私有包复用建议、BFF 接口契约、测试计划与质量门禁、人工审核节点与 Confidence Gap 标记。组件版本变更、Breaking Change、合规相关改动、npm publish、PR merge 必须进入人工确认；tenant/组件库版本/scope 必须检索前校验；所有分数均为 retrieval/rerank score，不得表述为答案置信概率。',
+            taskModeId: 'product-workflow',
+            scopes: SGS_FRONTEND_AI_SCOPES,
+            audience: '前端工程师、组件 Owner、AI Coding 推广负责人、QA、业务产品方、IT/Compliance Reviewer',
+            deliveryTarget: '5 个工作日完成可演示 MVP：跑通需求输入→受限检索→组件选用建议→接口契约→测试计划→质量门禁→人工审核→Trace 审计闭环',
+            constraints: '5 日目标仅是可演示 vertical slice，不表述为 production-ready；公开资料不得推导为内部 SOP / 检测方法 / 合规判定；申请字段、内部流程、合规要求均标注为 synthetic-demo 模拟规范；tenant/组件库版本/scope 必须检索前校验；所有分数均为 retrieval/rerank score，不得表述为答案置信概率；不得模拟 SGS 真实客户、真实报告或真实合规结论。',
             expected: ['引用来源命中', 'PRD 完整度', 'API Contract 合理性', '风险包含幻觉治理', 'Trace 可复盘', '需求匹配度', '引用一致性']
         }
     ];

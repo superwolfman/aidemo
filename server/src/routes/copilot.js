@@ -6,6 +6,7 @@ import { config } from '../config.js';
 
 import { getRagStatus, retrieveKnowledge } from '../services/ragEngine.js';
 import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
+import { resolveKnowledgeScopes } from '../knowledge/knowledgeDomain.js';
 // ↓ 新增：从 service 引入，移除 route 内联定义
 import {
     agentCapabilities, getAgentCapability,
@@ -1196,15 +1197,18 @@ export function copilotRouter (store) {
         await emitStep(step('runtime', '检查运行时 Provider', 'success', {
             output: { llm: providerStatus, rag: getRagStatus() }
         }));
-        emitRunStatus('retrieving', '检索 RAG 上下文', { scopes: skill.knowledgeScopes });
-        await emitStep(step('context', '加载上下文', 'running', { output: { knowledgeScopes: skill.knowledgeScopes } }));
+        // 领域识别把 KERING / SGS 等定向知识域 scope 并入 skill 检索范围；
+        // 只影响知识选择，不绕过 tenant 级 allowedKnowledgeScopes 权限校验。
+        const knowledgeScopes = resolveKnowledgeScopes(prompt, skill.knowledgeScopes);
+        emitRunStatus('retrieving', '检索 RAG 上下文', { scopes: knowledgeScopes });
+        await emitStep(step('context', '加载上下文', 'running', { output: { knowledgeScopes } }));
         const knowledgeStartedAt = Date.now();
-        const knowledgeResult = await searchKnowledgeWithStatus(store, req.auth, prompt, skill.knowledgeScopes, mode);
+        const knowledgeResult = await searchKnowledgeWithStatus(store, req.auth, prompt, knowledgeScopes, mode);
         const knowledgeLatencyMs = Date.now() - knowledgeStartedAt;
         const sources = knowledgeResult.sources;
         await emitStep(step('knowledge', '调用知识库 searchKnowledge', 'success', {
             tool: 'searchKnowledge',
-            input: { query: prompt, scopes: skill.knowledgeScopes },
+            input: { query: prompt, scopes: knowledgeScopes },
             output: {
                 rag: knowledgeResult.status,
                 latencyMs: knowledgeLatencyMs,
