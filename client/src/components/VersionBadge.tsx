@@ -33,31 +33,41 @@ export function VersionBadge() {
     }, []);
 
     const validCommit = (value?: string) => Boolean(value && /^[0-9a-f]{40}$/i.test(value));
-    // FE 优先取构建期烘进去的 commit；缺失或无效时直接回退到服务端版本，避免出现 FE/BE 不一致。
+    const production = import.meta.env.PROD;
     const bakedClientCommit = typeof __APP_COMMIT__ !== 'undefined' ? __APP_COMMIT__ : '';
-    const clientCommit = validCommit(bakedClientCommit)
-        ? bakedClientCommit
-        : (server?.commit && validCommit(server.commit) ? server.commit : '');
-    const clientShortCommit = clientCommit ? clientCommit.slice(0, 7) : '—';
-    const clientDirty = typeof __APP_DIRTY__ !== 'undefined' && validCommit(bakedClientCommit)
-        ? __APP_DIRTY__
-        : Boolean(server?.dirty);
-    const serverShortCommit = server && validCommit(server.commit) ? server.shortCommit : (error ? '—' : '—');
-    const production = typeof __APP_ENV__ !== 'undefined' && __APP_ENV__ === 'production';
+    const clientCommit = validCommit(bakedClientCommit) ? bakedClientCommit : '';
+    const serverCommit = validCommit(server?.commit) ? server.commit : '';
+    const consistent = clientCommit && serverCommit && clientCommit === serverCommit;
+    const clientShort = clientCommit ? clientCommit.slice(0, 7) : '—';
+    const serverShort = serverCommit ? serverCommit.slice(0, 7) : (error ? '—' : '—');
+    const dirty = server?.dirty ? '*' : '';
 
-    // 生产版本有效时保持界面干净；只有缺版本/接口报错时才显示。
-    if (production && clientCommit && !error) return null;
+    // 三态：
+    // 1) 生产 + 版本一致 → 不展示；
+    // 2) 生产 + 版本不一致 / 缺失 → 报警；
+    // 3) 测试 / 本地 → 始终展示用于联调。
+    if (production && !error && (loading || consistent)) return null;
+
+    const statusClass = error
+        ? 'version-error'
+        : production
+            ? (consistent ? 'version-ok' : 'version-mismatch')
+            : 'version-dev';
+    const hint = production
+        ? (error ? '版本接口不可用' : !consistent ? '线上版本不一致' : '')
+        : '';
 
     return (
-        <div className="version-badge" title={`client=${clientCommit || 'unknown'} server=${server?.commit || error}`}>
+        <div className={`version-badge ${statusClass}`} title={`client=${clientCommit || 'unknown'} server=${server?.commit || error}`}>
             <div className="version-row">
                 <span className="version-label">FE</span>
-                <span className="version-value">{clientShortCommit}{clientDirty ? '*' : ''}</span>
+                <span className="version-value">{clientShort}{clientCommit ? dirty : ''}</span>
             </div>
             <div className="version-row">
                 <span className="version-label">BE</span>
-                <span className="version-value">{serverShortCommit}{server?.dirty ? '*' : ''}</span>
+                <span className="version-value">{serverShort}{serverCommit ? dirty : ''}</span>
             </div>
+            {hint ? <div className="version-hint">{hint}</div> : null}
         </div>
     );
 }
