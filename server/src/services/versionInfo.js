@@ -34,26 +34,44 @@ function readHeadFromGitFolder () {
     }
 }
 
-function readReleaseCommit () {
+function readReleaseInfo () {
     try {
         const release = JSON.parse(readFileSync(join(repoRoot, 'release-info.json'), 'utf8'));
-        return /^[0-9a-f]{40}$/i.test(release.commit) ? release.commit : null;
+        return release || null;
     } catch {
         return null;
     }
+}
+
+function readReleaseCommit () {
+    const release = readReleaseInfo();
+    const commit = release?.commit;
+    return /^[0-9a-f]{40}$/i.test(commit || '') ? commit : null;
+}
+
+// ARG 默认值 "unknown" 是占位符，不是有效信息——视为未设置，继续走兜底链。
+function cleanEnvValue (value) {
+    return value && value !== 'unknown' ? value : null;
 }
 
 export function getVersionInfo () {
     if (cachedVersion) return cachedVersion;
 
     const envCommit = /^[0-9a-f]{40}$/i.test(process.env.APP_COMMIT || '') ? process.env.APP_COMMIT : null;
+    const release = readReleaseInfo();
     const commit = envCommit || runGit(['rev-parse', 'HEAD']) || readHeadFromGitFolder() || readReleaseCommit() || 'unknown';
     const shortCommit = commit === 'unknown' ? 'unknown' : commit.slice(0, 7);
-    const branch = process.env.APP_BRANCH || runGit(['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown';
+    const branch = cleanEnvValue(process.env.APP_BRANCH)
+        || runGit(['rev-parse', '--abbrev-ref', 'HEAD'])
+        || cleanEnvValue(release?.branch)
+        || 'unknown';
     const dirty = process.env.APP_DIRTY !== undefined
         ? process.env.APP_DIRTY === 'true'
         : (runGit(['status', '--porcelain']) || '').length > 0;
-    const describe = process.env.APP_VERSION || runGit(['describe', '--always', '--tags', '--dirty']) || shortCommit;
+    const describe = cleanEnvValue(process.env.APP_VERSION)
+        || runGit(['describe', '--always', '--tags', '--dirty'])
+        || cleanEnvValue(release?.version)
+        || shortCommit;
 
     cachedVersion = {
         commit,
