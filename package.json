@@ -18,6 +18,7 @@
     "lint": "npm --prefix client run lint",
     "typecheck": "npm --prefix client run typecheck",
     "test:server": "npm --prefix server run test",
+    "eval:baseline": "npm --prefix server run eval:baseline",
     "test:python": "cd mini-rag-py && uv run --extra dev pytest tests -q",
     "verify": "node scripts/verify-ai-workflow.mjs",
     "verify:all": "npm run lint && npm run typecheck && npm run build && npm run test:server && npm run test:python && npm run verify && npm run security:scan",

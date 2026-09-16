@@ -74,6 +74,26 @@ MONGODB_DB_NAME=aidemo_dev
 
 这条链路让 RAG 不再是“本地 hash demo”：检索结果来自 Atlas `$vectorSearch`，向量来自真实 embedding provider，回答过程能够展示真实 score、citation 和 sourcePath，并进入 Artifact、Trace、Eval 与人工确认闭环。
 
+### Agent Eval 最小闭环
+
+RAG Golden Dataset 继续负责检索阈值校准；Agent Eval Baseline 则负责验证运行时闭环，二者不混用。
+
+```text
+14 个高价值场景
+  -> 导入归一化 Run observation
+  -> 校验检索 / Citation / Scope / Fallback / HITL 合约
+  -> 输出版本化 Baseline 与 Top Failure Modes
+```
+
+固定覆盖：4 条正常命中、3 条 Knowledge Gap、2 条跨租户、2 条错误 Citation、2 条 Provider Timeout/Fallback、1 条 HITL。输出指标为 `Recall@K`、`Citation Precision`、`No-answer Accuracy`、`Scope Leakage`、`P95 Latency`、`Fallback Rate` 和失败分类。
+
+```bash
+npm run eval:baseline
+npm run eval:baseline -- --input=path/to/observations.json
+```
+
+默认命令读取可复现的 contract fixture，用于验证评测口径和回归行为，不冒充线上 LLM 效果。接入真实 Run 后，仅需导出同一 observation schema 并使用 `--input` 计算实际 Baseline；比较结果时必须同时保留 Dataset、Prompt 与 Skill 版本。
+
 AI Architecture Copilot is an AI product delivery and AgentOps workbench for frontend architecture, AI application engineering, and internal R&D workflow automation.
 
 It is not a generic chatbot. The project focuses on a concrete product scenario:

@@ -1,0 +1,16 @@
+[
+  { "caseId": "normal-01", "retrievalHit": true, "citationChecked": true, "citationValid": true, "finalAction": "answered", "latencyMs": 184 },
+  { "caseId": "normal-02", "retrievalHit": true, "citationChecked": true, "citationValid": true, "finalAction": "answered", "latencyMs": 201 },
+  { "caseId": "normal-03", "retrievalHit": true, "citationChecked": true, "citationValid": true, "finalAction": "answered", "latencyMs": 196 },
+  { "caseId": "normal-04", "retrievalHit": true, "citationChecked": true, "citationValid": true, "finalAction": "answered", "latencyMs": 220 },
+  { "caseId": "gap-01", "noAnswer": true, "finalAction": "knowledge_gap", "latencyMs": 126 },
+  { "caseId": "gap-02", "noAnswer": true, "finalAction": "knowledge_gap", "latencyMs": 131 },
+  { "caseId": "gap-03", "noAnswer": false, "finalAction": "answered", "latencyMs": 205 },
+  { "caseId": "tenant-01", "scopeLeakage": false, "finalAction": "forbidden", "latencyMs": 58 },
+  { "caseId": "tenant-02", "scopeLeakage": false, "finalAction": "forbidden", "latencyMs": 63 },
+  { "caseId": "citation-01", "citationChecked": true, "citationValid": false, "invalidCitationBlocked": true, "finalAction": "blocked", "latencyMs": 176 },
+  { "caseId": "citation-02", "citationChecked": true, "citationValid": false, "invalidCitationBlocked": false, "finalAction": "answered", "latencyMs": 185 },
+  { "caseId": "fallback-01", "retrievalHit": true, "citationChecked": true, "citationValid": true, "fallbackUsed": true, "finalAction": "answered", "latencyMs": 502 },
+  { "caseId": "fallback-02", "retrievalHit": true, "citationChecked": true, "citationValid": true, "fallbackUsed": true, "finalAction": "answered", "latencyMs": 479 },
+  { "caseId": "hitl-01", "retrievalHit": true, "citationChecked": true, "citationValid": true, "reviewRequired": false, "finalAction": "answered", "latencyMs": 244 }
+]

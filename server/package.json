@@ -15,6 +15,7 @@
     "knowledge:seed": "node scripts/seed-tenant-knowledge.mjs",
     "rag:evaluate": "node scripts/evaluate-rag-golden.mjs",
     "rag:evaluate:apply": "node scripts/evaluate-rag-golden.mjs --apply",
+    "eval:baseline": "node scripts/evaluate-agent-baseline.mjs",
     "test": "NODE_ENV=test node --test test/*.test.js"
   },
   "dependencies": {
