@@ -9,6 +9,15 @@
 - `/healthz` 存活检查与 `/readyz` 依赖就绪检查；
 - Provider 依赖注入，自动化测试不访问真实模型。
 
+## 在 aidemo 中的定位
+
+`mini-rag-py` 是 **Python Reference Service**，用于证明认证租户、检索前过滤、Knowledge Gap 和稳定错误契约可以由独立 Python 服务实现。它不是 Node.js Agent Runtime 的第二套实现，也不是一个“可选 Provider”。
+
+- Node.js BFF 仍是 aidemo 的主运行时与模型路由配置源；
+- Python 服务通过 HTTP 契约接入，用于独立验证和按需迁移服务边界；
+- `AnswerProvider` 只是 Python 服务内部可替换的 LLM 依赖，用于测试 Stub 或 OpenAI-compatible 模型接入，不能与整个 Python 服务的架构角色混为一谈；
+- 运行时模型配置只由 `app/llm_client.py` 的 `RuntimeModelResolver` 解析，不再维护第二套模型配置实现。
+
 ## 安装与测试
 
 ```bash

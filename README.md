@@ -524,11 +524,21 @@ Runtime status should show:
 
 ## Local Development
 
+This repository uses Node.js 20. With nvm installed, run `nvm use` before installing dependencies.
+
 Install:
 
 ```bash
 npm install
 ```
+
+Verify the complete local contract:
+
+```bash
+npm run verify:all
+```
+
+`verify:all` runs client lint/typecheck/build, server tests, Python Reference Service tests, workflow checks, and the credential scan. The Python step requires `uv`; install it or run the non-Python checks separately when it is unavailable.
 
 Start local MongoDB:
 
@@ -715,7 +725,7 @@ Current status:
 
 # Agent Runtime 状态机服务化
 
-> 状态：基本完成（commit `38e0096`）。再修 `server/src/routes/agentStudio.js:784` 一处重复直写即可视为 100% 收口。
+> 状态：已收口。后端持久态、SSE `run_status` 与前端展示统一使用 `review_required` 表示“生成完成、等待人工确认”；只有审批完成后才进入 `confirmed`。
 
 ## 已实现
 
@@ -727,8 +737,8 @@ Agent Run 的状态迁移已从路由层下沉为统一的服务化事件日志�
 | 迁移合法性校验 | `agentRuntimeService.js:52-55` | `canTransition(from, to)`，非法迁移抛 409 |
 | 事件对象构造 | `agentRuntimeService.js:57-68` | `createStateTransition()` 生成带 `id/from/to/label/actorId/reason/at/meta` 的事件 |
 | 统一落库入口 | `agentRuntimeService.js:84-97` | `applyTransition(store, run, to, {...})` = 校验 + 事件 + 原子 `store.updateRecord` 三合一 |
-| SSE 主链路接入 | `server/src/routes/agentStudio.js:613-625` | `emitStatus()` 内部调用 `applyTransition`，`:633/:643/:654/:674/:695/:761` 全部走该入口 |
-| 运行控制接入 | `server/src/routes/agentStudio.js:445-449` | `/runs/:id/control` 的 pause/resume/rollback/cancel 走 `applyTransition` |
+| SSE 主链路接入 | `server/src/routes/agentStudio.js` | `emitStatus()` 内部调用 `applyTransition()`；最终事件继续发送真实持久态 `review_required`，不再伪装成 `completed` |
+| 运行控制接入 | `server/src/routes/agentStudio.js` | `/runs/:id/control` 的 pause/resume/rollback/cancel 走统一状态迁移服务 |
 
 ## 验证证据
 
@@ -738,28 +748,22 @@ Agent Run 的状态迁移已从路由层下沉为统一的服务化事件日志�
 none → created → intent_detected → skill_selected → retrieving → tool_running → streaming → review_required
 ```
 
-下图为实际 Run 的状态事件链，证明上述迁移在 `38e0096` 已真实落库、可被前端读取展示：
+下图为实际 Run 的状态事件链，证明上述迁移已真实落库、可被前端读取展示：
 
 ![Agent Run 状态迁移链](./agent-run-state-transitions.png)
 
 （截图来自 AgentOps 控制台的 Run Detail，可见 7 个连续状态事件，均带时间戳与触发原因。）
 
-## 收尾待办（唯一缺口）
+## 状态契约
 
-`server/src/routes/agentStudio.js:784-801` 非流式分支在生成 Run 时直接写了：
+- `review_required`：模型生成和 Eval 已完成，等待人工确认；
+- `confirmed`：人工确认完成，可视为本次交付闭环完成；
+- `rejected` / `revision_requested`：人工拒绝或要求修改；
+- `completed` 不属于 Agent Runtime 状态机，不再用于覆盖 `review_required`。
 
-```js
-const run = await persistRun({
-    status: 'review_required',
-    prompt,
-    intent,
-    // ...
-});
-```
+## Python Reference Service 边界
 
-但 `:761` 已经通过 `emitStatus('review_required', ...)` 完成迁移并落库，此处 `status` 直写属于**重复绕过统一入口**。修复方式：删除 `:784` 这次 `persistRun` 里的 `status: 'review_required'`，仅保留 `quality / evalResult / artifacts` 等业务字段即可。
-
-> 人工审批路由（`:276-296`）使用 `transitionRunPatch` + 手动 `store.updateRecord`，功能正确，仅风格不一，可后续统一为 `applyTransition`，不阻塞收口。
+`mini-rag-py` 是独立的 **Python Reference Service**，用于验证认证租户、检索前过滤、Knowledge Gap 与错误契约。Node.js BFF 仍是主 Agent Runtime 和模型配置源；Python 内部的 `AnswerProvider` 只是可注入的 LLM 依赖，不代表 Python 服务本身是“可选 Provider”。详细运行方式见 `mini-rag-py/README.md`。
 
 ## 这样做的好处
 

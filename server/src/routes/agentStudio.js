@@ -1180,8 +1180,8 @@ export function agentStudioRouter (store) {
             sendEvent(res, 'run_status', {
                 runDbId: run._id,
                 runId,
-                status: 'completed',
-                label: 'Agent 运行完成，等待交付确认',
+                status: 'review_required',
+                label: 'Agent 生成完成，等待人工确认',
                 at: now(),
                 intent,
                 selectedSkill,

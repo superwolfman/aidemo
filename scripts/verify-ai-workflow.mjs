@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process';
 
 const checks = [
-  ['Client lint', 'npm', ['run', 'lint', '--workspace', 'client']],
-  ['Client typecheck', 'npm', ['run', 'typecheck', '--workspace', 'client']],
-  ['Client build', 'npm', ['run', 'build', '--workspace', 'client']],
+  ['Client lint', 'npm', ['--prefix', 'client', 'run', 'lint']],
+  ['Client typecheck', 'npm', ['--prefix', 'client', 'run', 'typecheck']],
+  ['Client build', 'npm', ['--prefix', 'client', 'run', 'build']],
   ['Server route syntax', 'node', ['--check', 'server/src/routes/copilot.js']],
+  ['Agent runtime route syntax', 'node', ['--check', 'server/src/routes/agentStudio.js']],
   ['LLM provider syntax', 'node', ['--check', 'server/src/services/llmProvider.js']],
   ['RAG engine syntax', 'node', ['--check', 'server/src/services/ragEngine.js']]
 ];

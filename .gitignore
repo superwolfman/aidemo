@@ -27,5 +27,6 @@ deploy/.admin-*.env
 
 # 本地缓存与诊断脚本
 .cache/
+server/.cache/embeddings.json
 scripts/diag-*.mjs
 scripts/test-*.mjs
