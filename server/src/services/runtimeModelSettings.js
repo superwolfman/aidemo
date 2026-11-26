@@ -5,50 +5,11 @@ const MAX_FALLBACK_MODELS = 5;
 const MAX_HISTORY = 50;
 
 const dashscopeModels = [
-    ['qwen3.7-plus', 'Qwen 3.7 Plus', 'general', true],
-    ['qwen-plus-2025-07-28', 'Qwen Plus 2025-07-28', 'general', true],
-    ['qwen-max', 'Qwen Max', 'general', true],
-    ['qwen3.6-plus', 'Qwen 3.6 Plus', 'general', true],
-    ['qwen3.7-flash-2026-07-15', 'Qwen 3.7 Flash 2026-07-15', 'general', true],
-    ['qwen-long', 'Qwen Long', 'long-context', true],
-    ['qwen3.5-35b-a3b', 'Qwen 3.5 35B A3B', 'general', true],
-    ['qwen3-max-preview', 'Qwen 3 Max Preview', 'preview', true],
-    ['qwen3.5-flash-2026-02-23', 'Qwen 3.5 Flash 2026-02-23', 'general', true],
-    ['qwen-plus-0112', 'Qwen Plus 0112', 'general', true],
-    ['qwen-plus', 'Qwen Plus', 'general', true],
-    ['qwen-turbo', 'Qwen Turbo', 'general', true],
-    ['qwen3-next-80b-a3b-thinking', 'Qwen 3 Next 80B A3B Thinking', 'reasoning', true],
-    ['qwen3.5-27b', 'Qwen 3.5 27B', 'general', true],
-    ['qwen3-14b', 'Qwen 3 14B', 'general', true],
-    ['qwen-plus-2025-12-01', 'Qwen Plus 2025-12-01', 'general', true],
-    ['qwen3-max-2025-09-23', 'Qwen 3 Max 2025-09-23', 'general', true],
-    ['qwen-plus-character', 'Qwen Plus Character', 'character', false],
-    ['qwen-math-turbo', 'Qwen Math Turbo', 'math', false],
-    ['qwen-math-plus', 'Qwen Math Plus', 'math', false],
-    ['qwen-math-plus-0919', 'Qwen Math Plus 0919', 'math', false],
-    ['qwen-math-plus-latest', 'Qwen Math Plus Latest', 'math', false],
-    ['qwen3-vl-235b-a22b-thinking', 'Qwen 3 VL 235B A22B Thinking', 'vision', false],
-    ['qwen3-vl-32b-thinking', 'Qwen 3 VL 32B Thinking', 'vision', false],
-    ['qwen-vl-plus', 'Qwen VL Plus', 'vision', false],
-    ['qwen3-vl-8b-thinking', 'Qwen 3 VL 8B Thinking', 'vision', false],
-    ['qwen3-vl-flash', 'Qwen 3 VL Flash', 'vision', false],
-    ['qwen3-vl-flash-2025-10-15', 'Qwen 3 VL Flash 2025-10-15', 'vision', false],
-    ['qwen-vl-ocr-1028', 'Qwen VL OCR 1028', 'ocr', false],
-    ['qwen-mt-flash', 'Qwen MT Flash', 'translation', false],
-    ['qwen3-coder-480b-a35b-instruct', 'Qwen 3 Coder 480B A35B', 'code', false],
-    ['qwen3-coder-plus', 'Qwen 3 Coder Plus', 'code', false],
-    ['qwen3-coder-flash', 'Qwen 3 Coder Flash', 'code', false],
-    ['deepseek-r1-distill-qwen-7b', 'DeepSeek R1 Distill Qwen 7B', 'reasoning', false],
-    ['qwen3.7-flash', 'Qwen 3.7 Flash', 'general', true],
-    ['qwen3.6-35b-a3b', 'Qwen 3.6 35B A3B', 'general', true],
-    ['qwen3.7-max', 'Qwen 3.7 Max', 'general', true],
-    ['qwen3.7-max-2026-06-08', 'Qwen 3.7 Max 2026-06-08', 'general', true],
-    ['qwen3.7-max-preview', 'Qwen 3.7 Max Preview', 'preview', true],
-    ['qwen3.7-max-2026-05-20', 'Qwen 3.7 Max 2026-05-20', 'general', true],
-    ['qwen3.7-plus-2026-05-26', 'Qwen 3.7 Plus 2026-05-26', 'general', true],
-    ['qwen3.7-max-2026-05-17', 'Qwen 3.7 Max 2026-05-17', 'general', true],
-    ['qwen3.8-2.4t-a95b', 'Qwen 3.8 2.4T A95B', 'general', true],
-    ['qwen3.8-max', 'Qwen 3.8 Max', 'general', true]
+    ['qwen4-max', 'Qwen 4 Max', 'general', true],
+    ['kimi-k3.1-pro', 'Kimi K3.1 Pro', 'general', true],
+    ['qwen3.8-max-0902', 'Qwen 3.8 Max 0902', 'general', true],
+    ['deepseek-v4.1-flash-1017', 'DeepSeek V4.1 Flash 1017', 'general', true],
+    ['deepseek-v4.1-flash', 'DeepSeek V4.1 Flash', 'general', true]
 ];
 
 export const runtimeModelCatalog = Object.freeze([
@@ -64,7 +25,6 @@ export const runtimeModelCatalog = Object.freeze([
     })),
     { id: 'deepseek-chat', label: 'DeepSeek Chat', provider: 'deepseek', model: 'deepseek-chat', purpose: 'general', deliveryEligible: true, freeTierEligible: false, credentialSource: 'server-secret' },
     { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner', provider: 'deepseek', model: 'deepseek-reasoner', purpose: 'reasoning', deliveryEligible: true, freeTierEligible: false, credentialSource: 'server-secret' },
-    { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', provider: 'dashscope', model: 'deepseek-v4-pro', purpose: 'reasoning', deliveryEligible: true, freeTierEligible: false, credentialSource: 'server-secret' },
     { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', provider: 'openai', model: 'gpt-4.1-mini', purpose: 'general', deliveryEligible: true, freeTierEligible: false, credentialSource: 'server-secret' },
     { id: 'gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai', model: 'gpt-4o-mini', purpose: 'general', deliveryEligible: true, freeTierEligible: false, credentialSource: 'server-secret' }
 ]);
@@ -83,7 +43,7 @@ function actorView (actor = {}) {
 
 function environmentDefault () {
     const provider = config.llmProvider || 'mock';
-    const model = config.llmModel || (provider === 'dashscope' ? 'qwen-plus' : '');
+    const model = config.llmModel || (provider === 'dashscope' ? 'deepseek-v4.1-flash-1017' : '');
     return {
         primary: { provider, model },
         fallbackChain: config.llmFallbackModels

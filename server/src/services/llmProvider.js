@@ -14,7 +14,7 @@ import { recordLlmTiming } from './llmTimingMetrics.js';
 const providerDefaults = {
     openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini' },
     deepseek: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
-    dashscope: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+    dashscope: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'deepseek-v4.1-flash-1017' },
     'openai-compatible': { baseUrl: '', model: '' }
 };
 

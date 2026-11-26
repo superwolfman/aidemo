@@ -38,7 +38,7 @@ function baseDefaults () {
 async function setup (timeoutOverrides = {}) {
     const original = { provider: config.llmProvider, model: config.llmModel, fallback: config.llmFallbackModels, key: config.llmApiKeys.dashscope };
     config.llmProvider = 'dashscope';
-    config.llmModel = 'qwen3.5-flash-2026-02-23';
+    config.llmModel = 'qwen3.8-max-0902';
     config.llmFallbackModels = [];
     config.llmApiKeys.dashscope = 'test-secret';
     const store = new MemoryStore();
@@ -47,8 +47,8 @@ async function setup (timeoutOverrides = {}) {
     await initializeRuntimeModelSettings(store);
     await initializeRuntimeTimeoutSettings(store);
     await publishRuntimeModelSettings({
-        primary: { provider: 'dashscope', model: 'qwen3.5-flash-2026-02-23' },
-        fallbackChain: [{ provider: 'dashscope', model: 'qwen3.7-plus' }],
+        primary: { provider: 'dashscope', model: 'qwen3.8-max-0902' },
+        fallbackChain: [{ provider: 'dashscope', model: 'deepseek-v4.1-flash-1017' }],
         expectedVersion: 1
     }, { actorId: 'admin' });
     await publishRuntimeTimeoutSettings({
@@ -128,7 +128,7 @@ test('non-stream request timeout triggers fallback to next model', async () => {
         const result = await generateLlmAnswer({ systemPrompt: 's', prompt: 'p', modelConfig: { timeoutMs: 30 } });
         assert.equal(result.text, 'fallback ok');
         assert.equal(result.provider.fallbackUsed, true);
-        assert.deepEqual(requestedModels, ['qwen3.5-flash-2026-02-23', 'qwen3.7-plus']);
+        assert.deepEqual(requestedModels, ['qwen3.8-max-0902', 'deepseek-v4.1-flash-1017']);
     } finally { global.fetch = originalFetch; restore(); }
 });
 
@@ -146,7 +146,7 @@ test('first-token timeout before any delta triggers stream fallback', async () =
         const result = await streamLlmAnswer({ systemPrompt: 's', prompt: 'p', onDelta: (d) => { streamed += d; }, modelConfig: { firstTokenTimeoutMs: 30, streamTimeoutMs: 5000 } });
         assert.equal(streamed, 'OK');
         assert.equal(result.provider.fallbackUsed, true);
-        assert.deepEqual(requestedModels, ['qwen3.5-flash-2026-02-23', 'qwen3.7-plus']);
+        assert.deepEqual(requestedModels, ['qwen3.8-max-0902', 'deepseek-v4.1-flash-1017']);
     } finally { global.fetch = originalFetch; restore(); }
 });
 
@@ -170,9 +170,9 @@ test('mid-stream idle timeout after partial output does NOT fallback', async () 
 });
 
 test('per-model override resolves idle/total independently', async () => {
-    const restore = await setup({ perModel: { 'qwen3.7-plus': { idleTimeoutMs: 30000, streamTotalTimeoutMs: 240000 } } });
+    const restore = await setup({ perModel: { 'deepseek-v4.1-flash-1017': { idleTimeoutMs: 30000, streamTotalTimeoutMs: 240000 } } });
     try {
-        const t = resolveTimeoutsForModel('qwen3.7-plus');
+        const t = resolveTimeoutsForModel('deepseek-v4.1-flash-1017');
         assert.equal(t.idleTimeoutMs, 30000);
         assert.equal(t.streamTotalTimeoutMs, 240000);
         assert.equal(t.firstTokenTimeoutMs, 30000);
@@ -192,7 +192,7 @@ test('same-model retry on timeout with backoff before fallback', async () => {
     try {
         const result = await generateLlmAnswer({ systemPrompt: 's', prompt: 'p', modelConfig: { timeoutMs: 30 } });
         assert.equal(result.text, 'fallback after retry');
-        assert.deepEqual(requestedModels, ['qwen3.5-flash-2026-02-23', 'qwen3.5-flash-2026-02-23', 'qwen3.7-plus']);
+        assert.deepEqual(requestedModels, ['qwen3.8-max-0902', 'qwen3.8-max-0902', 'deepseek-v4.1-flash-1017']);
     } finally { global.fetch = originalFetch; restore(); }
 });
 

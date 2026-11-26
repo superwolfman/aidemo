@@ -35,6 +35,30 @@ function unavailableReason(item: RuntimeModelCatalogItem) {
     return '';
 }
 
+function isSelectable(item: RuntimeModelCatalogItem | undefined): item is RuntimeModelCatalogItem {
+    return Boolean(item?.deliveryEligible && item.credentialConfigured);
+}
+
+function sanitizeDraft(result: RuntimeModelSettingsResponse) {
+    const catalogByKey = new Map(result.catalog.map((item) => [modelKey(item), item]));
+    const selectableKeys = result.catalog.filter(isSelectable).map(modelKey);
+    const persistedPrimaryKey = modelKey(result.setting.primary);
+    const primaryKey = isSelectable(catalogByKey.get(persistedPrimaryKey))
+        ? persistedPrimaryKey
+        : (selectableKeys[0] || persistedPrimaryKey);
+    const persistedFallbackKeys = result.setting.fallbackChain.map(modelKey);
+    const fallbackKeys = [...new Set(persistedFallbackKeys)].filter((key) => (
+        key !== primaryKey && isSelectable(catalogByKey.get(key))
+    )).slice(0, 5);
+
+    return {
+        primaryKey,
+        fallbackKeys,
+        primaryReplaced: primaryKey !== persistedPrimaryKey,
+        removedFallbackCount: persistedFallbackKeys.length - fallbackKeys.length
+    };
+}
+
 function formatDate(value?: string) {
     if (!value) return '-';
     return new Date(value).toLocaleString('zh-CN', { hour12: false });
@@ -50,9 +74,17 @@ export function ModelSettingsPanel() {
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
     const hydrate = useCallback((result: RuntimeModelSettingsResponse) => {
+        const draft = sanitizeDraft(result);
         setData(result);
-        setPrimaryKey(modelKey(result.setting.primary));
-        setFallbackKeys(result.setting.fallbackChain.map(modelKey));
+        setPrimaryKey(draft.primaryKey);
+        setFallbackKeys(draft.fallbackKeys);
+        if (draft.primaryReplaced || draft.removedFallbackCount > 0) {
+            const details = [
+                draft.primaryReplaced ? '主模型已替换为当前目录中的可用模型' : '',
+                draft.removedFallbackCount > 0 ? `已移除 ${draft.removedFallbackCount} 个失效备用模型` : ''
+            ].filter(Boolean).join('，');
+            setMessage({ type: 'success', text: `${details}；请发布新版本使清理结果即时生效。` });
+        }
     }, []);
 
     const load = useCallback(async () => {
@@ -103,12 +135,20 @@ export function ModelSettingsPanel() {
 
     async function publish() {
         if (!data) return;
+        const primaryItem = byKey.get(primaryKey);
+        if (!isSelectable(primaryItem)) {
+            setMessage({ type: 'error', text: '当前主模型已不在可用目录中，请重新选择。' });
+            return;
+        }
+        const validFallbackKeys = fallbackKeys.filter((key) => (
+            key !== primaryKey && isSelectable(byKey.get(key))
+        ));
         setBusy('publish');
         setMessage(null);
         try {
             const result = await publishRuntimeModelSettings({
                 primary: refFor(primaryKey),
-                fallbackChain: fallbackKeys.map(refFor),
+                fallbackChain: validFallbackKeys.map(refFor),
                 expectedVersion: data.setting.version,
                 changeNote
             });

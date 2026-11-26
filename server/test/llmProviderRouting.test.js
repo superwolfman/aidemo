@@ -32,15 +32,15 @@ async function setupRouting () {
         key: config.llmApiKeys.dashscope
     };
     config.llmProvider = 'dashscope';
-    config.llmModel = 'qwen3.5-flash-2026-02-23';
+    config.llmModel = 'qwen3.8-max-0902';
     config.llmFallbackModels = [];
     config.llmApiKeys.dashscope = 'test-secret';
     const store = new MemoryStore();
     __resetRuntimeModelSettingsForTests();
     await initializeRuntimeModelSettings(store);
     await publishRuntimeModelSettings({
-        primary: { provider: 'dashscope', model: 'qwen3.5-flash-2026-02-23' },
-        fallbackChain: [{ provider: 'dashscope', model: 'qwen3.7-plus' }],
+        primary: { provider: 'dashscope', model: 'qwen3.8-max-0902' },
+        fallbackChain: [{ provider: 'dashscope', model: 'deepseek-v4.1-flash-1017' }],
         expectedVersion: 1
     }, { actorId: 'admin' });
     return () => {
@@ -70,7 +70,7 @@ test('non-streaming calls switch to the next model only for explicit quota exhau
         const result = await generateLlmAnswer({ systemPrompt: 'system', prompt: 'prompt' });
         assert.equal(result.text, 'fallback success');
         assert.equal(result.provider.fallbackUsed, true);
-        assert.deepEqual(requestedModels, ['qwen3.5-flash-2026-02-23', 'qwen3.7-plus']);
+        assert.deepEqual(requestedModels, ['qwen3.8-max-0902', 'deepseek-v4.1-flash-1017']);
     } finally { global.fetch = originalFetch; restore(); }
 });
 
@@ -106,6 +106,6 @@ test('streaming calls switch before the first token when quota is exhausted', as
         const result = await streamLlmAnswer({ systemPrompt: 'system', prompt: 'prompt', onDelta: (delta) => { streamed += delta; } });
         assert.equal(streamed, 'OK');
         assert.equal(result.provider.fallbackUsed, true);
-        assert.deepEqual(requestedModels, ['qwen3.5-flash-2026-02-23', 'qwen3.7-plus']);
+        assert.deepEqual(requestedModels, ['qwen3.8-max-0902', 'deepseek-v4.1-flash-1017']);
     } finally { global.fetch = originalFetch; restore(); }
 });

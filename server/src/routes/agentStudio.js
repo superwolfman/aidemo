@@ -26,6 +26,7 @@ import { resolveKnowledgeScopes } from '../knowledge/knowledgeDomain.js';
 import { agentCapabilities, buildRunExecutionContext, getAgentCapability, resolveTaskModeIntent } from '../services/skillRegistry.js';
 import { buildDeliveryArtifacts, buildFallbackAnswer } from '../services/toolExecutor.js';
 import { closeSse, initSse, sendEvent, sleep } from '../utils/sse.js';
+import { createRunPersistenceError, retryTransientMongoOperation } from '../services/runPersistence.js';
 
 function upsertTraceStage (trace = [], stageId, patch = {}) {
     let updated = false;
@@ -882,16 +883,20 @@ export function agentStudioRouter (store) {
                 controlHistory: []
             });
             const persistRun = async (patch = {}) => {
-                runRecord = await store.updateRecord('agent_runs', runRecord._id, {
-                    intent,
-                    detectedIntent,
-                    selectedSkill,
-                    executionContext,
-                    plan,
-                    trace,
-                    logs,
-                    ...patch
-                });
+                try {
+                    runRecord = await retryTransientMongoOperation(() => store.updateRecord('agent_runs', runRecord._id, {
+                        intent,
+                        detectedIntent,
+                        selectedSkill,
+                        executionContext,
+                        plan,
+                        trace,
+                        logs,
+                        ...patch
+                    }));
+                } catch (error) {
+                    throw createRunPersistenceError(error);
+                }
                 return runRecord;
             };
             const emitStatus = async (status, label, extra = {}) => {
@@ -1205,12 +1210,17 @@ export function agentStudioRouter (store) {
                     streaming: ['stream-result', 'llm', 'LLM 生成'],
                     review_required: ['human-review', 'human', '人工审批']
                 };
-                const [planStepId, traceStepId, traceStepName] = stageByStatus[runRecord.status] || [
-                    'retrieve-context',
-                    'runtime-error',
-                    'Agent Run 执行'
-                ];
-                plan = updatePlan(plan, planStepId, 'failed', { error: { code, message } });
+                const persistenceFailure = error?.stage === 'persistence' || code === 'RUN_PERSISTENCE_FAILED';
+                const [planStepId, traceStepId, traceStepName] = persistenceFailure
+                    ? [null, 'persistence', '运行状态持久化']
+                    : (stageByStatus[runRecord.status] || [
+                        'retrieve-context',
+                        'runtime-error',
+                        'Agent Run 执行'
+                    ]);
+                if (planStepId) {
+                    plan = updatePlan(plan, planStepId, 'failed', { error: { code, message } });
+                }
                 trace = upsertTraceStage(trace, traceStepId, {
                     name: traceStepName,
                     status: 'failed',
